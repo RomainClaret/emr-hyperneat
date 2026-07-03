@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+"""Extended-generation test on the DIRECT-ENCODED control (NOT the headline barrier).
+
+WARNING / SCOPE: this script extends the *direct-encoded MLP* control (the same pipeline
+as benchmark_monotonic_ablation.py), which the paper reports has a much WEAKER barrier
+(~76.7% at 5-task) than the indirect EMR-HyperNEAT encoding. The paper's headline 0/54
+barrier is the INDIRECT encoding. Reviewer 4's "do they stay stuck at 10x generations?"
+question concerns the indirect barrier, which is tested by
+benchmark_extended_generations_indirect.py -- NOT this script.
+
+Empirically, the direct-encoded 2-task XOR+AND converges ~96.7% at 1000 generations
+(median ~10 gens): direct encoding was never "stuck", so this run does not address the
+reviewer's question. Retained only as a direct-encoding reference point.
+
+Standalone copy of the verified (mu+lambda)-ES direct-MLP pipeline from
+benchmark_monotonic_ablation.py, parameterized by task set, writing to a SEPARATE results
+directory so it does not collide with the existing 100-generation results.
+
+Usage:
+    python papers/emr-neuromodulation/scripts/runners/benchmark_extended_generations.py \
+        --tasks xor and --generations 1000 --seeds 30          # 2-task (run first)
+    python papers/emr-neuromodulation/scripts/runners/benchmark_extended_generations.py \
+        --tasks xor and or nand nor --generations 1000 --seeds 30   # 5-task
+    python papers/emr-neuromodulation/scripts/runners/benchmark_extended_generations.py --summary
+"""
+
+import argparse
+import json
+import time
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+import numpy as np
+
+import jax
+import jax.numpy as jnp
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+RESULTS_DIR = Path(__file__).parent / 'results' / 'extended_generations'
+
+N_IN = 2
+N_HIDDEN = 10
+N_OUT = 1
+MODULATION_STRENGTH = 5.0
+
+INPUTS = jnp.array([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]])
+
+ALL_TASKS = ['xor', 'and', 'or', 'nand', 'nor']
+
+TRUTH_TABLES = {
+    'xor':  jnp.array([0.0, 1.0, 1.0, 0.0]),
+    'and':  jnp.array([0.0, 0.0, 0.0, 1.0]),
+    'or':   jnp.array([0.0, 1.0, 1.0, 1.0]),
+    'nand': jnp.array([1.0, 1.0, 1.0, 0.0]),
+    'nor':  jnp.array([1.0, 0.0, 0.0, 0.0]),
+}
+
+# Schema B NT vectors (ACh=0.0 for NAND/NOR = output inversion)
+NT_VECTORS = {
+    'xor':  jnp.array([0.95, 0.05, 0.95, 1.0]),
+    'and':  jnp.array([0.10, 0.90, 0.10, 1.0]),
+    'or':   jnp.array([0.50, 0.50, 0.50, 1.0]),
+    'nand': jnp.array([0.10, 0.90, 0.10, 0.0]),
+    'nor':  jnp.array([0.50, 0.50, 0.50, 0.0]),
+}
+
+ACTIVATION_MAP = {
+    'tanh': jnp.tanh,
+    'sigmoid': jax.nn.sigmoid,
+    'relu': jax.nn.relu,
+}
+
+
+# ============================================================================
+# Parameter initialization
+# ============================================================================
+
+def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
+    params = {}
+    scale = 0.5
+    keys = jax.random.split(key, 6)
+    params['W1'] = jax.random.normal(keys[0], (N_IN, N_HIDDEN)) * scale
+    params['b1'] = jax.random.normal(keys[1], (N_HIDDEN,)) * 0.1
+    params['R1'] = jax.random.normal(keys[2], (N_HIDDEN, 3)) * 0.3
+    params['g1'] = jnp.ones((N_HIDDEN,)) + jax.random.normal(keys[3], (N_HIDDEN,)) * 0.1
+    params['W_out'] = jax.random.normal(keys[4], (N_HIDDEN, N_OUT)) * scale
+    params['b_out'] = jax.random.normal(keys[5], (N_OUT,)) * 0.1
+    return params
+
+
+def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
+    keys = jax.random.split(key, pop_size)
+    return jax.vmap(init_params)(keys)
+
+
+# ============================================================================
+# Forward pass (identical to benchmark_monotonic_ablation.py)
+# ============================================================================
+
+def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
+                      activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
+    W1 = params['W1']
+    b1 = params['b1']
+    R = params['R1']
+    g = params['g1']
+
+    mod = R @ nt[:3]
+    g_eff = g + s * mod
+    g_eff = jnp.clip(g_eff, 0.1, 5.0)
+    gates = jax.nn.sigmoid(mod)
+    mod_bias = mod * s
+
+    pre_h = inputs @ W1 + b1
+    h = activation_fn(g_eff * pre_h + mod_bias) * gates
+
+    output = jax.nn.sigmoid(h @ params['W_out'] + params['b_out'])
+    invert = nt[3]
+    output = invert * output + (1.0 - invert) * (1.0 - output)
+    return output
+
+
+_FORWARD_CACHE = {}
+
+def get_forward_fn(activation_name: str):
+    if activation_name not in _FORWARD_CACHE:
+        act_fn = ACTIVATION_MAP[activation_name]
+        @jax.jit
+        def _forward(params, inputs, nt):
+            return _forward_neuromod(params, inputs, nt, act_fn)
+        _FORWARD_CACHE[activation_name] = _forward
+    return _FORWARD_CACHE[activation_name]
+
+
+# ============================================================================
+# Evaluation
+# ============================================================================
+
+def eval_single_multitask(params: Dict, activation_name: str,
+                          tasks: List[str]) -> Tuple[float, Dict[str, float]]:
+    per_task = {}
+    forward_fn = get_forward_fn(activation_name)
+
+    for task in tasks:
+        nt = NT_VECTORS[task]
+        targets = TRUTH_TABLES[task]
+
+        output = forward_fn(params, INPUTS, nt)
+        output = output.squeeze(-1)
+
+        preds = (output > 0.5).astype(jnp.float32)
+        acc = float(jnp.mean(jnp.equal(preds, targets)))
+        per_task[task] = acc
+
+    product_fitness = 1.0
+    for v in per_task.values():
+        product_fitness *= v
+    return product_fitness, per_task
+
+
+# ============================================================================
+# (mu+lambda)-ES Optimizer (identical to verified pipeline)
+# ============================================================================
+
+def run_es(
+    condition: str,
+    tasks: List[str],
+    seed: int,
+    pop_size: int = 750,
+    generations: int = 1000,
+    mu_frac: float = 0.1,
+    sigma: float = 0.3,
+    success_threshold: float = 0.95,
+    verbose: bool = True,
+) -> Dict:
+    start_time = time.time()
+    activation_name = condition.replace('uniform_', '')
+    mu = max(1, int(pop_size * mu_frac))
+
+    key = jax.random.PRNGKey(seed)
+    key, init_key = jax.random.split(key)
+    pop = init_population(init_key, pop_size)
+
+    converged = False
+    convergence_gen = None
+    best_per_task = None
+    best_fitness = 0.0
+    fitness_history = []
+
+    for gen in range(generations):
+        fitnesses = []
+        all_per_task = []
+
+        for i in range(pop_size):
+            ind_params = jax.tree.map(lambda x: x[i], pop)
+            prod_fit, pt = eval_single_multitask(ind_params, activation_name, tasks)
+            fitnesses.append(prod_fit)
+            all_per_task.append(pt)
+
+        fitnesses = jnp.array(fitnesses)
+
+        best_idx = int(jnp.argmax(fitnesses))
+        best_fitness = float(fitnesses[best_idx])
+        best_per_task = all_per_task[best_idx]
+        min_acc = min(best_per_task.values())
+
+        # Record sparsely to keep JSON small over 1000 generations
+        if gen % 10 == 0 or gen == generations - 1:
+            fitness_history.append({
+                'generation': gen,
+                'best_product_fitness': best_fitness,
+                'min_task_accuracy': min_acc,
+                **best_per_task,
+            })
+
+        if all(v >= success_threshold for v in best_per_task.values()):
+            converged = True
+            convergence_gen = gen
+            if verbose:
+                print(f"  *** CONVERGED at gen {gen} (min_acc={min_acc:.4f}) ***")
+            break
+
+        if verbose and gen % 50 == 0:
+            task_str = ' '.join(f"{t}:{best_per_task[t]:.2f}" for t in tasks)
+            print(f"  Gen {gen:4d}: prod={best_fitness:.4f} min={min_acc:.4f} | {task_str}")
+
+        # Selection
+        top_indices = jnp.argsort(fitnesses)[-mu:]
+        parents = jax.tree.map(lambda x: x[top_indices], pop)
+
+        # Reproduction
+        offspring_per_parent = pop_size // mu
+        key, mut_key = jax.random.split(key)
+
+        def replicate_and_mutate(parent_params, rng):
+            keys = jax.random.split(rng, offspring_per_parent)
+            def make_offspring(k):
+                return jax.tree.map(
+                    lambda p: p + sigma * jax.random.normal(k, p.shape),
+                    parent_params
+                )
+            return jax.vmap(make_offspring)(keys)
+
+        parent_keys = jax.random.split(mut_key, mu)
+        all_offspring = jax.vmap(replicate_and_mutate)(parents, parent_keys)
+
+        pop = jax.tree.map(
+            lambda x: x.reshape(-1, *x.shape[2:])[:pop_size],
+            all_offspring
+        )
+
+    runtime = time.time() - start_time
+
+    sample_params = init_params(jax.random.PRNGKey(0))
+    n_params = sum(p.size for p in jax.tree.leaves(sample_params))
+
+    return {
+        'experiment': 'extended_generations_10x',
+        'condition': condition,
+        'activation': activation_name,
+        'task_set': tasks,
+        'n_tasks': len(tasks),
+        'n_inputs': N_IN,
+        'n_patterns': 4,
+        'seed': seed,
+        'pop_size': pop_size,
+        'mu': mu,
+        'sigma': sigma,
+        'generations_max': generations,
+        'n_hidden': N_HIDDEN,
+        'n_params': n_params,
+        'modulation_strength': MODULATION_STRENGTH,
+        'nt_schema': 'B',
+        'converged': converged,
+        'convergence_gen': convergence_gen,
+        'best_product_fitness': best_fitness,
+        'min_task_accuracy': min(best_per_task.values()) if best_per_task else 0.0,
+        'per_task_fitness': best_per_task,
+        'runtime_seconds': runtime,
+        'fitness_history': fitness_history,
+    }
+
+
+# ============================================================================
+# Utilities
+# ============================================================================
+
+def result_exists(filepath: Path) -> bool:
+    return filepath.exists() and filepath.stat().st_size > 0
+
+
+def save_result(result: Dict, filepath: Path):
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    def convert(obj):
+        if hasattr(obj, 'tolist'):
+            return obj.tolist()
+        return obj
+    with open(filepath, 'w') as f:
+        json.dump(result, f, indent=2, default=convert)
+
+
+def summarize(results_dir: Path, condition: str, tag: str):
+    files = sorted(results_dir.glob(f'{condition}_{tag}_seed*.json'))
+    if not files:
+        print(f"  {condition} {tag}: no results")
+        return
+
+    converged = 0
+    gens = []
+    xor_accs = []
+
+    for f in files:
+        with open(f) as fh:
+            data = json.load(fh)
+        if data.get('converged', False):
+            converged += 1
+            if data.get('convergence_gen') is not None:
+                gens.append(data['convergence_gen'])
+        pt = data.get('per_task_fitness', {})
+        if 'xor' in pt:
+            xor_accs.append(pt['xor'])
+
+    total = len(files)
+    rate = 100 * converged / total if total > 0 else 0
+    print(f"  {condition} {tag:<8}: {converged}/{total} ({rate:.1f}%)", end='')
+    if gens:
+        print(f" | median gen {np.median(gens):.0f} [{min(gens)}-{max(gens)}]", end='')
+    if xor_accs:
+        print(f" | XOR mean={np.mean(xor_accs):.3f}", end='')
+    print()
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Extended-generation (10x) confirmation of the uniform-tanh barrier')
+    parser.add_argument('--seeds', type=int, default=30,
+                        help='Number of seeds (default: 30)')
+    parser.add_argument('--tasks', nargs='+', default=ALL_TASKS, choices=ALL_TASKS,
+                        help='Task set (default: all 5; use "xor and" for 2-task)')
+    parser.add_argument('--condition', default='uniform_tanh',
+                        choices=[f'uniform_{a}' for a in ACTIVATION_MAP],
+                        help='Uniform activation condition (default: uniform_tanh)')
+    parser.add_argument('--pop-size', type=int, default=750,
+                        help='ES population size (default: 750)')
+    parser.add_argument('--generations', type=int, default=1000,
+                        help='Max generations (default: 1000 = 10x baseline)')
+    parser.add_argument('--sigma', type=float, default=0.3,
+                        help='ES mutation sigma (default: 0.3)')
+    parser.add_argument('--summary', action='store_true',
+                        help='Print summary of existing results')
+    args = parser.parse_args()
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.summary:
+        print("\n=== Extended-generation (10x) confirmation — Summary ===\n")
+        for cond in [f'uniform_{a}' for a in ACTIVATION_MAP]:
+            for tag in ['2task', '5task']:
+                summarize(RESULTS_DIR, cond, tag)
+        return
+
+    tasks = args.tasks
+    tag = f'{len(tasks)}task'
+    condition = args.condition
+
+    print(f"\n{'='*64}")
+    print(f"Condition: {condition} | tasks={tasks} ({tag}) | {args.seeds} seeds")
+    print(f"  Gens: {args.generations} (10x baseline), Pop: {args.pop_size}")
+    print(f"  Expectation: 0/{args.seeds} converged, XOR plateau at 0.75")
+    print(f"{'='*64}")
+
+    total_start = time.time()
+
+    for seed in range(args.seeds):
+        if seed == 71:
+            print("  Skip seed 71 (known OOM)")
+            continue
+
+        fname = RESULTS_DIR / f'{condition}_{tag}_seed{seed}.json'
+        if result_exists(fname):
+            print(f"  Skip existing: {fname.name}")
+            continue
+
+        print(f"\n  Seed {seed}:")
+        try:
+            result = run_es(
+                condition=condition,
+                tasks=tasks,
+                seed=seed,
+                pop_size=args.pop_size,
+                generations=args.generations,
+                sigma=args.sigma,
+                verbose=True,
+            )
+            save_result(result, fname)
+            status = (f"gen {result['convergence_gen']}"
+                      if result['converged'] else "NOT CONVERGED")
+            xor_acc = result['per_task_fitness'].get('xor', float('nan'))
+            print(f"  -> {status} (min_acc={result['min_task_accuracy']:.4f}, "
+                  f"XOR={xor_acc:.4f}, {result['runtime_seconds']:.1f}s)")
+        except Exception as e:
+            print(f"  ERROR on seed {seed}: {e}")
+            continue
+
+    total_runtime = time.time() - total_start
+    print(f"\n{'='*64}")
+    print(f"Total runtime: {total_runtime:.0f}s ({total_runtime/3600:.2f} hours)")
+    print(f"{'='*64}")
+    summarize(RESULTS_DIR, condition, tag)
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *"  # nightly full suite at 04:00 UTC
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Install + fast gate (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    steps:
+      - name: Checkout (with the TensorNEAT submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install emr-hyperneat + TensorNEAT
+        run: |
+          python -m pip install --upgrade pip
+          # Pin the JAX stack to the versions the published results were produced
+          # on (the golden-value tests are recorded against jax 0.6.1 on CPU).
+          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
+          pip install -e .
+          pip install -e third_party/tensorneat
+          pip install pytest
+
+      - name: Smoke test (base EMR + dynamic functions on XOR)
+        env:
+          JAX_PLATFORMS: cpu
+          TF_CPP_MIN_LOG_LEVEL: "3"
+        run: |
+          python emr_hyperneat/tests/test_smoke.py
+
+      # Fast guard subset only. The whole `-m "not slow"` suite is too heavy for a
+      # per-push gate on the free runner (it hits the 6h cap), so the evolution-heavy
+      # feature tests run in the nightly `full-suite` job below. golden_cpu is excluded
+      # here: its exact 1e-9 goldens are recorded on macOS/arm64 and drift on
+      # linux/x86_64; the version-proof determinism test in test_golden.py still runs.
+      - name: Fast guard tests (isolation, config, frozen-HMR, data-release, determinism)
+        env:
+          JAX_PLATFORMS: cpu
+          TF_CPP_MIN_LOG_LEVEL: "3"
+        run: |
+          pytest emr_hyperneat/tests/test_isolation.py \
+                 emr_hyperneat/tests/test_configuration_parsing.py \
+                 emr_hyperneat/tests/test_hmr_frozen.py \
+                 emr_hyperneat/tests/test_data_release.py \
+                 emr_hyperneat/tests/test_golden.py \
+                 -m "not slow and not golden_cpu" -q --tb=short
+
+  full-suite:
+    name: Full test suite (nightly / manual)
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout (with the TensorNEAT submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install emr-hyperneat + TensorNEAT
+        run: |
+          python -m pip install --upgrade pip
+          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
+          pip install -e .
+          pip install -e third_party/tensorneat
+          pip install pytest pytest-xdist
+
+      # The full "not slow" suite is ~8h single-threaded on the runner, so it is
+      # parallelized across all cores with pytest-xdist to finish under the timeout.
+      # Each worker runs single-threaded XLA (xla_cpu_multi_thread_eigen=false) so N
+      # workers map to N cores without thread oversubscription (which can SIGABRT).
+      # golden_cpu is excluded (linux fp drift vs the macOS-recorded 1e-9 goldens).
+      - name: Full suite (not slow, golden excluded, parallelized)
+        env:
+          JAX_PLATFORMS: cpu
+          TF_CPP_MIN_LOG_LEVEL: "3"
+          XLA_FLAGS: "--xla_cpu_multi_thread_eigen=false"
+        run: |
+          pytest emr_hyperneat/tests -m "not slow and not golden_cpu" -n auto -q --tb=short

@@ -1,0 +1,75 @@
+name: Paper validation
+
+# Re-runs each paper's simplest experiment (real runner code, fixed seed) and checks the
+# published finding still holds in the standalone repo. The fast findings gate every push
+# and PR; the slow bio smoke runs only on manual dispatch so it never blocks CI.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  paper-validation:
+    name: Paper findings (fast, CPU)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with the TensorNEAT submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install emr-hyperneat + TensorNEAT
+        run: |
+          python -m pip install --upgrade pip
+          # Pin the JAX stack to the versions the published results were produced on
+          # (the golden values are recorded against jax 0.6.1 on CPU).
+          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
+          pip install -e .
+          pip install -e third_party/tensorneat
+          pip install pytest
+
+      - name: Validate fast paper findings (dyn-func divide, neuromod barrier, base EMR)
+        env:
+          JAX_PLATFORMS: cpu
+          TF_CPP_MIN_LOG_LEVEL: "3"
+        run: |
+          pytest emr_hyperneat/tests/test_paper_validation.py \
+            -m "paper and not slow" -q --tb=short
+
+  paper-validation-slow:
+    name: Paper findings (slow bio; manual)
+    # Only on manual dispatch -- the bio palette-evolution smoke is too slow to gate pushes.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with the TensorNEAT submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install emr-hyperneat + TensorNEAT
+        run: |
+          python -m pip install --upgrade pip
+          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
+          pip install -e .
+          pip install -e third_party/tensorneat
+          pip install pytest
+
+      - name: Validate slow paper finding (bio circadian discovers an oscillatory function)
+        env:
+          JAX_PLATFORMS: cpu
+          TF_CPP_MIN_LOG_LEVEL: "3"
+        run: |
+          pytest emr_hyperneat/tests/test_paper_validation.py \
+            -m "paper and slow" -q --tb=short
