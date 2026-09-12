@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual envs
+.venv/
+venv/
+env/.venv/
+
+# OS
+.DS_Store
+
+# JAX compilation cache
+.jax_cache/
+.emr_cache/
+
+# Experiment result data: this repo is code-only; results ship as an external
+# data release fetched via scripts/fetch_results.py into papers/*/results/.
+papers/*/results/
+papers/*/data/
+results/
+
+# LaTeX/paper build artifacts (the papers themselves are not committed)
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.synctex.gz
+
+# Regenerated figure outputs (code + data regenerate these)
+papers/*/figures/*.pdf
+papers/*/figures/*.png
+texput.log
+
+# macOS AppleDouble metadata
+._*

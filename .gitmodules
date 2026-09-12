@@ -1,0 +1,3 @@
+[submodule "third_party/tensorneat"]
+	path = third_party/tensorneat
+	url = https://github.com/RomainClaret/tensorneat.git

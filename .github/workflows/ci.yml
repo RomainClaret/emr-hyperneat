@@ -1,0 +1,149 @@
+name: CI
+
+# Two tiers, both CPU-only (GitHub runners have no GPU; the multi_gpu-marked tests are
+# deselected here and run locally, see docs/testing.md):
+#   smoke      every push / PR: install, the XOR smoke script, and the fast gate files.
+#   full-suite nightly and on dispatch: the whole non-slow suite, split into balanced shards.
+# Both restore a JAX persistent compilation cache from the previous run (actions/cache), so the
+# JIT compiles that dominate this suite are paid once per source change, not once per run.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  JAX_PLATFORMS: cpu
+  TF_CPP_MIN_LOG_LEVEL: "3"
+  # Persistent JIT cache (restored below). Entries are keyed by HLO, so a second fresh
+  # EMRHyperNEAT instance with the same configuration hits the cache within the same run too.
+  JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax_cache
+  # Shard assignment for the nightly: every tests/test_*.py file exactly once (a step checks it).
+  # Balanced on measured per-file durations (2026-09-06, 4 workers, warm cache): ~1240 s each.
+  SHARDS: |
+    1 test_multi_task.py test_hh_cache.py test_smoke.py test_compaction.py test_parity.py
+    2 test_neuromodulation.py test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py
+    3 test_dynamic_functions.py test_recurrence_engages.py test_depth_offload.py test_dynamic_aggregation.py test_hmr_frozen.py test_golden.py test_data_release.py
+    4 test_experimental_features.py test_substrate_building.py test_multi_gpu_strategies.py test_paper_validation.py test_forward_pass_modes.py test_depth_lookahead.py test_discovery_chunking.py test_isolation.py
+
+jobs:
+  smoke:
+    name: Smoke + fast gate
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # A superseded push cancels its own gate only; the nightly matrix is never cancelled by it.
+    concurrency:
+      group: smoke-${{ github.ref }}
+      cancel-in-progress: true
+    # Measured on 2 cores: 31 min without a compilation cache (the old timeouts), 7.7 min with an
+    # empty one (within-run reuse), less once restored; install and smoke add a few minutes.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout (with the TensorNEAT submodule)
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install emr-hyperneat + TensorNEAT (pinned JAX stack)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
+          pip install -e .
+          pip install -e third_party/tensorneat
+          pip install pytest
+
+      - name: Record the runner's CPU model (XLA compiles for the host CPU)
+        id: cpu
+        run: echo "model=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | tr -c 'A-Za-z0-9\n' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the JAX compilation cache
+        uses: actions/cache@v6
+        with:
+          path: .jax_cache
+          key: jaxcache-${{ runner.os }}-${{ steps.cpu.outputs.model }}-jax0.6.1-smoke-${{ hashFiles('emr_hyperneat/**/*.py', 'third_party/tensorneat/**/*.py') }}
+          restore-keys: |
+            jaxcache-${{ runner.os }}-${{ steps.cpu.outputs.model }}-jax0.6.1-smoke-
+
+      - name: Smoke test (XOR, base EMR)
+        run: python emr_hyperneat/tests/test_smoke.py
+
+      - name: Fast gate
+        run: |
+          pytest emr_hyperneat/tests/test_isolation.py emr_hyperneat/tests/test_configuration_parsing.py \
+            emr_hyperneat/tests/test_execution_config.py emr_hyperneat/tests/test_compaction.py \
+            emr_hyperneat/tests/test_recurrence_engages.py emr_hyperneat/tests/test_hmr_frozen.py \
+            emr_hyperneat/tests/test_data_release.py emr_hyperneat/tests/test_golden.py \
+            -m "not slow and not multi_gpu" -q --tb=short
+
+  full-suite:
+    name: Full suite (shard ${{ matrix.shard }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout (with the TensorNEAT submodule)
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install emr-hyperneat + TensorNEAT (pinned JAX stack)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
+          pip install -e .
+          pip install -e third_party/tensorneat
+          pip install pytest pytest-xdist
+
+      - name: Raise vm.max_map_count (XLA's CPU backend accumulates mappings across a long run)
+        run: |
+          sudo sysctl -w vm.max_map_count=262144 || true
+          echo "vm.max_map_count=$(sysctl -n vm.max_map_count)"
+
+      - name: Resolve this shard's files; every test file must be assigned exactly once
+        id: files
+        run: |
+          all=$(ls emr_hyperneat/tests/test_*.py | xargs -n1 basename | sort)
+          assigned=$(echo "$SHARDS" | tr ' ' '\n' | grep '\.py$' | sort)
+          diff <(echo "$all") <(echo "$assigned")
+          mine=$(echo "$SHARDS" | awk -v s="${{ matrix.shard }}" '$1 == s { $1 = ""; print }' \
+                 | tr ' ' '\n' | grep '\.py$' | sed 's|^|emr_hyperneat/tests/|' | tr '\n' ' ')
+          echo "list=$mine" >> "$GITHUB_OUTPUT"
+          echo "shard ${{ matrix.shard }}: $mine"
+
+      - name: Record the runner's CPU model (XLA compiles for the host CPU)
+        id: cpu
+        run: echo "model=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | tr -c 'A-Za-z0-9\n' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the JAX compilation cache
+        uses: actions/cache@v6
+        with:
+          path: .jax_cache
+          key: jaxcache-${{ runner.os }}-${{ steps.cpu.outputs.model }}-jax0.6.1-full-${{ matrix.shard }}-${{ hashFiles('emr_hyperneat/**/*.py', 'third_party/tensorneat/**/*.py') }}
+          restore-keys: |
+            jaxcache-${{ runner.os }}-${{ steps.cpu.outputs.model }}-jax0.6.1-full-${{ matrix.shard }}-
+
+      - name: Run the shard (one XLA thread per worker; two workers on the 2-vCPU runner)
+        env:
+          XLA_FLAGS: "--xla_cpu_multi_thread_eigen=false"
+        run: |
+          pytest ${{ steps.files.outputs.list }} \
+            -m "not slow and not multi_gpu" -n auto -q --tb=short

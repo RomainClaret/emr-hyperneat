@@ -1,0 +1,737 @@
+{
+  "arms": {
+    "flag_streaming": {
+      "branch_calls": {},
+      "class": "TensorNEATEMRHyperNEAT",
+      "digest": "2e00bc85b3d7b5b7",
+      "error": null,
+      "final_best_fitness": 0.7608263493,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "flag_streaming",
+      "note": "Main class with enable_streaming. Swaps only the matrix-building step inside the normal loop, and is the tested streaming path.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 0,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7536842823,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7536842823,
+          "mean_fitness": 0.5536931157,
+          "min_fitness": 0.5,
+          "num_species": 0,
+          "std_fitness": 0.0807786211
+        },
+        {
+          "best_fitness": 0.7608263493,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7608263493,
+          "mean_fitness": 0.5809593201,
+          "min_fitness": 0.5001581311,
+          "num_species": 0,
+          "std_fitness": 0.0871658996
+        },
+        {
+          "best_fitness": 0.7608263493,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7608263493,
+          "mean_fitness": 0.6058211327,
+          "min_fitness": 0.5004194975,
+          "num_species": 0,
+          "std_fitness": 0.0852108225
+        },
+        {
+          "best_fitness": 0.7608263493,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7608263493,
+          "mean_fitness": 0.6322218776,
+          "min_fitness": 0.5374609232,
+          "num_species": 0,
+          "std_fitness": 0.071627453
+        }
+      ],
+      "seed": 42
+    },
+    "probe_geometry_standard": {
+      "branch_calls": {},
+      "class": "TensorNEATEMRHyperNEAT",
+      "digest": "fa63d9c94c2b6b02",
+      "error": null,
+      "final_best_fitness": 0.7022391558,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "probe_geometry_standard",
+      "note": "DIVERGENCE 2 reference: geometry seeding on the main class, which switches the CPPN to 7-D inputs.",
+      "rows": [
+        {
+          "best_fitness": 0.655669868,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.655669868,
+          "mean_fitness": 0.5073785782,
+          "min_fitness": 0.278240025,
+          "num_species": 0,
+          "std_fitness": 0.0650598779
+        },
+        {
+          "best_fitness": 0.6880825162,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6880825162,
+          "mean_fitness": 0.5334313512,
+          "min_fitness": 0.5,
+          "num_species": 0,
+          "std_fitness": 0.0553547479
+        },
+        {
+          "best_fitness": 0.6880825162,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6880825162,
+          "mean_fitness": 0.552575469,
+          "min_fitness": 0.5,
+          "num_species": 0,
+          "std_fitness": 0.0621388666
+        },
+        {
+          "best_fitness": 0.6880825162,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6880825162,
+          "mean_fitness": 0.5729317069,
+          "min_fitness": 0.5001235604,
+          "num_species": 0,
+          "std_fitness": 0.0636690333
+        },
+        {
+          "best_fitness": 0.7022391558,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7022391558,
+          "mean_fitness": 0.5825283527,
+          "min_fitness": 0.5,
+          "num_species": 0,
+          "std_fitness": 0.0678612292
+        }
+      ],
+      "seed": 42
+    },
+    "probe_geometry_subclass_offload": {
+      "branch_calls": {
+        "run_generation_depth_offload": 1,
+        "run_generation_streaming": 0
+      },
+      "class": "TensorNEATEMRHyperNEATDepthOffload",
+      "digest": "4f53cda18c2baa0c",
+      "error": "generation 0: ValueError: Incompatible shapes for broadcasting: (5,) and requested shape (7,)  [geometry seeding on the offload path, fixed in 0.3.0; traceback elided]",
+      "final_best_fitness": null,
+      "generations_completed": 0,
+      "generations_requested": 5,
+      "name": "probe_geometry_subclass_offload",
+      "note": "DIVERGENCE 2: geometry seeding is absent from the offload path, so this is expected to equal subclass_offload_active.",
+      "rows": [],
+      "seed": 42,
+      "traceback": null
+    },
+    "probe_locality_flag_streaming": {
+      "branch_calls": {},
+      "class": "TensorNEATEMRHyperNEAT",
+      "digest": "a7bcef230ca86868",
+      "error": null,
+      "final_best_fitness": 0.7553412318,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "probe_locality_flag_streaming",
+      "note": "DIVERGENCE 1: the parent's _build_matrices_streaming does apply locality_radius, so this should differ from flag_streaming.",
+      "rows": [
+        {
+          "best_fitness": 0.7488487363,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7488487363,
+          "mean_fitness": 0.6736027002,
+          "min_fitness": 0.5000023246,
+          "num_species": 0,
+          "std_fitness": 0.0671133175
+        },
+        {
+          "best_fitness": 0.751488328,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.751488328,
+          "mean_fitness": 0.7027936578,
+          "min_fitness": 0.5085416436,
+          "num_species": 0,
+          "std_fitness": 0.0529645197
+        },
+        {
+          "best_fitness": 0.7553412318,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7553412318,
+          "mean_fitness": 0.7273803353,
+          "min_fitness": 0.6795293093,
+          "num_species": 0,
+          "std_fitness": 0.0231806599
+        },
+        {
+          "best_fitness": 0.7553412318,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7553412318,
+          "mean_fitness": 0.7397891879,
+          "min_fitness": 0.7115163207,
+          "num_species": 0,
+          "std_fitness": 0.0108745731
+        },
+        {
+          "best_fitness": 0.7553412318,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7553412318,
+          "mean_fitness": 0.7408481836,
+          "min_fitness": 0.7142677307,
+          "num_species": 0,
+          "std_fitness": 0.0096692154
+        }
+      ],
+      "seed": 42
+    },
+    "probe_locality_standard": {
+      "branch_calls": {},
+      "class": "TensorNEATEMRHyperNEAT",
+      "digest": "a9075f3e484adac0",
+      "error": null,
+      "final_best_fitness": 0.7541493177,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "probe_locality_standard",
+      "note": "DIVERGENCE 1 reference: the main class applies locality_radius.",
+      "rows": [
+        {
+          "best_fitness": 0.7488487363,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7488487363,
+          "mean_fitness": 0.6450092793,
+          "min_fitness": 0.5000000596,
+          "num_species": 0,
+          "std_fitness": 0.0796669573
+        },
+        {
+          "best_fitness": 0.7532613277,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7532613277,
+          "mean_fitness": 0.6839527488,
+          "min_fitness": 0.5037115812,
+          "num_species": 0,
+          "std_fitness": 0.0586452372
+        },
+        {
+          "best_fitness": 0.7532613277,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7532613277,
+          "mean_fitness": 0.7117577195,
+          "min_fitness": 0.675727129,
+          "num_species": 0,
+          "std_fitness": 0.0293608885
+        },
+        {
+          "best_fitness": 0.7532613277,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7532613277,
+          "mean_fitness": 0.7151383758,
+          "min_fitness": 0.5076656342,
+          "num_species": 0,
+          "std_fitness": 0.0528272353
+        },
+        {
+          "best_fitness": 0.7541493177,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7541493177,
+          "mean_fitness": 0.7352361083,
+          "min_fitness": 0.7074466944,
+          "num_species": 0,
+          "std_fitness": 0.0149916001
+        }
+      ],
+      "seed": 42
+    },
+    "probe_locality_subclass_offload": {
+      "branch_calls": {
+        "run_generation_depth_offload": 5,
+        "run_generation_streaming": 0
+      },
+      "class": "TensorNEATEMRHyperNEATDepthOffload",
+      "digest": "1a5fa219636993b9",
+      "error": null,
+      "final_best_fitness": 0.7675246,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "probe_locality_subclass_offload",
+      "note": "DIVERGENCE 1 under the offload branch; expected identical to subclass_offload_active for the same reason.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 1,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5516514182,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0844105929
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5636909604,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0879175067
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.583861053,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0894803032
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.6162816286,
+          "min_fitness": 0.5004538894,
+          "num_species": 1,
+          "std_fitness": 0.0918416008
+        }
+      ],
+      "seed": 42
+    },
+    "probe_locality_subclass_streaming": {
+      "branch_calls": {
+        "run_generation_streaming": 5
+      },
+      "class": "TensorNEATEMRHyperNEATStreaming",
+      "digest": "1a5fa219636993b9",
+      "error": null,
+      "final_best_fitness": 0.7675246,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "probe_locality_subclass_streaming",
+      "note": "DIVERGENCE 1: the subclass never reads locality_radius, so this should be IDENTICAL to subclass_streaming. The fold changes it.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 1,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5516514182,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0844105929
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5636909604,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0879175067
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.583861053,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0894803032
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.6162816286,
+          "min_fitness": 0.5004538894,
+          "num_species": 1,
+          "std_fitness": 0.0918416008
+        }
+      ],
+      "seed": 42
+    },
+    "standard": {
+      "branch_calls": {},
+      "class": "TensorNEATEMRHyperNEAT",
+      "digest": "17934042b9e90c26",
+      "error": null,
+      "final_best_fitness": 0.7964177132,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "standard",
+      "note": "Main class, no streaming. This is the path prod's goldens lock, and the path `mode: standard` must leave byte-identical.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.5094740987,
+          "min_fitness": 0.4775310755,
+          "num_species": 0,
+          "std_fitness": 0.039063409
+        },
+        {
+          "best_fitness": 0.7536842823,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7536842823,
+          "mean_fitness": 0.53121382,
+          "min_fitness": 0.5,
+          "num_species": 0,
+          "std_fitness": 0.0663886666
+        },
+        {
+          "best_fitness": 0.7536842823,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7536842823,
+          "mean_fitness": 0.5398513675,
+          "min_fitness": 0.5,
+          "num_species": 0,
+          "std_fitness": 0.0672183633
+        },
+        {
+          "best_fitness": 0.7536842823,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7536842823,
+          "mean_fitness": 0.5443350673,
+          "min_fitness": 0.4054082632,
+          "num_species": 0,
+          "std_fitness": 0.0740726143
+        },
+        {
+          "best_fitness": 0.7964177132,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7964177132,
+          "mean_fitness": 0.5771710277,
+          "min_fitness": 0.5001972318,
+          "num_species": 0,
+          "std_fitness": 0.0898779482
+        }
+      ],
+      "seed": 42
+    },
+    "subclass_offload_active": {
+      "branch_calls": {
+        "run_generation_depth_offload": 5,
+        "run_generation_streaming": 0
+      },
+      "class": "TensorNEATEMRHyperNEATDepthOffload",
+      "digest": "1a5fa219636993b9",
+      "error": null,
+      "final_best_fitness": 0.7675246,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "subclass_offload_active",
+      "note": "DepthOffload with the threshold below max_depth, taking the run_generation_depth_offload branch.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 1,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5516514182,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0844105929
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5636909604,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0879175067
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.583861053,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0894803032
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.6162816286,
+          "min_fitness": 0.5004538894,
+          "num_species": 1,
+          "std_fitness": 0.0918416008
+        }
+      ],
+      "seed": 42
+    },
+    "subclass_offload_inactive": {
+      "branch_calls": {
+        "run_generation_depth_offload": 0,
+        "run_generation_streaming": 5
+      },
+      "class": "TensorNEATEMRHyperNEATDepthOffload",
+      "digest": "1a5fa219636993b9",
+      "error": null,
+      "final_best_fitness": 0.7675246,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "subclass_offload_inactive",
+      "note": "DepthOffload with the threshold above max_depth, so should_use_offloading() is False and it delegates to streaming.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 1,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5516514182,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0844105929
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5636909604,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0879175067
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.583861053,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0894803032
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.6162816286,
+          "min_fitness": 0.5004538894,
+          "num_species": 1,
+          "std_fitness": 0.0918416008
+        }
+      ],
+      "seed": 42
+    },
+    "subclass_streaming": {
+      "branch_calls": {
+        "run_generation_streaming": 5
+      },
+      "class": "TensorNEATEMRHyperNEATStreaming",
+      "digest": "1a5fa219636993b9",
+      "error": null,
+      "final_best_fitness": 0.7675246,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "subclass_streaming",
+      "note": "Streaming subclass, which replaces the entire generation loop. Zero instantiations exist outside tests.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 1,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5516514182,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0844105929
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.5636909604,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0879175067
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.583861053,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0894803032
+        },
+        {
+          "best_fitness": 0.7675246,
+          "connections_mean": null,
+          "density_mean": null,
+          "hidden_nodes_mean": null,
+          "max_fitness": 0.7675246,
+          "mean_fitness": 0.6162816286,
+          "min_fitness": 0.5004538894,
+          "num_species": 1,
+          "std_fitness": 0.0918416008
+        }
+      ],
+      "seed": 42
+    }
+  },
+  "captured_on": "pre-unification code (streaming and depth-offload subclasses)",
+  "config": {
+    "generations": 5,
+    "max_depth": 3,
+    "population_size": 20,
+    "problem": "XOR",
+    "seed": 42
+  },
+  "environment": {
+    "numpy": "1.26.4",
+    "platform": "macOS-26.3-arm64-arm-64bit",
+    "python": "3.12.10"
+  }
+}

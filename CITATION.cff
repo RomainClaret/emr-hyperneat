@@ -1,0 +1,47 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "EMR-HyperNEAT"
+abstract: >-
+  Eager Multi-Resolution HyperNEAT: GPU-accelerated adaptive-substrate
+  neuroevolution. Replaces the sequential quadtree of ES-HyperNEAT with eager
+  tensor evaluation on a fixed multi-resolution grid plus variance-based masking,
+  turning substrate discovery into batch matrix arithmetic that vectorizes across
+  a population.
+type: software
+license: GPL-3.0-or-later
+repository-code: "https://github.com/RomainClaret/emr-hyperneat"
+version: 0.1.0
+date-released: "2026-09-12"
+authors:
+  - family-names: Claret
+    given-names: Romain
+    orcid: "https://orcid.org/0000-0002-5612-8471"
+keywords:
+  - neuroevolution
+  - HyperNEAT
+  - ES-HyperNEAT
+  - JAX
+  - evolutionary computation
+preferred-citation:
+  type: conference-paper
+  title: "Tensor-Accelerated Eager Multi-Resolution Grids for Evolving Large-Scale Substrates"
+  year: 2026
+  collection-title: "Proceedings of the Genetic and Evolutionary Computation Conference Companion (GECCO Companion '26)"
+  publisher:
+    name: "Association for Computing Machinery"
+  conference:
+    name: "GECCO '26"
+    city: "San Jose"
+    country: CR
+  doi: "10.1145/3795101.3805361"
+  url: "https://claret.tech/pdf/claret2026emr"
+  authors:
+    - family-names: Claret
+      given-names: Romain
+      orcid: "https://orcid.org/0000-0002-5612-8471"
+    - family-names: "O'Neill"
+      given-names: Michael
+    - family-names: Cotofrei
+      given-names: Paul
+    - family-names: Stoffel
+      given-names: Kilian

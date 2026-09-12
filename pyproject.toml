@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emr-hyperneat"
+dynamic = ["version"]
+description = "EMR-HyperNEAT: Eager Multi-Resolution HyperNEAT, GPU-accelerated adaptive-substrate neuroevolution"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Romain Claret" },
+]
+# ORCID 0000-0002-5612-8471; full citation metadata in CITATION.cff
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: OS Independent",
+]
+keywords = ["GPU-acceleration", "neuroevolution", "EMR-HyperNEAT", "ES-HyperNEAT", "HyperNEAT", "NEAT", "JAX", "tensors", "evolutionary-computation", "neural-networks", "machine-learning", "artificial-intelligence", "AI"]
+
+# Core runtime dependencies. TensorNEAT is NOT on PyPI. It is provided by the
+# pinned git submodule and installed separately:
+#     pip install -e third_party/tensorneat
+# (see README). Versions track the environment the published experiments ran on
+# (JAX 0.6.x, NumPy 1.26.x).
+dependencies = [
+    "jax>=0.5,<0.7",
+    "jaxlib>=0.5,<0.7",
+    "numpy>=1.24,<2.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+# Statistics + figure regeneration used by the papers/ analysis scripts.
+analysis = ["scipy>=1.10", "matplotlib>=3.7", "optax>=0.2"]
+dev = ["pytest>=7.0", "pytest-xdist>=3.0"]
+
+[project.urls]
+Repository = "https://github.com/RomainClaret/emr-hyperneat"
+Documentation = "https://github.com/RomainClaret/emr-hyperneat/tree/main/docs"
+Issues = "https://github.com/RomainClaret/emr-hyperneat/issues"
+Discussions = "https://github.com/RomainClaret/emr-hyperneat/discussions"
+Changelog = "https://github.com/RomainClaret/emr-hyperneat/blob/main/CHANGELOG.md"
+Paper = "https://claret.tech/pdf/claret2026emr"
+
+[tool.setuptools.dynamic]
+version = { attr = "emr_hyperneat._version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["emr_hyperneat*"]
+exclude = ["papers*", "third_party*", "scripts*"]
