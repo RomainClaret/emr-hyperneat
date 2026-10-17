@@ -3,11 +3,14 @@
 Tests cover:
 - 7 selection modes (disabled, global, cppn_output, weight_interpretation, random_fixed, random_generation, modular)
 - 18 activation functions (tanh, sigmoid, relu, sin, burst, etc.)
-- H→H activation modes (initial_only, every_iteration)
+- H→H activation modes (every_iteration, tanh)
 - Activation function palettes
 """
 
+import jax
+import numpy as np
 import pytest
+from emr_hyperneat.emrhyperneat import ACTIVATION_FUNCTIONS as ENGINE_ACTIVATIONS
 from conftest import (
     EMRHyperNEAT,
     create_config_with_dynamic_functions,
@@ -29,11 +32,24 @@ from conftest import (
 # Selection modes to test
 SELECTION_MODES = ['disabled', 'global_tanh', 'global_sin', 'cppn_output_4', 'weight_interp_sign', 'random_fixed']
 
-# Activation functions available
-ACTIVATION_FUNCTIONS = [
-    'tanh', 'sigmoid', 'relu', 'identity', 'sin', 'gaussian',
-    'elu', 'selu', 'swish', 'mish', 'softplus', 'leaky_relu',
-]
+# The engine's activation names outside TestBioInspiredActivations.BIO_ACTIVATIONS. In 0.1.0 this list
+# also held six names the engine does not have ('gaussian', 'elu', 'selu', 'swish', 'mish', 'leaky_relu'); global
+# mode ran tanh for them, so those cases tested tanh. Unknown names now raise.
+ACTIVATION_FUNCTIONS = ['tanh', 'sigmoid', 'relu', 'identity', 'sin', 'gauss', 'lelu', 'softmax']
+
+
+def assert_palette_members(algorithm, names):
+    """Every hidden node of the last champion computes one of the named functions."""
+    record = algorithm.get_best_activation_indices()
+    histogram = record['activation_histogram']
+    assert set(histogram) <= set(names), (histogram, names)
+    assert sum(histogram.values()) == record['num_hidden_nodes'] > 0
+
+
+def test_activation_lists_cover_the_engine():
+    """The parametrized activation tests cover exactly the engine's names."""
+    covered = set(ACTIVATION_FUNCTIONS) | set(TestBioInspiredActivations.BIO_ACTIVATIONS)
+    assert covered == set(ENGINE_ACTIVATIONS)
 
 
 class TestDynamicFunctionModes:
@@ -154,7 +170,7 @@ class TestCppnOutputMode:
 class TestWeightInterpretationMode:
     """Tests for weight-based activation selection."""
 
-    @pytest.mark.parametrize("interpretation", ['sign', 'magnitude', 'variance'])
+    @pytest.mark.parametrize("interpretation", ['sign', 'magnitude_bio', 'variance'])
     def test_interpretation_methods(self, algorithm, xor_problem, interpretation):
         """Verify all interpretation methods work."""
         config = create_base_config()
@@ -180,7 +196,7 @@ class TestWeightInterpretationMode:
 
     def test_magnitude_based_interpretation(self, algorithm, xor_problem):
         """Verify magnitude-based interpretation works."""
-        config = create_config_with_dynamic_functions('weight_interp_magnitude')
+        config = create_config_with_dynamic_functions('weight_interp_magnitude_bio')
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result)
@@ -204,90 +220,39 @@ class TestWeightInterpretationMode:
         assert_no_errors(result, "magnitude_bio interpretation failed")
         assert_positive_fitness(result)
 
-    def test_hierarchical_sparsity_interpretation(self, algorithm, xor_problem):
-        """Verify hierarchical_sparsity interpretation works.
+    @pytest.mark.parametrize("interpretation", ['magnitude_bio', 'variance', 'sign'])
+    def test_palette_members_on_every_hidden_node(self, algorithm, xor_problem, interpretation):
+        """With a palette, every hidden node computes a palette function.
 
-        hierarchical_sparsity derives activation from sparsity at different depth levels.
+        0.1.0 left the decoded palette position unmapped, and evaluation, which expects palette
+        members, gave every node whose position was not itself a palette member an output of 0.
         """
+        from emr_hyperneat.emrhyperneat import ACTIVATION_LIST
+
+        palette = [0, 4, 5, 13]  # tanh, sin, gauss, osc_adapt: positions 1-3 are not members
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'weight_interpretation',
-            'num_activations': 4,
-            'interpretation': 'hierarchical_sparsity',
-        }
+        hmr['dynamic_functions'] = {'mode': 'weight_interpretation',
+                                    'interpretation': interpretation, 'palette': palette}
+        run_quick_evolution(algorithm, config, xor_problem, generations=2)
+        record = algorithm.get_best_activation_indices()
+        histogram = record['activation_histogram']
+        names = {ACTIVATION_LIST[i] for i in palette}
+        assert set(histogram) <= names, (histogram, names)
+        assert sum(histogram.values()) == record['num_hidden_nodes'] > 0
 
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "hierarchical_sparsity interpretation failed")
-
-    def test_sparsity_threshold_interpretation(self, algorithm, xor_problem):
-        """Verify sparsity_threshold interpretation works.
-
-        sparsity_threshold selects activation based on connection density thresholds.
-        """
+    @pytest.mark.parametrize("interpretation", ['magnitude', 'hierarchical_sparsity', 'sparsity_threshold',
+                                                'stp_inspired', 'combined'])
+    def test_hmr_interpretations_are_refused(self, algorithm, interpretation):
+        """HMR's dynamic-functions variant had these interpretations ('magnitude' inverted
+        magnitude_bio); EMR never implemented them, and in 0.1.0 these tests ran magnitude_bio under
+        their names and asserted that nothing raised."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'weight_interpretation',
-            'num_activations': 4,
-            'interpretation': 'sparsity_threshold',
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "sparsity_threshold interpretation failed")
-
-    def test_stp_inspired_interpretation(self, algorithm, xor_problem):
-        """Verify stp_inspired interpretation works.
-
-        stp_inspired uses Short-Term Plasticity-inspired weight patterns.
-        """
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'weight_interpretation',
-            'num_activations': 4,
-            'interpretation': 'stp_inspired',
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "stp_inspired interpretation failed")
-
-    def test_combined_interpretation(self, algorithm, xor_problem):
-        """Verify combined interpretation works.
-
-        combined uses multiple interpretation methods together.
-        """
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'weight_interpretation',
-            'num_activations': 6,
-            'interpretation': 'combined',
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "combined interpretation failed")
-
-    @pytest.mark.parametrize("interpretation", [
-        'magnitude_bio', 'hierarchical_sparsity', 'sparsity_threshold', 'stp_inspired', 'combined'
-    ])
-    def test_extended_interpretation_methods(self, algorithm, xor_problem, interpretation):
-        """Verify all extended interpretation methods work with parametrization."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'weight_interpretation',
-            'num_activations': 4,
-            'interpretation': interpretation,
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, f"Extended interpretation {interpretation} failed")
+        hmr['dynamic_functions'] = {'mode': 'weight_interpretation', 'num_activations': 4,
+                                    'interpretation': interpretation}
+        with pytest.raises(ValueError, match='dynamic_functions.interpretation must be one of'):
+            algorithm.create_config(config)
 
 
 class TestRandomModes:
@@ -310,10 +275,98 @@ class TestRandomModes:
         assert_positive_fitness(result)
 
 
+def _random_indices(dynamic_functions=None, aggregation=None, seed=DEFAULT_SEED, generations=2,
+                    algorithm=None):
+    """Each generation's activation (or, with an aggregation block, aggregation) indices of a run."""
+    config = create_base_config(max_depth=3, population_size=20)
+    emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr['dynamic_functions'] = dynamic_functions or {'mode': 'disabled'}
+    if aggregation is not None:
+        emr['aggregation'] = aggregation
+    algorithm = algorithm or EMRHyperNEAT()
+    state = algorithm.initialize(algorithm.create_config(config), XORProblem(), seed=seed)
+    draws = []
+    for _ in range(generations):
+        state, _metrics = algorithm.run_generation(state, XORProblem())
+        draws.append(np.asarray(algorithm._cached_act_indices if aggregation is None
+                                else algorithm._cached_ih_agg_indices))
+    return np.stack(draws)
+
+
+class TestRandomScopes:
+    """The random modes' draw.
+
+    Scope 'genome', the default, draws each population slot independently from the run's key, as
+    HMR drew its negative controls. 0.1.0 drew one assignment for every genome from a fixed key, so
+    every genome and every seed of a random-control arm had the same functions: that draw is scope
+    'shared', kept bit for bit to reproduce such runs.
+    """
+
+    @pytest.mark.parametrize('mode', ['random_fixed', 'random_generation'])
+    def test_genome_scope_draws_per_slot_and_per_run(self, mode):
+        first = _random_indices({'mode': mode, 'num_activations': 6}, seed=42)
+        second = _random_indices({'mode': mode, 'num_activations': 6}, seed=43)
+        assert not np.array_equal(first[0, 0], first[0, 1])  # two slots of one generation
+        assert not np.array_equal(first[0], second[0])  # two runs
+        assert np.array_equal(first[0], first[1]) == (mode == 'random_fixed')
+
+    def test_genome_scope_with_a_seed_is_the_same_in_every_run(self):
+        block = {'mode': 'random_generation', 'num_activations': 6, 'random_seed': 7}
+        first, second = _random_indices(block, seed=42), _random_indices(block, seed=43)
+        np.testing.assert_array_equal(first, second)
+        assert not np.array_equal(first[0, 0], first[0, 1])
+
+    @pytest.mark.parametrize('mode', ['random_fixed', 'random_generation'])
+    def test_shared_scope_is_one_assignment_for_every_genome_and_run(self, mode):
+        block = {'mode': mode, 'num_activations': 6, 'random_scope': 'shared'}
+        first, second = _random_indices(block, seed=42), _random_indices(block, seed=43)
+        np.testing.assert_array_equal(first, second)
+        assert (first[0] == first[0, :1]).all()
+        # The draw itself, as 0.1.0 made it: PRNGKey(42) fixed, PRNGKey(generation) per generation
+        # (the first evaluated generation is number 0)
+        key = jax.random.PRNGKey(42 if mode == 'random_fixed' else 0)
+        np.testing.assert_array_equal(
+            first[0, 0], np.asarray(jax.random.randint(key, (first.shape[-1],), 0, 6)))
+
+    def test_palette_members_in_both_scopes(self):
+        for scope in ('genome', 'shared'):
+            draws = _random_indices({'mode': 'random_generation', 'palette': [0, 4, 5, 13],
+                                     'random_scope': scope})
+            assert set(np.unique(draws)) <= {0, 4, 5, 13}
+
+    @pytest.mark.parametrize('mode', ['random_fixed', 'random_generation'])
+    def test_aggregation_draws_per_slot(self, mode):
+        draws = _random_indices(aggregation={'mode': mode})
+        assert not np.array_equal(draws[0, 0], draws[0, 1])
+        shared = _random_indices(aggregation={'mode': mode, 'random_scope': 'shared'})
+        assert (shared[0] == shared[0, :1]).all()
+
+    def test_a_reused_object_draws_again_for_the_next_run(self):
+        """initialize resets the fixed draw and the generation count, which 0.1.0 kept on the
+        object across runs, so a reused object gives what a fresh one gives."""
+        algorithm = EMRHyperNEAT()
+        first = _random_indices({'mode': 'random_fixed', 'num_activations': 6}, seed=42,
+                                algorithm=algorithm)
+        second = _random_indices({'mode': 'random_fixed', 'num_activations': 6}, seed=43,
+                                 algorithm=algorithm)
+        assert not np.array_equal(first[0], second[0])
+        block = {'mode': 'random_generation', 'num_activations': 6, 'random_scope': 'shared'}
+        _random_indices(block, algorithm=algorithm)
+        np.testing.assert_array_equal(_random_indices(block, algorithm=algorithm),
+                                      _random_indices(block))
+
+    def test_unknown_scope_raises(self):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {
+            'mode': 'random_fixed', 'random_scope': 'population'}
+        with pytest.raises(ValueError, match='random_scope must be one of'):
+            EMRHyperNEAT().create_config(config)
+
+
 class TestHHActivationModes:
     """Tests for H→H activation modes."""
 
-    @pytest.mark.parametrize("hh_mode", ['initial_only', 'every_iteration'])
+    @pytest.mark.parametrize("hh_mode", ['tanh', 'every_iteration'])
     def test_hh_activation_modes(self, algorithm, xor_problem, hh_mode):
         """Verify both H→H activation modes work."""
         config = create_config_with_dynamic_functions(
@@ -326,17 +379,34 @@ class TestHHActivationModes:
         assert_no_errors(result, f"H→H mode {hh_mode} failed")
         assert_positive_fitness(result)
 
-    def test_hh_initial_only_config(self, algorithm, xor_problem):
-        """Verify initial_only mode is properly configured."""
+    def test_hh_tanh_config(self, algorithm, xor_problem):
+        """Verify tanh mode is properly configured."""
+        config = create_config_with_dynamic_functions(
+            'cppn_output_4',
+            recurrence_preset='hidden_only',
+            hh_activation_mode='tanh'
+        )
+        config_obj = algorithm.create_config(config)
+        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+
+        assert algorithm.hh_activation_mode == 'tanh'
+
+    def test_hh_initial_only_is_rejected(self, algorithm):
+        """initial_only applied no configured activation in 0.1.0; it is refused."""
         config = create_config_with_dynamic_functions(
             'cppn_output_4',
             recurrence_preset='hidden_only',
             hh_activation_mode='initial_only'
         )
-        config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        with pytest.raises(ValueError, match="no longer accepted"):
+            algorithm.create_config(config)
 
-        assert algorithm.hh_activation_mode == 'initial_only'
+    def test_hh_default_is_every_iteration(self, algorithm):
+        """The configured activation applies at every settling step by default."""
+        config = create_config_with_dynamic_functions(
+            'cppn_output_4', recurrence_preset='hidden_only')
+        algorithm.create_config(config)
+        assert algorithm.hh_activation_mode == 'every_iteration'
 
     def test_hh_every_iteration_config(self, algorithm, xor_problem):
         """Verify every_iteration mode is properly configured."""
@@ -397,13 +467,13 @@ class TestActivationPalettes:
     """Tests for activation function palettes."""
 
     def test_custom_palette(self, algorithm, xor_problem):
-        """Verify custom activation palette works."""
+        """A palette given by name reaches every hidden node. In 0.1.0 this test set
+        `activation_palette`, a key EMR ignored, so it ran without a palette."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['dynamic_functions'] = {
             'mode': 'weight_interpretation',
-            'num_activations': 3,
-            'activation_palette': ['tanh', 'sin', 'relu'],
+            'palette': ['tanh', 'sin', 'relu'],
             'interpretation': 'sign',
         }
 
@@ -411,6 +481,7 @@ class TestActivationPalettes:
 
         assert_no_errors(result)
         assert_positive_fitness(result)
+        assert_palette_members(algorithm, ['tanh', 'sin', 'relu'])
 
 
 class TestDynamicFunctionsWithRecurrence:
@@ -839,203 +910,25 @@ class TestSparsityConfiguration:
 
 
 class TestCriticalPeriods:
-    """Tests for critical periods in dynamic functions.
+    """dynamic_functions.critical_periods was never implemented: HMR's variants parsed it and printed a
+    line, and nothing changed a mutation rate. 0.1.0 accepted it silently; enabled now raises. The
+    twelve tests that certified it (`enabled: True`, asserting that nothing raised) are replaced by
+    these two."""
 
-    Critical periods control plasticity scheduling with three phases:
-    - Phase 1 (0 - phase1_end): Full plasticity (1.0)
-    - Phase 2 (phase1_end - phase2_end): Linear decline to min_plasticity
-    - Phase 3 (phase2_end - 1.0): Minimal plasticity (fine-tuning only)
-    """
-
-    def test_critical_periods_disabled(self, algorithm, xor_problem):
-        """Verify critical periods can be disabled (default)."""
+    def test_disabled_is_accepted(self):
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': False,
-            },
-        }
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {
+            'mode': 'global', 'hidden_activation': 'tanh', 'critical_periods': {'enabled': False}}
+        EMRHyperNEAT().create_config(config)
 
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
-
-    def test_critical_periods_enabled_default(self, algorithm, xor_problem):
-        """Verify critical periods works with default settings."""
+    @pytest.mark.parametrize('mode', ['global', 'cppn_output', 'weight_interpretation'])
+    def test_enabled_raises(self, mode):
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
-
-    def test_critical_periods_phase1_end(self, algorithm, xor_problem):
-        """Verify phase1_end parameter is respected."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-                'phase1_end': 0.1,  # Shorter full plasticity phase
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "Critical periods with phase1_end=0.1 failed")
-
-    def test_critical_periods_phase2_end(self, algorithm, xor_problem):
-        """Verify phase2_end parameter is respected."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-                'phase1_end': 0.2,
-                'phase2_end': 0.7,  # Longer decline phase
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "Critical periods with phase2_end=0.7 failed")
-
-    def test_critical_periods_min_plasticity(self, algorithm, xor_problem):
-        """Verify min_plasticity parameter is respected."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-                'min_plasticity': 0.1,  # Lower minimum plasticity
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "Critical periods with min_plasticity=0.1 failed")
-
-    def test_critical_periods_full_config(self, algorithm, xor_problem):
-        """Verify full critical periods configuration works."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-                'phase1_end': 0.15,
-                'phase2_end': 0.6,
-                'min_plasticity': 0.2,
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "Full critical periods config failed")
-        assert_positive_fitness(result)
-
-    @pytest.mark.parametrize("phase1_end", [0.05, 0.1, 0.2, 0.3])
-    def test_critical_periods_phase1_values(self, algorithm, xor_problem, phase1_end):
-        """Verify different phase1_end values work."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-                'phase1_end': phase1_end,
-                'phase2_end': min(phase1_end + 0.3, 0.9),
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, f"Critical periods phase1_end={phase1_end} failed")
-
-    @pytest.mark.parametrize("min_plasticity", [0.1, 0.3, 0.5, 0.7])
-    def test_critical_periods_min_plasticity_values(self, algorithm, xor_problem, min_plasticity):
-        """Verify different min_plasticity values work."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'global',
-            'hidden_activation': 'tanh',
-            'output_activation': 'sigmoid',
-            'critical_periods': {
-                'enabled': True,
-                'min_plasticity': min_plasticity,
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, f"Critical periods min_plasticity={min_plasticity} failed")
-
-    def test_critical_periods_with_cppn_output(self, algorithm, xor_problem):
-        """Verify critical periods work with cppn_output mode."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'cppn_output',
-            'num_activations': 4,
-            'critical_periods': {
-                'enabled': True,
-                'phase1_end': 0.2,
-                'phase2_end': 0.5,
-                'min_plasticity': 0.3,
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "Critical periods with cppn_output mode failed")
-
-    def test_critical_periods_with_weight_interpretation(self, algorithm, xor_problem):
-        """Verify critical periods work with weight_interpretation mode."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
-            'mode': 'weight_interpretation',
-            'num_activations': 4,
-            'interpretation': 'sign',
-            'critical_periods': {
-                'enabled': True,
-                'phase1_end': 0.2,
-                'phase2_end': 0.5,
-                'min_plasticity': 0.3,
-            },
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "Critical periods with weight_interpretation mode failed")
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {
+            'mode': mode, 'critical_periods': {'enabled': True, 'phase1_end': 0.2, 'phase2_end': 0.5,
+                                                'min_plasticity': 0.3}}
+        with pytest.raises(ValueError, match='critical_periods is not implemented'):
+            EMRHyperNEAT().create_config(config)
 
 
 class TestDynamicFunctionsEdgeCases:
@@ -1078,33 +971,36 @@ class TestDynamicFunctionsEdgeCases:
         assert_no_errors(result, "Empty dynamic functions config failed")
 
     def test_custom_palette_minimal(self, algorithm, xor_problem):
-        """Verify minimal custom palette works (2 functions)."""
+        """A two-function palette (indices) reaches every hidden node (in 0.1.0 the key was
+        `activation_palette`, which was ignored)."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['dynamic_functions'] = {
             'mode': 'weight_interpretation',
-            'num_activations': 2,
-            'activation_palette': ['tanh', 'sin'],
+            'palette': [0, 4],
             'interpretation': 'sign',
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result, "Minimal custom palette failed")
+        assert_palette_members(algorithm, ['tanh', 'sin'])
 
     def test_custom_palette_large(self, algorithm, xor_problem):
-        """Verify large custom palette works."""
+        """A six-function palette reaches every hidden node under cppn_output (in 0.1.0 the key
+        was `activation_palette`, which was ignored, and 'gaussian' is not an engine name)."""
+        names = ['tanh', 'sin', 'relu', 'sigmoid', 'gauss', 'identity']
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['dynamic_functions'] = {
             'mode': 'cppn_output',
-            'num_activations': 6,
-            'activation_palette': ['tanh', 'sin', 'relu', 'sigmoid', 'gaussian', 'identity'],
+            'palette': names,
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result, "Large custom palette failed")
+        assert_palette_members(algorithm, names)
 
     def test_modular_all_methods_combined(self, algorithm, xor_problem):
         """Verify modular mode with all methods specified works."""
@@ -1128,3 +1024,70 @@ class TestDynamicFunctionsEdgeCases:
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result, "Modular with all methods failed")
+
+
+class TestIndexDecode:
+    """index_decode. The default 'tanh', 0.1.0's decode, applies tanh to values that are already in [-1, 1] (the
+    CPPN's channels, whose output transform is tanh, and every weight-interpretation signal), so a palette of 9 or
+    more functions never reaches its end entries: 18 functions, positions 2 to 15. 'uniform' bins the value itself,
+    every bin equally wide."""
+
+    def test_tanh_misses_the_end_bins_and_uniform_does_not(self):
+        import jax.numpy as jnp
+        from emr_hyperneat.emrhyperneat import continuous_to_index
+        values = jnp.linspace(-1.0, 1.0, 18001)
+        tanh_bins = np.asarray(continuous_to_index(values, 18))
+        uniform_bins = np.asarray(continuous_to_index(values, 18, 'uniform'))
+        assert (tanh_bins.min(), tanh_bins.max()) == (2, 15)
+        assert (uniform_bins.min(), uniform_bins.max()) == (0, 17)
+        counts = np.bincount(uniform_bins, minlength=18)
+        assert counts.max() - counts.min() <= 2           # equally wide bins
+
+    def test_default_is_the_old_decode(self):
+        from emr_hyperneat.emrhyperneat import continuous_to_index, continuous_to_palette_index
+        values = jax.random.uniform(jax.random.PRNGKey(0), (1000,), minval=-1.0, maxval=1.0)
+        old = np.clip(np.floor((np.tanh(np.asarray(values)) + 1.0) / 2.0 * 7), 0, 6).astype(np.int32)
+        np.testing.assert_array_equal(np.asarray(continuous_to_index(values, 7)), old)
+        palette = np.array([4, 11, 12, 5, 0, 1, 2])
+        np.testing.assert_array_equal(np.asarray(continuous_to_palette_index(values, palette)), palette[old])
+
+    def test_uniform_reaches_every_position_of_an_18_function_palette(self):
+        def reached(decode):
+            config = create_base_config(max_depth=4, population_size=100)
+            config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {
+                'mode': 'cppn_output', 'palette': list(range(18)), 'index_decode': decode}
+            algorithm = EMRHyperNEAT()
+            state = algorithm.initialize(algorithm.create_config(config), XORProblem(), seed=DEFAULT_SEED)
+            algorithm.run_generation(state, XORProblem())
+            return set(np.unique(np.asarray(algorithm._cached_act_indices)).tolist())
+        assert reached('tanh') <= set(range(2, 16))
+        assert reached('uniform') == set(range(18))
+
+    def test_aggregation_decode(self):
+        from emr_hyperneat.emrhyperneat import aggregation_from_weight_interpretation
+        weights = jax.random.normal(jax.random.PRNGKey(1), (4, 3, 50)) * 3
+        for interpretation in ('magnitude_bio', 'variance', 'sign_uniformity', 'fan_in'):
+            uniform = aggregation_from_weight_interpretation(weights, interpretation, 6, 'uniform')
+            assert int(uniform.min()) >= 0 and int(uniform.max()) <= 5
+        default = aggregation_from_weight_interpretation(weights, 'fan_in', 6)
+        np.testing.assert_array_equal(np.asarray(default),
+                                      np.asarray(aggregation_from_weight_interpretation(weights, 'fan_in', 6, 'tanh')))
+
+    @pytest.mark.parametrize('section', ['dynamic_functions', 'aggregation'])
+    def test_unknown_decode_raises(self, section):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat'][section] = {
+            'mode': 'cppn_output', 'index_decode': 'linear'}
+        with pytest.raises(ValueError, match=f'{section}.index_decode must be one of'):
+            EMRHyperNEAT().create_config(config)
+
+    def test_the_substrate_config_carries_both_decodes(self):
+        config = create_base_config()
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['dynamic_functions'] = {'mode': 'cppn_output', 'index_decode': 'uniform'}
+        emr['aggregation'] = {'mode': 'cppn_output', 'index_decode': 'uniform'}
+        algorithm = EMRHyperNEAT()
+        algorithm.create_config(config)
+        substrate_config = algorithm.substrate_config()
+        assert (substrate_config.activation_index_decode, substrate_config.aggregation_index_decode) == (
+            'uniform', 'uniform')

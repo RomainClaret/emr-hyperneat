@@ -88,6 +88,10 @@ def _run_paper(scripts_dir: Path, body: str, timeout: int = 900) -> dict:
     )
     env = {**os.environ, "JAX_PLATFORMS": "cpu", "TF_CPP_MIN_LOG_LEVEL": "3"}
     env.pop("PYTHONPATH", None)  # prove no reliance on the geenns env
+    # A GPU machine's profile can set these to gpu. Inherited, they ask JAX for a gpu
+    # default backend that JAX_PLATFORMS=cpu never loads, and the paper never starts.
+    env.pop("JAX_PLATFORM_NAME", None)
+    env.pop("JAX_BACKEND_TARGET", None)
     proc = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True, text=True, env=env, timeout=timeout,
@@ -192,6 +196,48 @@ class TestParityScalingPaper:
         assert r["solved"] is False
         assert r["best"] < 0.95
         assert abs(r["best"] - 0.8664138317108154) < GOLD_TOL
+
+
+# ===========================================================================
+# Depth and a second task (ALIFE, E8 and E7): the oscillatory advantage holds on a deeper
+# substrate -- sin solves Parity-4 at max_depth 4 in its first generation, where tanh is still
+# unsolved after 10 -- and the Two Spirals runner keeps its recorded trajectory (a golden only:
+# 10 generations is far from that task's finding). Short budgets of the papers' own runners.
+# ===========================================================================
+@pytest.fixture(scope="class")
+def depth_and_spirals_results():
+    body = (
+        "import E8_depth_sensitivity as e8\n"
+        "import E7_two_spirals_per_function as e7\n"
+        "e8.MAX_GENERATIONS = 10\n"
+        "out = {}\n"
+        "for fn in ('sin', 'tanh'):\n"
+        "    r = e8.run_single_trial(fn, 4, 42)\n"
+        "    out['e8_' + fn] = {'solved': bool(r.solved), 'solved_gen': r.solved_gen, "
+        "'best': float(r.best_fitness)}\n"
+        "r = e7.run_single_trial('sin', e7.ACTIVATION_LIST.index('sin'), 42, max_generations=10, "
+        "pop_size=100)\n"
+        "out['e7_sin'] = {'solved': bool(r.solved), 'best': float(r.best_fitness)}\n"
+    )
+    return _run_paper(PAPERS / "emr-dynamic-functions" / "scripts", body)
+
+
+class TestDepthAndSpiralsPaper:
+    def test_sin_solves_parity4_at_depth4_immediately(self, depth_and_spirals_results):
+        r = depth_and_spirals_results["e8_sin"]
+        assert r["solved"] is True
+        assert r["solved_gen"] == 1
+        assert abs(r["best"] - 0.9988052248954773) < GOLD_TOL
+
+    def test_tanh_does_not_at_depth4(self, depth_and_spirals_results):
+        r = depth_and_spirals_results["e8_tanh"]
+        assert r["solved"] is False
+        assert abs(r["best"] - 0.8186081647872925) < GOLD_TOL
+
+    def test_two_spirals_golden(self, depth_and_spirals_results):
+        r = depth_and_spirals_results["e7_sin"]
+        assert r["solved"] is False
+        assert abs(r["best"] - 0.7501146197319031) < GOLD_TOL
 
 
 # ===========================================================================

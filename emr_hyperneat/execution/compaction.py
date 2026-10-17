@@ -36,7 +36,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-__all__ = ["ActiveSet", "find_active_positions", "compact_weights", "remap_sparse_hh"]
+__all__ = ["ActiveSet", "find_active_positions", "compact_weights", "remap_sparse_hh",
+           "bucket_size", "bucket_active_set", "pad_positions"]
 
 
 class ActiveSet(NamedTuple):
@@ -51,6 +52,29 @@ class ActiveSet(NamedTuple):
     indices: np.ndarray
     num_active: int
     total_positions: int
+    size: Optional[int] = None
+    """Length of the compact arrays when they are padded (`bucket_active_set`); None means
+    exactly `num_active`. Positions `num_active .. size - 1` are virtual: zero weights, no
+    connection, mask False."""
+
+    @property
+    def length(self) -> int:
+        """Length of the compact position axis the evaluation sees."""
+        return self.num_active if self.size is None else self.size
+
+    @property
+    def search_indices(self) -> np.ndarray:
+        """Sorted indices over the whole compact axis: the real positions, then virtual ones.
+
+        The virtual positions are numbered from `total_positions` up, so they sort after every
+        real position and `searchsorted` still returns the exact compact index of a real one.
+        """
+        pad = self.length - self.num_active
+        if pad <= 0:
+            return self.indices
+        virtual = np.arange(self.total_positions, self.total_positions + pad,
+                            dtype=self.indices.dtype)
+        return np.concatenate([self.indices, virtual])
 
     @property
     def reduction(self) -> float:
@@ -86,6 +110,42 @@ def find_active_positions(masks: Any) -> ActiveSet:
         num_active=int(indices.size),
         total_positions=total_positions,
     )
+
+
+def bucket_size(num_active: int, total_positions: int) -> int:
+    """The padded length for `num_active` real positions.
+
+    Rounded up to a step of `max(64, 2 ** (floor(log2 n) - 3))`: at most 63 positions of
+    padding below 512, at most an eighth of `n` above, about eight sizes per doubling, and
+    never beyond the uncompacted ceiling (nor below `n`).
+    """
+    n = int(num_active)
+    if n <= 0:
+        return 0
+    step = max(64, 1 << max(0, n.bit_length() - 1 - 3))
+    size = -(-n // step) * step
+    return max(n, min(size, int(total_positions)))
+
+
+def bucket_active_set(active: ActiveSet) -> ActiveSet:
+    """The same active set with its compact axis padded to `bucket_size`."""
+    return active._replace(size=bucket_size(active.num_active, active.total_positions))
+
+
+def pad_positions(values: Any, active: ActiveSet, axis: int, fill: Any = 0) -> jnp.ndarray:
+    """Gather the real positions of `values` along `axis` on the host and pad with `fill`.
+
+    The gather runs in numpy: done on the device, a gather to a new length would compile a new
+    executable, which is what the padding is there to avoid.
+    """
+    host = np.asarray(values)
+    shape = list(host.shape)
+    shape[axis] = active.length
+    out = np.full(shape, fill, dtype=host.dtype)
+    index = [slice(None)] * host.ndim
+    index[axis] = slice(0, active.num_active)
+    out[tuple(index)] = np.take(host, active.indices, axis=axis)
+    return jax.device_put(out)
 
 
 def compact_weights(
@@ -125,6 +185,14 @@ def compact_weights(
                 f"{name} must be 3-D with positions last "
                 f"(..., {active.total_positions}), got shape {array.shape}"
             )
+    if active.length > active.num_active:
+        # Padded compact axis: the virtual positions carry zero weights in and out.
+        n = active.num_active
+        W1_act = np.zeros(W1_np.shape[:2] + (active.length,), dtype=W1_np.dtype)
+        W2_act = np.zeros(W2_np.shape[:2] + (active.length,), dtype=W2_np.dtype)
+        W1_act[:, :, :n] = W1_np[:, :, active.indices]
+        W2_act[:, :, :n] = W2_np[:, :, active.indices]
+        return jax.device_put(W1_act), jax.device_put(W2_act)
     W1_act = np.ascontiguousarray(W1_np[:, :, active.indices])
     W2_act = np.ascontiguousarray(W2_np[:, :, active.indices])
     return jax.device_put(W1_act), jax.device_put(W2_act)
@@ -154,7 +222,10 @@ def remap_sparse_hh(sparse_hh: Any, active: ActiveSet) -> Any:
             "cannot remap into an empty active set; callers must short-circuit "
             "the evaluation instead (every output is sigmoid(0))"
         )
-    active_device = jax.device_put(active.indices)
+    # Over the padded axis when there is one (a stable shape, one executable per bucket); the
+    # virtual positions sort after every real one, so a real position's compact index is the
+    # same, and invalid entries clip to the same `num_active - 1` as without padding.
+    active_device = jax.device_put(active.search_indices)
     from_compact = jnp.searchsorted(active_device, sparse_hh.from_indices)
     to_compact = jnp.searchsorted(active_device, sparse_hh.to_indices)
     upper = active.num_active - 1

@@ -89,7 +89,7 @@ class TestGlobalAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': func,
+            'global_function': func,
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
@@ -240,7 +240,7 @@ class TestJointActivationAggregation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
@@ -276,7 +276,7 @@ class TestAggregationFunctionBehavior:
             hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
             hmr['aggregation'] = {
                 'mode': 'global',
-                'global_aggregation': func,
+                'global_function': func,
             }
             result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
             results[func] = result.best_fitness
@@ -308,7 +308,7 @@ class TestComprehensiveAggregation:
             hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
             hmr['aggregation'] = {
                 'mode': 'global',
-                'global_aggregation': func,
+                'global_function': func,
             }
             result = run_quick_evolution(algorithm, config, xor_problem, generations=STANDARD_GENERATIONS)
 
@@ -409,7 +409,7 @@ class TestMaxabsAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'maxabs',
+            'global_function': 'maxabs',
         }
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -428,7 +428,7 @@ class TestMaxabsAggregation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'maxabs',
+            'global_function': 'maxabs',
         }
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -533,7 +533,7 @@ class TestTrueAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
             'use_true_aggregation': True,
         }
 
@@ -548,7 +548,7 @@ class TestTrueAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
             'use_true_aggregation': False,
         }
 
@@ -583,7 +583,7 @@ class TestTrueAggregation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
             'use_true_aggregation': True,
         }
 
@@ -598,7 +598,7 @@ class TestTrueAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'mean',
+            'global_function': 'mean',
             'use_true_aggregation': use_true,
         }
 

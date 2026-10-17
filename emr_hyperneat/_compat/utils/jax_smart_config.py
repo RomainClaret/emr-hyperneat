@@ -272,17 +272,6 @@ def _configure_gpu_memory(platform_info: PlatformInfo):
         logger.info(f"Large GPU detected ({total_gpu_memory}MB), using 30% memory allocation")
         os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
     
-    # Additional XLA flags for memory efficiency
-    # Note: Only use flags that are known to be valid
-    xla_flags = os.environ.get('XLA_FLAGS', '')
-    
-    # Add GPU-specific optimization flags if not already present
-    # These help with memory efficiency
-    if '--xla_gpu_deterministic_ops=true' not in xla_flags:
-        xla_flags += ' --xla_gpu_deterministic_ops=true'
-    
-    os.environ['XLA_FLAGS'] = xla_flags.strip()
-    
     logger.info(f"GPU memory configuration complete - GPUs: {num_gpus}, "
                f"Total memory: {total_gpu_memory}MB")
 

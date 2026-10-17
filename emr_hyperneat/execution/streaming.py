@@ -3,7 +3,7 @@
 Most of streaming already lives on the main algorithm class, as the
 `_build_matrices_streaming` step selected inside the normal generation loop. That
 factoring is the correct one -- it swaps a step rather than forking the loop, so it
-composes with `locality_radius`, LEO, geometry seeding, dynamic functions and
+composes with `locality_radius`, geometry seeding, dynamic functions and
 neuromodulation, all of which the now-removed streaming subclass silently dropped.
 
 What could not stay on the class is the recurrent evaluator below, because it is

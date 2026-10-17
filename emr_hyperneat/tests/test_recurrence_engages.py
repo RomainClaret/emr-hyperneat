@@ -154,7 +154,8 @@ class TestModesAgree:
         fitness) because the offload path never incremented _current_generation
         and never consulted the h->h cache manager; the cache pass-through fix
         restored both, and the two modes now produce identical trajectories:
-        both [0.630004346, 0.589477658] at depth 3, pop 8, seed 7.
+        one trajectory at depth 3, pop 8, seed 7 (the assertion compares the modes;
+        the values recorded for 0.1.0 predate the masked multi-hop expansion).
         """
         results = {
             m.value: run_generations(recurrent_config(depth=3), m)[1]
@@ -170,8 +171,9 @@ class TestModesAgree:
         subdivision of the whole level) where streaming and depth_offload use the
         canonical per-parent variance over the four level-1 children. With
         variance_rule defaulting to 'canonical', standard reaches the same
-        substrate and fitness: [32, 40, 12, 0] and [0.630004346, 0.589477658] at
-        depth 3, pop 8, seed 7 on Apple Silicon. 'legacy' restores the old rule
+        substrate ([32, 40, 12, 0]) and the same fitness trajectory at depth 3,
+        pop 8, seed 7 on Apple Silicon (the fitness values recorded for 0.1.0
+        predate the masked multi-hop expansion). 'legacy' restores the old rule
         for reproducing published standard-path runs (TestVarianceRule).
         """
         results = {

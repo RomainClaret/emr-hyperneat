@@ -75,25 +75,29 @@ def _run(cfg_dict, n_generations=3, seed=42):
     return best
 
 
-def test_emr_runs_xor(n_generations=3, seed=42):
-    """Base EMR path (single CPPN output)."""
-    return _run(_build_config(), n_generations, seed)
-
-
-def test_emr_dynamic_functions(n_generations=3, seed=42):
-    """Per-node dynamic activation functions, exercises the multi-output CPPN
-    path (num_cppn_outputs > 1)."""
+def _dynamic_functions_config():
     cfg = _build_config()
     cfg["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]["dynamic_functions"] = {
         "mode": "cppn_output",
         "num_activations": 6,
     }
-    return _run(cfg, n_generations, seed)
+    return cfg
+
+
+def test_emr_runs_xor(n_generations=3, seed=42):
+    """Base EMR path (single CPPN output)."""
+    _run(_build_config(), n_generations, seed)
+
+
+def test_emr_dynamic_functions(n_generations=3, seed=42):
+    """Per-node dynamic activation functions, exercises the multi-output CPPN
+    path (num_cppn_outputs > 1)."""
+    _run(_dynamic_functions_config(), n_generations, seed)
 
 
 if __name__ == "__main__":
     print("[base EMR / XOR]")
-    bf = test_emr_runs_xor()
+    bf = _run(_build_config())
     print("[dynamic_functions / multi-output CPPN]")
-    df = test_emr_dynamic_functions()
+    df = _run(_dynamic_functions_config())
     print(f"\nSMOKE OK -> base best={bf:.4f} | dynamic_functions best={df:.4f}")

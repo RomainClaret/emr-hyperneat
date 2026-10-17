@@ -278,8 +278,7 @@ def build_arms() -> List[Dict[str, Any]]:
             "name": "probe_geometry_standard",
             "build": EMRHyperNEAT,
             "config": base_config(
-                geometry_seeding={"enabled": True, "seed_weight": -1.0,
-                                  "use_7d_inputs": True}),
+                geometry_seeding={"enabled": True, "seed_weight": -1.0}),
             "note": "DIVERGENCE 2 reference: geometry seeding on the main class, "
                     "which switches the CPPN to 7-D inputs.",
         },
@@ -288,8 +287,7 @@ def build_arms() -> List[Dict[str, Any]]:
             "build": EMRHyperNEAT,
             "config": mode_config(
                 "depth_offload",
-                geometry_seeding={"enabled": True, "seed_weight": -1.0,
-                                  "use_7d_inputs": True}),
+                geometry_seeding={"enabled": True, "seed_weight": -1.0}),
             "note": "Geometry seeding used to raise a 5-D against 7-D shape error on "
                     "the offload path. After unification it must run.",
         },

@@ -266,8 +266,12 @@ class TestMultiTaskEvolution:
 class TestMultiTaskWithFeatures:
     """Tests for multi-task with other features enabled."""
 
-    def test_multi_task_with_dynamic_functions(self, algorithm, two_task_problems):
-        """Verify multi-task works with dynamic functions."""
+    def test_multi_task_refuses_dynamic_functions(self, algorithm, two_task_problems):
+        """Multi-task evaluation applies one activation per task, so per-node ones are refused.
+
+        It used to accept the combination and ignore the per-node activations; a test that
+        only checked for no error and a positive fitness passed either way.
+        """
         config = create_config_with_multi_task(
             task_names=two_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt'
@@ -275,15 +279,8 @@ class TestMultiTaskWithFeatures:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
 
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
+        with pytest.raises(ValueError, match="run_generation_multitask evaluates every task"):
+            algorithm.create_config(config)
 
     def test_multi_task_with_full_recurrence(self, algorithm, two_task_problems):
         """Verify multi-task works with full recurrence."""
@@ -392,15 +389,18 @@ class TestComprehensiveMultiTask:
 
     @pytest.mark.slow
     def test_5_task_with_all_features(self, algorithm, five_task_problems):
-        """Verify 5-task evolution with all features enabled."""
+        """5-task evolution with every feature multi-task evaluation applies.
+
+        True neuromodulation and full recurrence. Per-node activation and aggregation are
+        refused under multi-task evaluation (see test_multi_task_refuses_dynamic_functions).
+        """
         config = create_config_with_multi_task(
             task_names=five_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='min'
         )
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
-        hmr['aggregation'] = {'mode': 'global', 'global_aggregation': 'sum'}
+        hmr['recurrence'] = {'preset': 'full_recurrent'}
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -593,194 +593,50 @@ class TestJointEvolution:
         assert_no_errors(result)
 
 
-class TestOrthogonalityBonus:
-    """Tests for orthogonality_bonus parameter."""
+class TestConstantBonusesRaise:
+    """The orthogonality and specialization bonuses add one value to every genome of a generation (computed from the
+    tasks' NT vectors and from the population's mean fitness variance), which never changes a rank within it: a
+    non-zero value raises, as a configuration key, as an argument of run_generation_multitask, and as
+    orthogonality_bonus_weight on a multi-task configuration built by hand. They replace TestOrthogonalityBonus,
+    TestSpecializationBonus and TestCombinedBonuses, which asserted only that nothing raised."""
 
-    def test_orthogonality_bonus_disabled(self, algorithm, two_task_problems):
-        """Verify orthogonality_bonus=0.0 works (default)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['orthogonality_bonus'] = 0.0
+    @pytest.mark.parametrize('key, value', [('orthogonality_bonus', 0.3), ('specialization_bonus', 0.2)])
+    def test_the_configuration_key_raises(self, two_task_problems, key, value):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask'][key] = value
+        with pytest.raises(ValueError, match=f'multitask.{key}=.* never changes a rank'):
+            EMRHyperNEAT().create_config(config)
 
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='mean',
-            generations=QUICK_GENERATIONS
-        )
+    @pytest.mark.parametrize('argument, value', [('orthogonality_bonus', 0.3), ('specialization_bonus', 0.2)])
+    def test_the_argument_raises(self, algorithm, two_task_problems, argument, value):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        state = algorithm.initialize(algorithm.create_config(config), two_task_problems['problems'][0],
+                                     seed=DEFAULT_SEED)
+        with pytest.raises(ValueError, match=f'{argument}=.* one value to every genome'):
+            algorithm.run_generation_multitask(state, problems=two_task_problems['problems'],
+                                               neurotransmitters=two_task_problems['nt_vectors'],
+                                               **{argument: value})
 
-        assert_no_errors(result)
+    def test_a_hand_built_orthogonality_weight_raises(self, algorithm, two_task_problems):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        state = algorithm.initialize(algorithm.create_config(config), two_task_problems['problems'][0],
+                                     seed=DEFAULT_SEED)
+        algorithm.multitask_config.orthogonality_bonus_weight = 0.2
+        with pytest.raises(ValueError, match='orthogonality_bonus_weight=.* one value to every genome'):
+            algorithm.run_generation_multitask(state, problems=two_task_problems['problems'],
+                                               neurotransmitters=two_task_problems['nt_vectors'])
 
-    @pytest.mark.parametrize("bonus", [0.1, 0.2, 0.5])
-    def test_orthogonality_bonus_values(self, algorithm, two_task_problems, bonus):
-        """Verify orthogonality_bonus with recommended values (0.1-0.5)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['orthogonality_bonus'] = bonus
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='mean',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    def test_orthogonality_bonus_with_min_aggregation(self, algorithm, two_task_problems):
-        """Verify orthogonality_bonus works with min aggregation."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='min'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['orthogonality_bonus'] = 0.3
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='min',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-
-class TestSpecializationBonus:
-    """Tests for specialization_bonus parameter."""
-
-    def test_specialization_bonus_disabled(self, algorithm, two_task_problems):
-        """Verify specialization_bonus=0.0 works (default)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['specialization_bonus'] = 0.0
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='mean',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    @pytest.mark.parametrize("bonus", [0.1, 0.2, 0.5])
-    def test_specialization_bonus_values(self, algorithm, two_task_problems, bonus):
-        """Verify specialization_bonus with different values."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['specialization_bonus'] = bonus
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='mean',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    def test_specialization_bonus_with_three_tasks(self, algorithm, three_task_problems):
-        """Verify specialization_bonus works with 3 tasks."""
-        config = create_config_with_multi_task(
-            task_names=three_task_problems['task_names'],
-            fitness_aggregation='min'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['specialization_bonus'] = 0.2
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=three_task_problems['problems'],
-            nt_vectors=three_task_problems['nt_vectors'],
-            aggregation_method='min',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-
-class TestCombinedBonuses:
-    """Tests for combining orthogonality_bonus and specialization_bonus."""
-
-    def test_both_bonuses_enabled(self, algorithm, two_task_problems):
-        """Verify both bonuses can be enabled together."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['orthogonality_bonus'] = 0.2
-        hmr['multitask']['specialization_bonus'] = 0.1
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='mean',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    def test_bonuses_with_weighted_aggregation(self, algorithm, two_task_problems):
-        """Verify bonuses work with weighted aggregation."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='weighted'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['task_weights'] = [0.6, 0.4]
-        hmr['multitask']['orthogonality_bonus'] = 0.1
-        hmr['multitask']['specialization_bonus'] = 0.1
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='weighted',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    def test_full_feature_combination(self, algorithm, three_task_problems):
-        """Verify all multi-task features can be combined."""
-        config = create_config_with_multi_task(
-            task_names=three_task_problems['task_names'],
-            fitness_aggregation='weighted'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['task_weights'] = [0.5, 0.3, 0.2]
-        hmr['multitask']['joint_evolution'] = True
-        hmr['multitask']['orthogonality_bonus'] = 0.2
-        hmr['multitask']['specialization_bonus'] = 0.1
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=three_task_problems['problems'],
-            nt_vectors=three_task_problems['nt_vectors'],
-            aggregation_method='weighted',
-            generations=QUICK_GENERATIONS
-        )
-
+    @pytest.mark.parametrize('key', ['orthogonality_bonus', 'specialization_bonus'])
+    def test_zero_is_accepted(self, algorithm, two_task_problems, key):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask'][key] = 0.0
+        result = run_multitask_evolution(algorithm, config, problems=two_task_problems['problems'],
+                                         nt_vectors=two_task_problems['nt_vectors'], aggregation_method='mean',
+                                         generations=1)
         assert_no_errors(result)
 
 
@@ -956,27 +812,6 @@ class TestSoftminExtremes:
         )
 
         assert_no_errors(result, f"softmin_temperature={temp} failed")
-
-    def test_softmin_extremes_with_bonuses(self, algorithm, two_task_problems):
-        """Verify extreme temperatures work with orthogonality and specialization bonuses."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='softmin'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['softmin_temperature'] = 0.01
-        hmr['multitask']['orthogonality_bonus'] = 0.2
-        hmr['multitask']['specialization_bonus'] = 0.1
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='softmin',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
 
 
 class TestManyTasks:
@@ -1260,69 +1095,39 @@ class TestFitnessMode:
         assert_no_errors(result)
 
 
-class TestModulationPenalty:
-    """Tests for modulation_penalty parameter.
+class TestNoEffectMultiTaskSettings:
+    """Multi-task settings nothing in EMR applies raise unless left at their default: the orthogonality
+    and specialization bonuses add one constant to every genome, so selection never sees them;
+    specialization_bonus_weight, modulation_penalty, confusion_eval_frequency and branch_gating_mode
+    are never read; orthogonality_metric applies only with an orthogonality bonus. In 0.1.0 these keys
+    were dropped, and the classes this one replaces (TestModulationPenalty, TestOrthogonalityMetric,
+    TestBranchGatingMode, TestSpecializationBonusWeight, TestConfusionEvalFrequency) asserted only that
+    nothing raised."""
 
-    The modulation_penalty rewards networks that produce different modulation
-    patterns per task (encourages task-specific behavior).
-    Recommended values: 0.01-0.1; 0.0 = disabled.
-    """
+    @pytest.mark.parametrize('key, value', [
+        ('orthogonality_bonus_weight', 0.2), ('specialization_bonus_weight', 0.5),
+        ('modulation_penalty', 0.05), ('confusion_eval_frequency', 5), ('branch_gating_mode', 'spatial'),
+        ('orthogonality_metric', 'cosine_max'),
+    ])
+    def test_a_setting_without_effect_raises(self, two_task_problems, key, value):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask'][key] = value
+        with pytest.raises(ValueError, match=f'multitask.{key}='):
+            EMRHyperNEAT().create_config(config)
 
-    def test_modulation_penalty_disabled(self, algorithm, two_task_problems):
-        """Verify modulation_penalty=0.0 works (disabled)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['modulation_penalty'] = 0.0
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    @pytest.mark.parametrize("penalty", [0.01, 0.05, 0.1])
-    def test_modulation_penalty_values(self, algorithm, two_task_problems, penalty):
-        """Verify recommended modulation_penalty values (0.01-0.1)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['modulation_penalty'] = penalty
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result, f"modulation_penalty={penalty} failed")
-
-    def test_modulation_penalty_with_softmin(self, algorithm, two_task_problems):
-        """Verify modulation_penalty works with softmin aggregation."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='softmin'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['modulation_penalty'] = 0.05
-        hmr['multitask']['softmin_temperature'] = 0.5
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='softmin',
-            generations=QUICK_GENERATIONS
-        )
-
+    @pytest.mark.parametrize('key, value', [
+        ('orthogonality_bonus_weight', 0.0), ('specialization_bonus_weight', 0.0),
+        ('modulation_penalty', 0.0), ('confusion_eval_frequency', 0), ('branch_gating_mode', 'none'),
+        ('orthogonality_metric', 'cosine_mean'),
+    ])
+    def test_the_default_is_accepted(self, algorithm, two_task_problems, key, value):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask'][key] = value
+        result = run_multitask_evolution(algorithm, config, problems=two_task_problems['problems'],
+                                         nt_vectors=two_task_problems['nt_vectors'],
+                                         aggregation_method='mean', generations=1)
         assert_no_errors(result)
 
 
@@ -1512,153 +1317,51 @@ class TestModulationStrengthOverride:
         assert_no_errors(result, f"modulation_strength_override={strength} failed")
 
 
-class TestOrthogonalityMetric:
-    """Tests for orthogonality_metric options.
-
-    Controls how orthogonality between NT vectors is measured:
-    - 'cosine_mean': Mean cosine similarity (default)
-    - 'cosine_max': Maximum cosine similarity
-    - 'correlation': Correlation-based metric
-    """
-
-    @pytest.mark.parametrize("metric", ['cosine_mean', 'cosine_max', 'correlation'])
-    def test_orthogonality_metric_options(self, algorithm, two_task_problems, metric):
-        """Verify all orthogonality_metric options work."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['orthogonality_bonus_weight'] = 0.2
-        hmr['multitask']['orthogonality_metric'] = metric
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result, f"orthogonality_metric='{metric}' failed")
-
-    def test_orthogonality_metric_with_three_tasks(self, algorithm, three_task_problems):
-        """Verify orthogonality_metric works with 3 tasks."""
-        config = create_config_with_multi_task(
-            task_names=three_task_problems['task_names'],
-            fitness_aggregation='min'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['orthogonality_bonus_weight'] = 0.3
-        hmr['multitask']['orthogonality_metric'] = 'cosine_max'
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=three_task_problems['problems'],
-            nt_vectors=three_task_problems['nt_vectors'],
-            aggregation_method='min',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-
-class TestBranchGatingMode:
-    """Tests for branch_gating_mode in multi-task (Liu & Wang 2024 SST mechanism).
-
-    Controls dendritic branch-specific gating:
-    - 'none': No branch gating (default)
-    - 'spatial': Spatial branch gating
-    - 'hierarchical': Hierarchical branch gating
-    """
-
-    @pytest.mark.parametrize("mode", ['none', 'spatial', 'hierarchical'])
-    def test_branch_gating_mode_options(self, algorithm, two_task_problems, mode):
-        """Verify all branch_gating_mode options work."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['branch_gating_mode'] = mode
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result, f"branch_gating_mode='{mode}' failed")
-
-    def test_branch_gating_with_softmin(self, algorithm, two_task_problems):
-        """Verify branch_gating_mode works with softmin aggregation."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='softmin'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['branch_gating_mode'] = 'spatial'
-        hmr['multitask']['softmin_temperature'] = 0.5
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='softmin',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-
 class TestTwoModuleMode:
-    """Tests for two_module_mode architecture (Liu & Wang 2024 PFC/Sensorimotor separation).
+    """two_module_mode (Liu & Wang 2024 PFC/Sensorimotor separation), feed-forward only.
 
-    Controls two-module architecture:
-    - 'none': Single module (default)
-    - 'parallel': Parallel two-module architecture
-    - 'sequential': Sequential two-module architecture
+    In 0.1.0 the configuration key was dropped, and the mode itself read a cached grid that nothing
+    set, so every run was one module; these tests ran recurrent too, which two-module mode refuses.
     """
 
-    @pytest.mark.parametrize("mode", ['none', 'parallel', 'sequential'])
-    def test_two_module_mode_options(self, algorithm, two_task_problems, mode):
-        """Verify all two_module_mode options work."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['two_module_mode'] = mode
+    @staticmethod
+    def _generation(two_task_problems, mode, **multitask):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean',
+                                               recurrence_preset='feedforward', population_size=20)
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask'].update(
+            two_module_mode=mode, **multitask)
+        algorithm = EMRHyperNEAT()
+        state = algorithm.initialize(algorithm.create_config(config), two_task_problems['problems'][0],
+                                     seed=DEFAULT_SEED)
+        _, metrics = algorithm.run_generation_multitask(
+            state, problems=two_task_problems['problems'],
+            neurotransmitters=two_task_problems['nt_vectors'], aggregation_method='mean')
+        return metrics
 
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
+    @pytest.mark.parametrize("mode", ['parallel', 'sequential'])
+    def test_two_modules_run(self, two_task_problems, mode):
+        """The mode reaches the evaluation and changes the fitness of the same population."""
+        one = self._generation(two_task_problems, 'none')
+        two = self._generation(two_task_problems, mode)
+        assert one.custom_metrics['two_module_mode'] is None
+        assert two.custom_metrics['two_module_mode'] == mode
+        assert two.custom_metrics['per_task_mean'] != one.custom_metrics['per_task_mean']
 
-        assert_no_errors(result, f"two_module_mode='{mode}' failed")
+    def test_two_module_with_generalist_bonus(self, two_task_problems):
+        """two_module_mode with the generalist bonus, both from the configuration."""
+        metrics = self._generation(two_task_problems, 'parallel', generalist_bonus_type='min_bonus',
+                                   generalist_bonus_weight=0.1)
+        assert metrics.custom_metrics['two_module_mode'] == 'parallel'
+        assert metrics.custom_metrics['generalist_bonus_type'] == 'min_bonus'
 
-    def test_two_module_with_generalist_bonus(self, algorithm, two_task_problems):
-        """Verify two_module_mode works with generalist bonus."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='min'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['two_module_mode'] = 'parallel'
-        hmr['multitask']['generalist_bonus_type'] = 'min_bonus'
-        hmr['multitask']['generalist_bonus_weight'] = 0.1
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            aggregation_method='min',
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
+    def test_recurrence_is_refused(self, two_task_problems):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask']['two_module_mode'] = (
+            'parallel')
+        with pytest.raises(ValueError, match='two_module_mode evaluates feed-forward only'):
+            EMRHyperNEAT().create_config(config)
 
 
 class TestPerTaskActivation:
@@ -1752,91 +1455,66 @@ class TestPerTaskActivation:
         assert_no_errors(result)
 
 
-class TestSpecializationBonusWeight:
-    """Tests for specialization_bonus_weight parameter (different from specialization_bonus).
+class TestMultiTaskFitnessModes:
+    """compute_fitness, the multi-task evaluators' fitness, used to compute MSE for 'accuracy_confident', for 'ce' and
+    for any unknown name. 'accuracy_confident' is computed now; 'ce' is refused: categorical cross-entropy on these
+    evaluators' sigmoid outputs ranks a constant output above a solver."""
 
-    This is the weight for NT-task alignment bonus from confusion matrix gap.
-    """
+    def test_accuracy_confident(self):
+        import numpy as np
+        from emr_hyperneat.emrhyperneat import compute_fitness
+        outputs = jnp.array([[0.9], [0.2], [0.6], [0.4]])
+        targets = jnp.array([[1.0], [0.0], [0.0], [1.0]])
+        expected = 0.5 + 0.1 * float(np.mean(np.abs(np.array([0.9, 0.2, 0.6, 0.4]) - 0.5) * 2.0))
+        confident = float(compute_fitness(outputs, targets, 'accuracy_confident'))
+        assert confident == pytest.approx(expected, abs=1e-6)
+        assert confident != pytest.approx(float(compute_fitness(outputs, targets, 'mse')), abs=1e-3)
 
-    def test_specialization_bonus_weight_disabled(self, algorithm, two_task_problems):
-        """Verify specialization_bonus_weight=0.0 works (disabled)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['specialization_bonus_weight'] = 0.0
+    def test_ce_is_refused(self, algorithm, two_task_problems):
+        from emr_hyperneat.emrhyperneat import compute_fitness
+        with pytest.raises(ValueError, match="'ce' is categorical cross-entropy"):
+            compute_fitness(jnp.full((4, 1), 0.9999), jnp.array([[0.0], [1.0], [1.0], [0.0]]), 'ce')
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        state = algorithm.initialize(algorithm.create_config(config), two_task_problems['problems'][0],
+                                     seed=DEFAULT_SEED)
+        algorithm.multitask_config.fitness_mode = 'ce'
+        generation = algorithm._current_generation
+        with pytest.raises(ValueError, match="fitness_mode must be one of"):
+            algorithm.run_generation_multitask(state, problems=two_task_problems['problems'],
+                                               neurotransmitters=two_task_problems['nt_vectors'])
+        # Refused before the generation is built
+        assert algorithm._current_generation == generation
 
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
+    @pytest.mark.parametrize('mode', ['mse', 'accuracy', 'acc_mse', 'hybrid', 'bce', 'soft_accuracy',
+                                      'accuracy_confident'])
+    def test_the_configuration_key_sets_the_mode(self, algorithm, two_task_problems, mode):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask']['fitness_mode'] = mode
+        algorithm.create_config(config)
+        assert algorithm.multitask_config.fitness_mode == mode
 
-        assert_no_errors(result)
+    @pytest.mark.parametrize('mode', ['ce', 'no_such_mode'])
+    def test_the_configuration_key_refuses_other_modes(self, algorithm, two_task_problems, mode):
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'],
+                                               fitness_aggregation='mean')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multitask']['fitness_mode'] = mode
+        with pytest.raises(ValueError, match="multitask.fitness_mode must be one of"):
+            algorithm.create_config(config)
 
-    @pytest.mark.parametrize("weight", [0.1, 0.3, 0.5])
-    def test_specialization_bonus_weight_values(self, algorithm, two_task_problems, weight):
-        """Verify different specialization_bonus_weight values work."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['specialization_bonus_weight'] = weight
+    @pytest.mark.parametrize('targets_1d', [False, True])
+    def test_a_constant_output_never_outscores_a_solver(self, targets_1d):
+        from emr_hyperneat.emrhyperneat import MULTITASK_FITNESS_MODES, compute_fitness
+        targets = jnp.array([[0.0], [1.0], [1.0], [0.0]])
+        if targets_1d:
+            targets = targets[:, 0]
+        solver = jnp.array([[0.01], [0.99], [0.99], [0.01]])
+        constant = jnp.full((4, 1), 0.9999)
+        for mode in MULTITASK_FITNESS_MODES:
+            assert float(compute_fitness(solver, targets, mode)) > float(compute_fitness(constant, targets, mode)), mode
 
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result, f"specialization_bonus_weight={weight} failed")
-
-
-class TestConfusionEvalFrequency:
-    """Tests for confusion_eval_frequency parameter.
-
-    Controls how often confusion matrix is computed:
-    - 0: Disabled (default)
-    - N: Compute every N generations
-    """
-
-    def test_confusion_eval_disabled(self, algorithm, two_task_problems):
-        """Verify confusion_eval_frequency=0 works (disabled)."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['confusion_eval_frequency'] = 0
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result)
-
-    @pytest.mark.parametrize("frequency", [1, 5, 10])
-    def test_confusion_eval_frequency_values(self, algorithm, two_task_problems, frequency):
-        """Verify different confusion_eval_frequency values work."""
-        config = create_config_with_multi_task(
-            task_names=two_task_problems['task_names'],
-            fitness_aggregation='mean'
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['confusion_eval_frequency'] = frequency
-
-        result = run_multitask_evolution(
-            algorithm, config,
-            problems=two_task_problems['problems'],
-            nt_vectors=two_task_problems['nt_vectors'],
-            generations=QUICK_GENERATIONS
-        )
-
-        assert_no_errors(result, f"confusion_eval_frequency={frequency} failed")
+    def test_an_unknown_mode_raises(self):
+        from emr_hyperneat.emrhyperneat import compute_fitness
+        with pytest.raises(ValueError, match='unknown fitness mode'):
+            compute_fitness(jnp.zeros((2, 1)), jnp.zeros((2, 1)), 'f1')

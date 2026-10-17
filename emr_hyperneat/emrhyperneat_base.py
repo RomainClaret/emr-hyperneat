@@ -10,8 +10,9 @@ Two facts callers get wrong most often:
 
 - Multi-GPU engages only through ``run_until_threshold()``; ``run_generation()``
   is single-device by design.
-- ``run_until_threshold_with_fixed_hh()`` requires a ``recurrence_config`` with
-  recurrence enabled.
+- Recurrence is the configuration's ``emr_hyperneat.recurrence`` block;
+  ``run_until_threshold_with_fixed_hh()`` and the ``recurrence_config`` argument are
+  refused.
 
 The user-facing story lives in docs/architecture.md ("How a generation is
 computed"); this docstring intentionally stays short.
@@ -52,9 +53,6 @@ from emr_hyperneat._compat.core.base_algorithm import BaseAlgorithm, AlgorithmMe
 from emr_hyperneat._compat.utils.config_manager import ConfigManager
 from emr_hyperneat._compat.adapters.tensorneat_adapter import TensorNEATAdapter
 
-# Note: EMRConfig and discover_sparse_hh_vectorized_multi_hop are imported lazily
-# inside run_until_threshold_with_fixed_hh() to avoid circular imports
-
 
 # ============================================================================
 # Recurrence Configuration for H→H Caching
@@ -75,11 +73,12 @@ class RecurrenceConfig:
 
     Attributes:
         enabled: Master switch for recurrence features
-        allow_hidden_to_hidden: Enable Phase 2 discovery (iteration_level > 0)
+        allow_hidden_to_hidden: Discover hidden-to-hidden connections
         allow_backward: Enable backward connections (y_source > y_target)
         allow_lateral: Enable same-layer connections (y_source == y_target)
         allow_self_loops: Enable self-connections (same x,y)
-        iteration_level: Rounds of hidden→hidden discovery
+        iteration_level: Hops of the h->h multi-hop expansion (0 feed-forward, 1 direct
+            connections only, k adds composites up to k hops)
         activate_time: Forward pass iterations for signal propagation
         max_connections: Max connections per substrate (for vmap padding)
     """
@@ -1661,6 +1660,20 @@ def compute_subdivision_mask_single(
     return mask_A, mask_B, mask_C
 
 
+def _neat_operator_block(algo_params: Dict[str, Any], name: str,
+                         defaults: Dict[str, Any]) -> Dict[str, Any]:
+    """One NEAT operator block (``neat_mutation``, ``neat_species``, ``neat_selection``).
+
+    Returns the defaults overridden by the configured values. An unknown key raises, so a
+    misspelled setting is never dropped silently.
+    """
+    block = algo_params.get(name) or {}
+    unknown = sorted(set(block) - set(defaults))
+    if unknown:
+        raise ValueError(f"{name} has no setting {unknown}; its settings are {sorted(defaults)}")
+    return {**defaults, **block}
+
+
 def compute_hierarchical_variances_batch(
     all_weights: jnp.ndarray,
     grid: HierarchicalGridStructure,
@@ -1671,7 +1684,7 @@ def compute_hierarchical_variances_batch(
     Args:
         all_weights: CPPN outputs [pop_size, total_positions]
         grid: Pre-computed grid structure
-        legacy_level0_variance: If True, level 0 uses the pre-0.4 standard-path rule:
+        legacy_level0_variance: If True, level 0 uses the original standard-path rule:
             one scalar per genome over level 0's OWN four weights, so the whole level
             subdivides all-or-nothing. Default False: per-parent variance over the four
             level-1 children -- the rule every other level uses, the one the
@@ -1689,7 +1702,7 @@ def compute_hierarchical_variances_batch(
         num_cells = level_end - level_start
 
         if level == 0 and legacy_level0_variance:
-            # Legacy level 0 (pre-0.4 standard path): one scalar per genome over
+            # Legacy level 0 (the original standard path): one scalar per genome over
             # level 0's own four weights -- all-or-nothing subdivision of the level.
             level_weights = all_weights[:, level_start:level_end]
             variance = jnp.var(level_weights, axis=1, keepdims=True)
@@ -1849,7 +1862,7 @@ def compute_hierarchical_variances_batch_jit(
         level_size = level_sizes[level]
 
         if level == 0 and legacy_level0_variance:
-            # Legacy level 0 (pre-0.4 standard path): one scalar per genome over
+            # Legacy level 0 (the original standard path): one scalar per genome over
             # level 0's own four weights -- all-or-nothing subdivision of the level.
             level_weights = all_weights[:, level_start:level_end]
             variance = jnp.var(level_weights, axis=1, keepdims=True)
@@ -2333,6 +2346,72 @@ def _query_population_vmap_device_aware(cppn_forward, state, inputs,
         )
 
 
+def cppn_query_rows(
+    source_coord: Any,
+    target_positions: Any,
+    outgoing: bool,
+    geometry_seeding_enabled: bool = False,
+    agent_coord: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """The CPPN input rows for one source coordinate and every target position.
+
+    This is the single definition of EMR's query layout: every query helper builds
+    its rows here, and `emr_hyperneat.substrate.substrate_queries` hands the same
+    rows to consumers that evaluate CPPNs themselves.
+
+    Column order:
+      - 5-D: ``[x1, y1, x2, y2, 1]``, source first when ``outgoing``, target first
+        otherwise. The trailing column is a literal one.
+      - 7-D (geometry seeding): ``[x1, y1, x2, y2, dx, dy, 1]`` with the signed
+        deltas before the bias, ``dx = x2 - x1``.
+      - Swarm mode prepends ``[agent_x, agent_y]``.
+
+    Built with numpy rather than jnp: jnp.ones/tile use cached JIT traces that cause
+    cross-device errors in multi-GPU runs, and numpy arrays do not.
+
+    Args:
+        source_coord: One source coordinate (2,).
+        target_positions: Target positions (num_positions, 2).
+        outgoing: True for source -> target, False for target -> source.
+        geometry_seeding_enabled: Add the delta columns (7-D rows).
+        agent_coord: Optional (2,) agent team position for swarm mode.
+
+    Returns:
+        (num_positions, input_dim) rows in the coordinates' dtype (float32 in EMR).
+    """
+    num_positions = target_positions.shape[0]
+    source_np = np.tile(np.asarray(source_coord)[None, :], (num_positions, 1))
+    bias_np = np.ones((num_positions, 1), dtype=np.float32)
+    target_np = np.asarray(target_positions)
+
+    if geometry_seeding_enabled:
+        # Geometry seeding: add delta (coordinate differences) as CPPN inputs (Risi & Stanley 2012)
+        # Delta values allow CPPNs to learn direction-specific patterns
+        # Gaussian activation on delta naturally biases toward local connections (peaks at delta=0)
+        if outgoing:
+            delta_x = target_np[:, 0:1] - source_np[:, 0:1]
+            delta_y = target_np[:, 1:2] - source_np[:, 1:2]
+            inputs_np = np.concatenate([source_np, target_np, delta_x, delta_y, bias_np], axis=1)
+        else:
+            delta_x = source_np[:, 0:1] - target_np[:, 0:1]
+            delta_y = source_np[:, 1:2] - target_np[:, 1:2]
+            inputs_np = np.concatenate([target_np, source_np, delta_x, delta_y, bias_np], axis=1)
+    else:
+        # Standard 5D input: [x1, y1, x2, y2, bias]
+        if outgoing:
+            inputs_np = np.concatenate([source_np, target_np, bias_np], axis=1)
+        else:
+            inputs_np = np.concatenate([target_np, source_np, bias_np], axis=1)
+
+    # Swarm mode: prepend agent team position to CPPN inputs
+    # Extends input from [x1, y1, x2, y2, bias] to [agent_x, agent_y, x1, y1, x2, y2, bias]
+    if agent_coord is not None:
+        agent_np = np.tile(np.asarray(agent_coord)[None, :], (num_positions, 1))
+        inputs_np = np.concatenate([agent_np, inputs_np], axis=1)
+
+    return inputs_np
+
+
 def batch_query_population_positions(
     state: Any,
     cppns_transformed: Tuple,
@@ -2380,45 +2459,11 @@ def batch_query_population_positions(
     source_coord = jax.device_put(source_coord, device)
     target_positions = jax.device_put(target_positions, device)
 
-    pop_size = cppns_transformed[0].shape[0]
-    num_positions = target_positions.shape[0]
-
-    # Build CPPN inputs: [x1, y1, x2, y2, bias=1.0] or [x1, y1, x2, y2, delta_x, delta_y, bias=1.0]
-    # CRITICAL: Use numpy to create arrays, then device_put to target device.
-    # jnp.ones/tile use cached JIT traces that cause cross-device errors.
-    # numpy arrays don't have this issue - they're just Python objects.
-    source_np = np.tile(np.asarray(source_coord)[None, :], (num_positions, 1))
-    source_tiled = jax.device_put(source_np, device)
-    bias_np = np.ones((num_positions, 1), dtype=np.float32)
-    bias = jax.device_put(bias_np, device)
-    target_np = np.asarray(target_positions)
-    target_positions = jax.device_put(target_np, device)
-
-    if geometry_seeding_enabled:
-        # Geometry seeding: add delta (coordinate differences) as CPPN inputs (Risi & Stanley 2012)
-        # Delta values allow CPPNs to learn direction-specific patterns
-        # Gaussian activation on delta naturally biases toward local connections (peaks at delta=0)
-        if outgoing:
-            delta_x = target_np[:, 0:1] - source_np[:, 0:1]
-            delta_y = target_np[:, 1:2] - source_np[:, 1:2]
-            inputs_np = np.concatenate([source_np, target_np, delta_x, delta_y, bias_np], axis=1)
-        else:
-            delta_x = source_np[:, 0:1] - target_np[:, 0:1]
-            delta_y = source_np[:, 1:2] - target_np[:, 1:2]
-            inputs_np = np.concatenate([target_np, source_np, delta_x, delta_y, bias_np], axis=1)
-    else:
-        # Standard 5D input: [x1, y1, x2, y2, bias]
-        if outgoing:
-            inputs_np = np.concatenate([source_np, target_np, bias_np], axis=1)
-        else:
-            inputs_np = np.concatenate([target_np, source_np, bias_np], axis=1)
-
-    # Swarm mode: prepend agent team position to CPPN inputs
-    # Extends input from [x1, y1, x2, y2, bias] to [agent_x, agent_y, x1, y1, x2, y2, bias]
-    if agent_coord is not None:
-        agent_np = np.tile(np.asarray(agent_coord)[None, :], (num_positions, 1))
-        inputs_np = np.concatenate([agent_np, inputs_np], axis=1)
-
+    # Build CPPN inputs: [x1, y1, x2, y2, bias=1.0] or [x1, y1, x2, y2, delta_x, delta_y, bias=1.0].
+    # Rows are built with numpy, then device_put to the target device (see cppn_query_rows).
+    inputs_np = cppn_query_rows(
+        source_coord, target_positions, outgoing, geometry_seeding_enabled, agent_coord
+    )
     inputs = jax.device_put(inputs_np, device)
 
     # MULTI-GPU FIX: Use device-aware vmap with per-device JIT cache.
@@ -4469,6 +4514,13 @@ class EMRHyperNEATChunking(BaseAlgorithm):
             algo_params = hierarchical_config
 
         hmr_config = algo_params.get('emr_hyperneat', {})
+        if not hmr_config and (hierarchical_config.get('algorithm_params', {}).get('hmrhyperneat') is not None
+                               or 'hmr_hyperneat' in algo_params):
+            # An HMR-shaped configuration: EMR reads none of it. In 0.1.0 this only warned (below) and
+            # the run went ahead with every setting at its default.
+            raise ValueError(
+                "this configuration is shaped for the frozen HMR engine (algorithm_params.hmrhyperneat "
+                "or hmr_hyperneat); EMR reads algorithm_params.emrhyperneat.emr_hyperneat")
         if not hmr_config:
             # Every setting below reads from this block. Absent, they all take their
             # defaults and the run proceeds looking healthy, which is exactly what an
@@ -4485,9 +4537,9 @@ class EMRHyperNEATChunking(BaseAlgorithm):
             )
         self.initial_depth = hmr_config.get('initial_depth', 0)
         # Level-0 subdivision variance rule. 'canonical' (default): per-parent variance
-        # over the four level-1 children -- the rule the thesis and papers describe, the
+        # over the four level-1 children -- the rule the papers describe, the
         # one every other level uses, and the one streaming/depth_offload always used.
-        # 'legacy': the pre-0.4 standard-path rule, one scalar over level 0's own four
+        # 'legacy': the original standard-path rule, one scalar over level 0's own four
         # weights subdividing the level all-or-nothing, which every published
         # standard-path run used; pin it to reproduce those numbers bit for bit.
         self.variance_rule = hmr_config.get('variance_rule', 'canonical')
@@ -4501,19 +4553,22 @@ class EMRHyperNEATChunking(BaseAlgorithm):
         self.variance_threshold = hmr_config.get('variance_threshold', 0.03)
         self.division_threshold = hmr_config.get('division_threshold', 0.5)
         self.band_threshold = hmr_config.get('band_threshold', 0.3)
+        if self.band_threshold < 0:
+            # A negative band makes every zero cell a connection: the padded slots of the per-genome
+            # buckets and the positions outside a genome's active set (1,544 zero-weight duplicates
+            # per_genome, 129,684 outside-set connections union, on XOR, depth 3, population 30, at
+            # band -0.01).
+            raise ValueError(f"band_threshold must be >= 0, got {self.band_threshold}")
         self.max_weight = hmr_config.get('max_weight', 8.0)
         self.iteration_level = hmr_config.get('iteration_level', 1)
-        # DEPRECATION WARNING: iteration_level has no effect in this optimized implementation.
-        # Original ES-HyperNEAT (PUREPLES) uses iteration_level to control hidden→hidden
-        # connection discovery. This implementation omits hidden→hidden entirely for
-        # JAX vectorization. See module docstring "Architecture Limitation" for details.
+        # A top-level iteration_level is never read: hidden→hidden discovery and its level are
+        # configured in the emr_hyperneat.recurrence block.
         if 'iteration_level' in hmr_config and hmr_config['iteration_level'] != 1:
             import warnings
             warnings.warn(
-                f"iteration_level={self.iteration_level} has no effect in "
-                "this implementation, which omits hidden→hidden "
-                "connections (which iteration_level controls in original ES-HyperNEAT). "
-                "For hidden→hidden support, use PUREPLES ES-HyperNEAT instead.",
+                f"emr_hyperneat.iteration_level={self.iteration_level} has no effect; "
+                "hidden→hidden connections and their iteration level are configured in "
+                "emr_hyperneat.recurrence (e.g. recurrence.iteration_level).",
                 DeprecationWarning,
                 stacklevel=2
             )
@@ -4572,6 +4627,11 @@ class EMRHyperNEATChunking(BaseAlgorithm):
         self.substrate_output_coords = substrate_section.get('output_coords', [])
         default_activate_time = (2 ** self.max_depth) + 1
         self.activate_time = substrate_section.get('activate_time', default_activate_time)
+        # The defaults of dynamic_functions.hidden_activation and output_activation, as in HMR's
+        # dynamic-functions variant (EMRHyperNEAT._parse_dynamic_functions_config); 0.1.0 read
+        # neither key.
+        self.hidden_activation = substrate_section.get('hidden_activation', 'tanh')
+        self.output_activation = substrate_section.get('output_activation', 'sigmoid')
 
         # The DenseQuadtreeStructure is built LAZILY -- see the `_quadtree` access in
         # _discover_substrate_es_jax. It is the ES-HyperNEAT-lineage structure and is
@@ -4635,17 +4695,20 @@ class EMRHyperNEATChunking(BaseAlgorithm):
                 },
             },
             'population_size': population_size,
-            'mutation': {
+            # NEAT operator settings from neat_mutation, neat_species and neat_selection, over
+            # the defaults every run used before these blocks were read (0.1.0 applied the
+            # defaults whatever a configuration asked for).
+            'mutation': _neat_operator_block(algo_params, 'neat_mutation', {
                 'conn_add_prob': 0.5, 'conn_delete_prob': 0.5,
                 'node_add_prob': 0.2, 'node_delete_prob': 0.2,
-            },
-            'species': {
+            }),
+            'species': _neat_operator_block(algo_params, 'neat_species', {
                 'compatibility_threshold': 3.0,
                 'max_stagnation': 20, 'species_elitism': 15,
-            },
-            'selection': {
+            }),
+            'selection': _neat_operator_block(algo_params, 'neat_selection', {
                 'genome_elitism': 15, 'survival_threshold': 0.2,
-            },
+            }),
             'activation_options': ['tanh', 'sin', 'gauss'],
             'activation_default': 'tanh',
             'verbose': False,
@@ -5830,7 +5893,8 @@ class EMRHyperNEATChunking(BaseAlgorithm):
         if not isinstance(targets, jnp.ndarray):
             targets = jnp.array(targets, dtype=jnp.float32)
 
-        # Query CPPN for best genome (index 0 after sorting by fitness)
+        # Query CPPN for the best genome: index 0. TensorNEAT does not sort the population;
+        # it places the best genome of the last generation, unmutated, first.
         all_positions = h_grid.all_positions
 
         # Detect multi-output CPPN (e.g., dynamic functions adds activation channel)
@@ -9088,13 +9152,20 @@ class EMRHyperNEATMultiGPU(EMRHyperNEATChunking):
             island_config: Configuration for island model (legacy, optional)
             hybrid_config: Configuration for hybrid sharding (legacy, optional)
             pmap_config: Configuration for population pmap (legacy, optional)
-            recurrence_config: Configuration for recurrent network h→h caching (optional).
-                If provided, enables run_until_threshold_with_fixed_hh() method.
-        """
-        super().__init__(name=name, implementation=implementation)
+            recurrence_config: Refused when given. It configured only
+                run_until_threshold_with_fixed_hh, which is refused; recurrence is the
+                configuration's ``emr_hyperneat.recurrence`` block.
 
-        # Store recurrence config for h→h caching support
-        self.recurrence_config = recurrence_config
+        Raises:
+            ValueError: recurrence_config is given.
+        """
+        if recurrence_config is not None:
+            raise ValueError(
+                "recurrence_config configured only run_until_threshold_with_fixed_hh, which is "
+                "refused (it scored genomes with hidden-to-hidden connections discovered for other "
+                "genomes); set recurrence in the configuration's emr_hyperneat.recurrence block "
+                "instead.")
+        super().__init__(name=name, implementation=implementation)
 
         # Normalize strategy names (map user-facing names to internal implementation names)
         # FULL_PIPELINE_PARALLEL (recommended for feedforward) → PIPELINE_CHUNKED (internal)
@@ -12477,1411 +12548,30 @@ class EMRHyperNEATMultiGPU(EMRHyperNEATChunking):
         return result
 
     # ========================================================================
-    # H→H Caching Methods for Recurrent Network Support
+    # Fixed h->h runs: refused
     # ========================================================================
 
-    def _pure_generation_step_with_fixed_hh(
-        self,
-        state: Any,
-        cppns_transformed: Tuple,
-        h_grid: Any,  # HierarchicalGrid
-        input_coords: jnp.ndarray,
-        output_coords: jnp.ndarray,
-        inputs_batch: jnp.ndarray,
-        targets_batch: jnp.ndarray,
-        sparse_hh: Any,  # SparseHiddenConnections (imported lazily)
-        activate_time: int,
-        extra_randkey_split: bool = False,
-    ) -> Tuple[Any, jnp.ndarray]:
-        """Single generation step with FIXED sparse h→h connections - PURE JAX.
+    def run_until_threshold_with_fixed_hh(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Refused: a fixed h->h run scores genomes with connections discovered for other genomes.
 
-        Like _pure_generation_step but uses pre-computed sparse h→h
-        connections instead of computing W3 every generation. This eliminates
-        the expensive batch_query_population_all_to_all() call per generation.
+        The runner discovered every population slot's hidden-to-hidden connections once, from
+        the generation-0 population, and kept them for the whole run. After the first
+        reproduction a slot holds a different genome, which was then scored with the
+        connections discovered for the genome that held the slot at generation 0, so its
+        fitness described a network it does not encode. Configure recurrence in the
+        ``emr_hyperneat.recurrence`` block instead: `run_generation` and `run_until_threshold`
+        then discover each genome's own connections every generation.
 
-        The sparse_hh is computed ONCE before the while_loop and passed in.
-
-        Args:
-            state: TensorNEAT algorithm state (JAX pytree)
-            cppns_transformed: Pre-transformed CPPN population
-            h_grid: Hierarchical grid configuration
-            input_coords: Substrate input coordinates
-            output_coords: Substrate output coordinates
-            inputs_batch: Cached problem inputs
-            targets_batch: Cached problem targets
-            sparse_hh: Pre-computed sparse h→h connections (FIXED throughout loop)
-            activate_time: Number of recurrent iterations
-            extra_randkey_split: Extra random key split before tell()
-
-        Returns:
-            Tuple of (new_state, fitnesses) - no GPU→CPU sync
-
-        Performance:
-            - No O(N²) CPPN query per generation (vs _pure_generation_step_recurrent)
-            - Uses sparse scatter-add instead of dense matmul
-            - Can be used inside jax.lax.while_loop for GPU-resident evolution
+        Raises:
+            NotImplementedError: Always.
         """
-        # Optional pre-tell random key split
-        if extra_randkey_split:
-            randkey_, randkey = jax.random.split(state.randkey)
-            state = state.update(randkey=randkey)
-
-        # STEP 0: CPPN ask + transform
-        cppn_population = self._compiled_ask(state)
-        cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-
-        # Get grid info
-        total_positions = h_grid.total_positions
-        all_positions = h_grid.all_positions
-
-        # STEP 1: Query CPPN for variance computation
-        # Use JAX-pure version for while_loop compatibility (no numpy operations)
-        source_coord = input_coords[0:1]
-        all_weights_for_variance = batch_query_population_multi_source_jax_pure(
-            state, cppns_transformed, source_coord,
-            all_positions, True, self._jitted_cppn_forward
-        )
-        all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-        # STEP 2: Compute masks
-        level_variances = compute_hierarchical_variances_batch_jit(
-            all_weights_for_variance,
-            level_sizes=h_grid.level_sizes_static,
-            level_offsets=h_grid.level_offsets_static,
-            level_grid_sizes=h_grid.level_grid_sizes_static,
-            num_levels=h_grid.num_levels,
-            legacy_level0_variance=self._legacy_level0_variance,
-        )
-        masks_A, _, _ = compute_subdivision_masks_batch_jit(
-            level_variances,
-            variance_threshold=self.variance_threshold,
-            initial_depth=self.initial_depth,
-            parent_indices_tuple=h_grid.parent_indices,
-            level_offsets=h_grid.level_offsets_static,
-            num_levels=h_grid.num_levels,
-            total_positions=h_grid.total_positions,
-        )
-
-        # STEP 3: Query W1 (input→hidden) and W2 (hidden→output)
-        # Use JAX-pure versions for while_loop compatibility
-        input_all_weights = batch_query_population_multi_source_jax_pure(
-            state, cppns_transformed, input_coords,
-            all_positions, True, self._jitted_cppn_forward
-        )
-        output_all_weights = batch_query_population_multi_source_jax_pure(
-            state, cppns_transformed, output_coords,
-            all_positions, False, self._jitted_cppn_forward
-        )
-
-        # STEP 4: Apply masks and build W1/W2 weight matrices
-        # (NO W3 computation - using pre-computed sparse_hh instead)
-        max_weight = self.max_weight
-        weight_thresh = 0.1
-
-        # W1: input→hidden
-        W1_raw = jnp.tanh(input_all_weights) * max_weight
-        active_mask_broadcast = masks_A[:, None, :]
-        W1_combined_mask = active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh)
-        W1 = W1_raw * W1_combined_mask
-
-        # W2: hidden→output
-        W2_raw = jnp.tanh(output_all_weights) * max_weight
-        W2_combined_mask = active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh)
-        W2_raw = W2_raw * W2_combined_mask
-        W2 = jnp.transpose(W2_raw, (0, 2, 1))
-
-        # STEP 5: Evaluate ALL networks via vmap with sparse h→h
-        num_positions = total_positions
-
-        def eval_single_network_sparse_hh(
-            W1_single, W2_single,
-            from_idx, to_idx, hh_weights, hh_valid_mask,
-            inputs, targets, act_time
-        ):
-            """Evaluate single network with SPARSE h→h connections."""
-            # Input contribution (constant across iterations)
-            input_contrib = safe_matmul(inputs, W1_single)  # (n_samples, num_positions)
-            hidden = jnp.zeros((inputs.shape[0], num_positions))
-
-            # Precompute safe indices and masked weights
-            safe_from = jnp.clip(from_idx, 0, num_positions - 1)
-            safe_to = jnp.clip(to_idx, 0, num_positions - 1)
-            effective_weights = jnp.where(hh_valid_mask, hh_weights, 0.0)
-
-            def sparse_hh_step(hidden, _):
-                """Single h→h iteration using sparse scatter-add."""
-                # Gather from source positions: (n_samples, max_sparse_conns)
-                source_vals = hidden[:, safe_from]
-
-                # Multiply by connection weights
-                contributions = source_vals * effective_weights
-
-                # Scatter-add to target positions
-                h_delta = jnp.zeros_like(hidden)
-                h_delta = h_delta.at[:, safe_to].add(contributions)
-
-                # Combine input and recurrent contributions
-                return jnp.tanh(input_contrib + h_delta), None
-
-            # Run recurrent iterations
-            hidden_final, _ = jax.lax.scan(sparse_hh_step, hidden, None, length=act_time)
-
-            # Output layer
-            outputs = jax.nn.sigmoid(safe_matmul(hidden_final, W2_single))
-            errors = jnp.mean((outputs - targets) ** 2, axis=1)
-            return 1.0 - jnp.mean(errors)
-
-        # vmap over population, broadcast inputs/targets/activate_time
-        fitnesses = jax.vmap(
-            eval_single_network_sparse_hh,
-            in_axes=(0, 0, 0, 0, 0, 0, None, None, None)
-        )(
-            W1, W2,
-            sparse_hh.from_indices, sparse_hh.to_indices,
-            sparse_hh.weights, sparse_hh.valid_mask,
-            inputs_batch, targets_batch, activate_time
-        )
-        fitnesses = jnp.where(jnp.isnan(fitnesses), -jnp.inf, fitnesses)
-
-        # STEP 6: NEAT evolution step
-        new_state = self._compiled_tell(state, fitnesses)
-
-        return new_state, fitnesses
-
-    def run_until_threshold_with_fixed_hh(
-        self,
-        state: Any,
-        problem: Any,
-        target_fitness: float,
-        max_generations: int,
-        collect_history: bool = False,
-        extended_config: Optional[Any] = None,  # EMRConfig, imported lazily
-        verbose: bool = False,
-    ) -> Dict[str, Any]:
-        """Run evolution with FIXED sparse h→h connections - DISPATCHER.
-
-        Routes to appropriate implementation based on self.strategy:
-        - SINGLE_GPU, STREAMING, CPPN_CHUNKED: GPU-resident single-GPU loop
-        - ALL multi-GPU strategies: UNIFIED pmap (SINGLE pmap call per generation)
-
-        The UNIFIED pmap approach wraps the ENTIRE generation pipeline (CPPN queries +
-        masks + W1/W2 + sparse h→h eval) into a SINGLE pmap call, achieving true
-        multi-GPU parallelism. This is 4-6x faster than the previous multi-GPU
-        implementations which made 6+ separate Python→JAX calls per generation.
-
-        Expected performance:
-        - Single-GPU: ~800ms/gen (baseline)
-        - Multi-GPU (unified): ~400-600ms/gen (1.3-2x faster than single-GPU)
-        - Multi-GPU (old): ~2400ms/gen (3x SLOWER - deprecated)
-
-        All implementations:
-        - Pre-compute sparse h→h connections ONCE (outside loop)
-        - Use fixed h→h topology throughout evolution
-        - Return sparse_hh_stats with discovery metrics
-
-        Args:
-            state: Initialized algorithm state from initialize()
-            problem: Problem instance (must have get_data() method)
-            target_fitness: Stop when jnp.max(fitnesses) >= target_fitness
-            max_generations: Maximum generations before stopping
-            collect_history: If True, collect per-generation best fitness
-            extended_config: Optional EMRConfig for h→h discovery.
-            verbose: If True, print per-generation progress
-
-        Returns:
-            Dict with 'generations', 'best_fitness', 'state', 'sparse_hh_stats',
-            and optionally 'history'.
-        """
-        num_devices = len(jax.devices())
-
-        # Check recurrence is enabled (common to all implementations)
-        if self.recurrence_config is None or not self.recurrence_config.enabled:
-            raise ValueError(
-                "run_until_threshold_with_fixed_hh requires recurrence to be enabled. "
-                "Set recurrence_config when creating the algorithm, or use run_until_threshold for feedforward networks."
-            )
-
-        # Route based on strategy and device count
-        # Single GPU strategies (or only 1 GPU available)
-        if num_devices < 2 or self.strategy in (
-            MultiGPUStrategy.SINGLE_GPU,
-            MultiGPUStrategy.BASELINE,
-            MultiGPUStrategy.STREAMING,
-            MultiGPUStrategy.CPPN_CHUNKED,
-            MultiGPUStrategy.POSITION_SHARDING_CHUNKED,
-        ):
-            return self._run_until_threshold_with_fixed_hh_single_gpu(
-                state, problem, target_fitness, max_generations,
-                collect_history, extended_config
-            )
-
-        # ALL multi-GPU strategies use UNIFIED pmap (SINGLE pmap call per generation)
-        # This is 4-6x faster than the old approach which made 6+ separate JAX calls
-        if self.strategy in (
-            MultiGPUStrategy.DATA_PARALLEL,
-            MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
-            MultiGPUStrategy.MULTI_GPU,
-            MultiGPUStrategy.PIPELINE_CHUNKED,
-            MultiGPUStrategy.POPULATION_PARALLEL_SEQUENTIAL,
-            MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
-            MultiGPUStrategy.EVAL_ONLY_PARALLEL,
-            MultiGPUStrategy.PERSISTENT_PARALLEL,
-        ):
-            return self._run_until_threshold_pmap_unified_with_fixed_hh(
-                state, problem, target_fitness, max_generations,
-                collect_history, extended_config, verbose
-            )
-
-        # Fallback to single GPU
-        return self._run_until_threshold_with_fixed_hh_single_gpu(
-            state, problem, target_fitness, max_generations,
-            collect_history, extended_config
-        )
-
-    def _run_until_threshold_with_fixed_hh_single_gpu(
-        self,
-        state: Any,
-        problem: Any,
-        target_fitness: float,
-        max_generations: int,
-        collect_history: bool = False,
-        extended_config: Optional[Any] = None,
-    ) -> Dict[str, Any]:
-        """Single-GPU implementation with GPU-resident while_loop.
-
-        Uses jax.lax.while_loop for minimal GPU→CPU synchronization.
-        All computation stays on GPU 0 until final result retrieval.
-        """
-        import time as time_module
-
-        # Lazy import to avoid circular dependency
-        from emr_hyperneat.emrhyperneat import (
-            EMRConfig,
-            discover_sparse_hh_vectorized_multi_hop,
-        )
-
-        # Get hierarchical grid
-        h_grid = get_hierarchical_grid(self.max_depth)
-
-        # Prepare coordinates as JAX arrays
-        input_coords = jnp.array(self.substrate_input_coords, dtype=jnp.float32)
-        output_coords = jnp.array(self.substrate_output_coords, dtype=jnp.float32)
-
-        # Use cached problem data
-        inputs_batch = self._cached_inputs
-        targets_batch = self._cached_targets
-
-        # Get activate_time
-        activate_time = self.recurrence_config.activate_time
-
-        # Convert target to JAX arrays for GPU-side comparison
-        target_fitness_jax = jnp.array(target_fitness, dtype=jnp.float32)
-        max_gens_jax = jnp.array(max_generations, dtype=jnp.int32)
-
-        # Capture settings for use in loop body
-        use_extra_split = getattr(self, 'extra_randkey_split', False)
-
-        # ======================================================================
-        # Pre-compute sparse h→h connections ONCE (outside while_loop)
-        # ======================================================================
-        discovery_start = time_module.time()
-
-        # Get initial transformed CPPNs
-        cppn_population = self._compiled_ask(state)
-        cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-
-        # Compute variance masks from initial population
-        # Use chunked version which is vmap-safe (no np.asarray inside vmap)
-        source_coord = input_coords[0:1]
-        pop_size = cppns_transformed[0].shape[0]
-        all_weights_for_variance = batch_query_population_multi_source_chunked(
-            state, cppns_transformed, source_coord,
-            h_grid.all_positions, True, self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size)
-        )
-        all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-        level_variances = compute_hierarchical_variances_batch_jit(
-            all_weights_for_variance,
-            level_sizes=h_grid.level_sizes_static,
-            level_offsets=h_grid.level_offsets_static,
-            level_grid_sizes=h_grid.level_grid_sizes_static,
-            num_levels=h_grid.num_levels,
-            legacy_level0_variance=self._legacy_level0_variance,
-        )
-        masks_A, _, _ = compute_subdivision_masks_batch_jit(
-            level_variances,
-            variance_threshold=self.variance_threshold,
-            initial_depth=self.initial_depth,
-            parent_indices_tuple=h_grid.parent_indices,
-            level_offsets=h_grid.level_offsets_static,
-            num_levels=h_grid.num_levels,
-            total_positions=h_grid.total_positions,
-        )
-
-        # Create EMRConfig if not provided
-        if extended_config is None:
-            extended_config = EMRConfig(
-                enabled=self.recurrence_config.enabled,
-                allow_hidden_to_hidden=self.recurrence_config.allow_hidden_to_hidden,
-                allow_backward=self.recurrence_config.allow_backward,
-                allow_lateral=self.recurrence_config.allow_lateral,
-                allow_self_loops=self.recurrence_config.allow_self_loops,
-                iteration_level=self.recurrence_config.iteration_level,
-                activate_time=self.recurrence_config.activate_time,
-                max_connections=self.recurrence_config.max_connections,
-                max_sparse_conns=getattr(self.recurrence_config, 'max_connections', 10000),
-            )
-
-        # Discover sparse h→h connections ONCE (pop_size already defined above)
-        sparse_hh = discover_sparse_hh_vectorized_multi_hop(
-            state=state,
-            cppns_transformed=cppns_transformed,
-            h_grid=h_grid,
-            masks_A=masks_A,
-            band_threshold=self.band_threshold,
-            max_weight=self.max_weight,
-            config=extended_config,
-            cppn_forward=self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size),
-            verbose=False,
-            geometry_seeding_enabled=self.geometry_seeding_enabled,
-        )
-
-        discovery_time = time_module.time() - discovery_start
-        total_hh_conns = int(jax.device_get(sparse_hh.num_valid.sum()))
-        avg_hh_conns = float(jax.device_get(sparse_hh.num_valid.mean()))
-
-        # ======================================================================
-        # GPU-resident while_loop with fixed h→h
-        # ======================================================================
-
-        if collect_history:
-            # Version with history collection
-            def loop_body(carry):
-                generation, best_so_far, current_state, history = carry
-
-                new_state, fitnesses = self._pure_generation_step_with_fixed_hh(
-                    current_state, cppns_transformed, h_grid,
-                    input_coords, output_coords,
-                    inputs_batch, targets_batch,
-                    sparse_hh, activate_time,
-                    extra_randkey_split=use_extra_split
-                )
-
-                gen_best = jnp.max(fitnesses)
-                best_so_far = jnp.maximum(best_so_far, gen_best)
-                history = history.at[generation].set(gen_best)
-
-                return (generation + 1, best_so_far, new_state, history)
-
-            def loop_condition(carry):
-                generation, best_so_far, current_state, history = carry
-                return (best_so_far < target_fitness_jax) & (generation < max_gens_jax)
-
-            # Pre-allocate history array
-            history = jnp.zeros(max_generations, dtype=jnp.float32)
-            initial_carry = (
-                jnp.array(0, dtype=jnp.int32),
-                jnp.array(-jnp.inf, dtype=jnp.float32),
-                state,
-                history
-            )
-
-            final_gen, final_best, final_state, final_history = jax.lax.while_loop(
-                loop_condition, loop_body, initial_carry
-            )
-
-            # SINGLE GPU→CPU sync at the very end
-            final_gen_py = int(jax.device_get(final_gen))
-            return {
-                'generations': final_gen_py,
-                'best_fitness': float(jax.device_get(final_best)),
-                'state': final_state,
-                'history': jax.device_get(final_history[:final_gen_py]),
-                'sparse_hh_stats': {
-                    'discovery_time_ms': discovery_time * 1000,
-                    'hh_connections': total_hh_conns,
-                    'total_connections': total_hh_conns,
-                    'avg_connections_per_genome': avg_hh_conns,
-                },
-            }
-
-        else:
-            # Version without history (minimal memory)
-            def loop_body(carry):
-                generation, best_so_far, current_state = carry
-
-                new_state, fitnesses = self._pure_generation_step_with_fixed_hh(
-                    current_state, cppns_transformed, h_grid,
-                    input_coords, output_coords,
-                    inputs_batch, targets_batch,
-                    sparse_hh, activate_time,
-                    extra_randkey_split=use_extra_split
-                )
-
-                gen_best = jnp.max(fitnesses)
-                best_so_far = jnp.maximum(best_so_far, gen_best)
-
-                return (generation + 1, best_so_far, new_state)
-
-            def loop_condition(carry):
-                generation, best_so_far, current_state = carry
-                return (best_so_far < target_fitness_jax) & (generation < max_gens_jax)
-
-            initial_carry = (
-                jnp.array(0, dtype=jnp.int32),
-                jnp.array(-jnp.inf, dtype=jnp.float32),
-                state
-            )
-
-            final_gen, final_best, final_state = jax.lax.while_loop(
-                loop_condition, loop_body, initial_carry
-            )
-
-            # SINGLE GPU→CPU sync - pack scalars and transfer together
-            results_packed = jnp.stack([final_gen.astype(jnp.float32), final_best])
-            results_cpu = jax.device_get(results_packed)
-            return {
-                'generations': int(results_cpu[0]),
-                'best_fitness': float(results_cpu[1]),
-                'state': final_state,
-                'sparse_hh_stats': {
-                    'discovery_time_ms': discovery_time * 1000,
-                    'hh_connections': total_hh_conns,
-                    'total_connections': total_hh_conns,
-                    'avg_connections_per_genome': avg_hh_conns,
-                },
-            }
-
-    def _run_until_threshold_data_parallel_with_fixed_hh(
-        self,
-        state: Any,
-        problem: Any,
-        target_fitness: float,
-        max_generations: int,
-        collect_history: bool = False,
-        extended_config: Optional[Any] = None,
-        verbose: bool = False,
-    ) -> Dict[str, Any]:
-        """Data-parallel multi-GPU implementation with fixed h→h caching.
-
-        Strategy: Dataset is SHARDED across GPUs, population is REPLICATED.
-        - Each GPU evaluates FULL population on its data shard
-        - H→H connections are discovered ONCE and replicated to all GPUs
-        - Fitness values are averaged across GPUs
-
-        Uses jax.pmap for native multi-device execution (no Python multiprocessing).
-        """
-        import time as time_module
-
-        # Lazy imports
-        from emr_hyperneat.emrhyperneat import (
-            EMRConfig,
-            discover_sparse_hh_vectorized_multi_hop,
-        )
-
-        num_devices = len(jax.devices())
-        devices = jax.devices()
-
-        # Get hierarchical grid
-        h_grid = get_hierarchical_grid(self.max_depth)
-
-        # Prepare coordinates
-        input_coords = jnp.array(self.substrate_input_coords, dtype=jnp.float32)
-        output_coords = jnp.array(self.substrate_output_coords, dtype=jnp.float32)
-        all_positions = h_grid.all_positions
-        total_positions = h_grid.total_positions
-
-        # Use cached problem data
-        inputs_batch = self._cached_inputs
-        targets_batch = self._cached_targets
-        n_samples = inputs_batch.shape[0]
-
-        # Get activate_time
-        activate_time = self.recurrence_config.activate_time
-
-        # Capture settings
-        use_extra_split = getattr(self, 'extra_randkey_split', False)
-
-        # ======================================================================
-        # Pre-compute sparse h→h connections ONCE
-        # ======================================================================
-        discovery_start = time_module.time()
-
-        # Get initial transformed CPPNs
-        cppn_population = self._compiled_ask(state)
-        cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-        pop_size = cppns_transformed[0].shape[0]
-
-        # Compute variance masks
-        source_coord = input_coords[0:1]
-        all_weights_for_variance = batch_query_population_multi_source_chunked(
-            state, cppns_transformed, source_coord,
-            h_grid.all_positions, True, self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size)
-        )
-        all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-        level_variances = compute_hierarchical_variances_batch_jit(
-            all_weights_for_variance,
-            level_sizes=h_grid.level_sizes_static,
-            level_offsets=h_grid.level_offsets_static,
-            level_grid_sizes=h_grid.level_grid_sizes_static,
-            num_levels=h_grid.num_levels,
-            legacy_level0_variance=self._legacy_level0_variance,
-        )
-        masks_A, _, _ = compute_subdivision_masks_batch_jit(
-            level_variances,
-            variance_threshold=self.variance_threshold,
-            initial_depth=self.initial_depth,
-            parent_indices_tuple=h_grid.parent_indices,
-            level_offsets=h_grid.level_offsets_static,
-            num_levels=h_grid.num_levels,
-            total_positions=h_grid.total_positions,
-        )
-
-        # Create EMRConfig if not provided
-        if extended_config is None:
-            extended_config = EMRConfig(
-                enabled=self.recurrence_config.enabled,
-                allow_hidden_to_hidden=self.recurrence_config.allow_hidden_to_hidden,
-                allow_backward=self.recurrence_config.allow_backward,
-                allow_lateral=self.recurrence_config.allow_lateral,
-                allow_self_loops=self.recurrence_config.allow_self_loops,
-                iteration_level=self.recurrence_config.iteration_level,
-                activate_time=self.recurrence_config.activate_time,
-                max_connections=self.recurrence_config.max_connections,
-                max_sparse_conns=getattr(self.recurrence_config, 'max_connections', 10000),
-            )
-
-        # Discover sparse h→h connections ONCE
-        sparse_hh = discover_sparse_hh_vectorized_multi_hop(
-            state=state,
-            cppns_transformed=cppns_transformed,
-            h_grid=h_grid,
-            masks_A=masks_A,
-            band_threshold=self.band_threshold,
-            max_weight=self.max_weight,
-            config=extended_config,
-            cppn_forward=self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size),
-            verbose=False,
-            geometry_seeding_enabled=self.geometry_seeding_enabled,
-        )
-
-        discovery_time = time_module.time() - discovery_start
-        total_hh_conns = int(jax.device_get(sparse_hh.num_valid.sum()))
-        avg_hh_conns = float(jax.device_get(sparse_hh.num_valid.mean()))
-
-        # ======================================================================
-        # Shard dataset, replicate population and h→h
-        # ======================================================================
-
-        # Pad samples to be divisible by num_devices
-        per_gpu_samples = (n_samples + num_devices - 1) // num_devices
-        padded_samples = per_gpu_samples * num_devices
-        if padded_samples > n_samples:
-            pad_size = padded_samples - n_samples
-            inputs_batch = jnp.concatenate([
-                inputs_batch,
-                jnp.zeros((pad_size, inputs_batch.shape[1]), dtype=inputs_batch.dtype)
-            ], axis=0)
-            targets_batch = jnp.concatenate([
-                targets_batch,
-                jnp.zeros((pad_size, targets_batch.shape[1]), dtype=targets_batch.dtype)
-            ], axis=0)
-
-        # Reshape for sharding: (num_devices, per_gpu_samples, ...)
-        inputs_sharded = inputs_batch.reshape(num_devices, per_gpu_samples, -1)
-        targets_sharded = targets_batch.reshape(num_devices, per_gpu_samples, -1)
-
-        if verbose:
-            print(f"Data-parallel multi-GPU: {num_devices} GPUs")
-            print(f"  Positions: {total_positions}, Population: {pop_size}")
-            print(f"  Samples: {n_samples} → {per_gpu_samples} per GPU")
-            print(f"  H→H connections: {total_hh_conns} total, {avg_hh_conns:.1f} avg")
-
-        # ======================================================================
-        # Python while loop with pmap evaluation
-        # ======================================================================
-
-        history = [] if collect_history else None
-        best_so_far = -float('inf')
-        generation = 0
-
-        # Grid parameters for evaluation
-        level_sizes = h_grid.level_sizes_static
-        level_offsets = h_grid.level_offsets_static
-        level_grid_sizes = h_grid.level_grid_sizes_static
-        parent_indices = h_grid.parent_indices
-        num_levels = h_grid.num_levels
-
-        while best_so_far < target_fitness and generation < max_generations:
-            gen_start = time_module.perf_counter() if verbose else None
-
-            # CPPN ask + transform
-            cppn_population = self._compiled_ask(state)
-            cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-
-            # Compute variance and masks (needed per-generation as CPPNs evolve)
-            all_weights_for_variance = batch_query_population_multi_source_jax_pure(
-                state, cppns_transformed, source_coord,
-                all_positions, True, self._jitted_cppn_forward
-            )
-            all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-            level_variances = compute_hierarchical_variances_batch_jit(
-                all_weights_for_variance,
-                level_sizes=level_sizes,
-                level_offsets=level_offsets,
-                level_grid_sizes=level_grid_sizes,
-                num_levels=num_levels,
-                legacy_level0_variance=self._legacy_level0_variance,
-            )
-            masks_A, _, _ = compute_subdivision_masks_batch_jit(
-                level_variances,
-                variance_threshold=self.variance_threshold,
-                initial_depth=self.initial_depth,
-                parent_indices_tuple=parent_indices,
-                level_offsets=level_offsets,
-                num_levels=num_levels,
-                total_positions=total_positions,
-            )
-
-            # Query W1 and W2
-            input_all_weights = batch_query_population_multi_source_jax_pure(
-                state, cppns_transformed, input_coords,
-                all_positions, True, self._jitted_cppn_forward
-            )
-            output_all_weights = batch_query_population_multi_source_jax_pure(
-                state, cppns_transformed, output_coords,
-                all_positions, False, self._jitted_cppn_forward
-            )
-
-            # Build W1 and W2 matrices
-            max_weight = self.max_weight
-            weight_thresh = 0.1
-
-            W1_raw = jnp.tanh(input_all_weights) * max_weight
-            active_mask_broadcast = masks_A[:, None, :]
-            W1_combined_mask = active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh)
-            W1 = W1_raw * W1_combined_mask
-
-            W2_raw = jnp.tanh(output_all_weights) * max_weight
-            W2_combined_mask = active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh)
-            W2_raw = W2_raw * W2_combined_mask
-            W2 = jnp.transpose(W2_raw, (0, 2, 1))
-
-            # Replicate W1, W2, sparse_hh across devices (add leading axis)
-            W1_replicated = jnp.broadcast_to(W1[None, ...], (num_devices,) + W1.shape)
-            W2_replicated = jnp.broadcast_to(W2[None, ...], (num_devices,) + W2.shape)
-
-            # Sparse h→h arrays: replicate across devices
-            from_idx_rep = jnp.broadcast_to(sparse_hh.from_indices[None, ...], (num_devices,) + sparse_hh.from_indices.shape)
-            to_idx_rep = jnp.broadcast_to(sparse_hh.to_indices[None, ...], (num_devices,) + sparse_hh.to_indices.shape)
-            weights_rep = jnp.broadcast_to(sparse_hh.weights[None, ...], (num_devices,) + sparse_hh.weights.shape)
-            valid_mask_rep = jnp.broadcast_to(sparse_hh.valid_mask[None, ...], (num_devices,) + sparse_hh.valid_mask.shape)
-
-            # pmap evaluation: data sharded, population replicated
-            # Use the existing eval_single_network_sparse_hh logic via vmap inside pmap
-            def eval_pop_on_data_shard(W1_pop, W2_pop, from_idx, to_idx, hh_weights, hh_valid,
-                                        inputs_shard, targets_shard):
-                """Evaluate full population on one data shard."""
-                num_pos = total_positions
-
-                def eval_single_network_sparse_hh(W1_single, W2_single, f_idx, t_idx, hw, hv):
-                    input_contrib = safe_matmul(inputs_shard, W1_single)
-                    hidden = jnp.zeros((inputs_shard.shape[0], num_pos))
-
-                    safe_from = jnp.clip(f_idx, 0, num_pos - 1)
-                    safe_to = jnp.clip(t_idx, 0, num_pos - 1)
-                    effective_weights = jnp.where(hv, hw, 0.0)
-
-                    def sparse_hh_step(hidden, _):
-                        source_vals = hidden[:, safe_from]
-                        contributions = source_vals * effective_weights
-                        h_delta = jnp.zeros_like(hidden)
-                        h_delta = h_delta.at[:, safe_to].add(contributions)
-                        return jnp.tanh(input_contrib + h_delta), None
-
-                    hidden_final, _ = jax.lax.scan(sparse_hh_step, hidden, None, length=activate_time)
-                    outputs = jax.nn.sigmoid(safe_matmul(hidden_final, W2_single))
-                    errors = jnp.mean((outputs - targets_shard) ** 2, axis=1)
-                    return 1.0 - jnp.mean(errors)
-
-                # vmap over population
-                return jax.vmap(eval_single_network_sparse_hh)(
-                    W1_pop, W2_pop, from_idx, to_idx, hh_weights, hh_valid
-                )
-
-            # Create pmap function
-            pmap_eval = jax.pmap(
-                eval_pop_on_data_shard,
-                in_axes=(0, 0, 0, 0, 0, 0, 0, 0),  # All arrays have leading device axis
-            )
-
-            # Run pmap evaluation
-            partial_fitnesses = pmap_eval(
-                W1_replicated, W2_replicated,
-                from_idx_rep, to_idx_rep, weights_rep, valid_mask_rep,
-                inputs_sharded, targets_sharded
-            )
-
-            # Average fitnesses across GPUs (data shards)
-            # partial_fitnesses shape: (num_devices, pop_size)
-            # For data-parallel, we average the fitness from different data shards
-            fitnesses = jnp.mean(partial_fitnesses, axis=0)
-            fitnesses = jnp.where(jnp.isnan(fitnesses), -jnp.inf, fitnesses)
-
-            # Optional random key split
-            if use_extra_split:
-                randkey_, randkey = jax.random.split(state.randkey)
-                state = state.update(randkey=randkey)
-
-            # NEAT evolution step
-            state = self._compiled_tell(state, fitnesses)
-
-            # Update tracking
-            gen_best = float(jnp.max(fitnesses))
-            best_so_far = max(best_so_far, gen_best)
-            generation += 1
-
-            if collect_history:
-                history.append(gen_best)
-
-            if verbose:
-                gen_time = time_module.perf_counter() - gen_start
-                print(f"  Gen {generation}: best={gen_best:.4f}, overall={best_so_far:.4f}, time={gen_time:.3f}s")
-
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            'sparse_hh_stats': {
-                'discovery_time_ms': discovery_time * 1000,
-                'hh_connections': total_hh_conns,
-                'total_connections': total_hh_conns,
-                'avg_connections_per_genome': avg_hh_conns,
-            },
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
-
-    def _run_until_threshold_population_parallel_with_fixed_hh(
-        self,
-        state: Any,
-        problem: Any,
-        target_fitness: float,
-        max_generations: int,
-        collect_history: bool = False,
-        extended_config: Optional[Any] = None,
-        verbose: bool = False,
-    ) -> Dict[str, Any]:
-        """Population-parallel multi-GPU implementation with fixed h→h caching.
-
-        Strategy: Population is SHARDED across GPUs, dataset is REPLICATED.
-        - Each GPU evaluates its population slice on FULL dataset
-        - H→H connections are discovered ONCE and sharded by population
-        - Fitness values are concatenated across GPUs
-
-        Uses jax.pmap for native multi-device execution (no Python multiprocessing).
-        """
-        import time as time_module
-
-        # Lazy imports
-        from emr_hyperneat.emrhyperneat import (
-            EMRConfig,
-            discover_sparse_hh_vectorized_multi_hop,
-        )
-
-        num_devices = len(jax.devices())
-        devices = jax.devices()
-
-        # Get hierarchical grid
-        h_grid = get_hierarchical_grid(self.max_depth)
-
-        # Prepare coordinates
-        input_coords = jnp.array(self.substrate_input_coords, dtype=jnp.float32)
-        output_coords = jnp.array(self.substrate_output_coords, dtype=jnp.float32)
-        all_positions = h_grid.all_positions
-        total_positions = h_grid.total_positions
-
-        # Use cached problem data
-        inputs_batch = self._cached_inputs
-        targets_batch = self._cached_targets
-        n_samples = inputs_batch.shape[0]
-
-        # Get activate_time
-        activate_time = self.recurrence_config.activate_time
-
-        # Capture settings
-        use_extra_split = getattr(self, 'extra_randkey_split', False)
-
-        # ======================================================================
-        # Pre-compute sparse h→h connections ONCE
-        # ======================================================================
-        discovery_start = time_module.time()
-
-        # Get initial transformed CPPNs
-        cppn_population = self._compiled_ask(state)
-        cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-        pop_size = cppns_transformed[0].shape[0]
-
-        # Compute variance masks
-        source_coord = input_coords[0:1]
-        all_weights_for_variance = batch_query_population_multi_source_chunked(
-            state, cppns_transformed, source_coord,
-            h_grid.all_positions, True, self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size)
-        )
-        all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-        level_variances = compute_hierarchical_variances_batch_jit(
-            all_weights_for_variance,
-            level_sizes=h_grid.level_sizes_static,
-            level_offsets=h_grid.level_offsets_static,
-            level_grid_sizes=h_grid.level_grid_sizes_static,
-            num_levels=h_grid.num_levels,
-            legacy_level0_variance=self._legacy_level0_variance,
-        )
-        masks_A, _, _ = compute_subdivision_masks_batch_jit(
-            level_variances,
-            variance_threshold=self.variance_threshold,
-            initial_depth=self.initial_depth,
-            parent_indices_tuple=h_grid.parent_indices,
-            level_offsets=h_grid.level_offsets_static,
-            num_levels=h_grid.num_levels,
-            total_positions=h_grid.total_positions,
-        )
-
-        # Create EMRConfig if not provided
-        if extended_config is None:
-            extended_config = EMRConfig(
-                enabled=self.recurrence_config.enabled,
-                allow_hidden_to_hidden=self.recurrence_config.allow_hidden_to_hidden,
-                allow_backward=self.recurrence_config.allow_backward,
-                allow_lateral=self.recurrence_config.allow_lateral,
-                allow_self_loops=self.recurrence_config.allow_self_loops,
-                iteration_level=self.recurrence_config.iteration_level,
-                activate_time=self.recurrence_config.activate_time,
-                max_connections=self.recurrence_config.max_connections,
-                max_sparse_conns=getattr(self.recurrence_config, 'max_connections', 10000),
-            )
-
-        # Discover sparse h→h connections ONCE
-        sparse_hh = discover_sparse_hh_vectorized_multi_hop(
-            state=state,
-            cppns_transformed=cppns_transformed,
-            h_grid=h_grid,
-            masks_A=masks_A,
-            band_threshold=self.band_threshold,
-            max_weight=self.max_weight,
-            config=extended_config,
-            cppn_forward=self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size),
-            verbose=False,
-            geometry_seeding_enabled=self.geometry_seeding_enabled,
-        )
-
-        discovery_time = time_module.time() - discovery_start
-        total_hh_conns = int(jax.device_get(sparse_hh.num_valid.sum()))
-        avg_hh_conns = float(jax.device_get(sparse_hh.num_valid.mean()))
-
-        # ======================================================================
-        # Pad population for even sharding
-        # ======================================================================
-
-        # Pad population to be divisible by num_devices
-        per_gpu_pop = (pop_size + num_devices - 1) // num_devices
-        padded_pop_size = per_gpu_pop * num_devices
-        pad_needed = padded_pop_size - pop_size
-
-        if verbose:
-            print(f"Population-parallel multi-GPU: {num_devices} GPUs")
-            print(f"  Positions: {total_positions}, Samples: {n_samples}")
-            print(f"  Population: {pop_size} → {per_gpu_pop} per GPU")
-            print(f"  H→H connections: {total_hh_conns} total, {avg_hh_conns:.1f} avg")
-
-        # ======================================================================
-        # Python while loop with pmap evaluation
-        # ======================================================================
-
-        history = [] if collect_history else None
-        best_so_far = -float('inf')
-        generation = 0
-
-        # Grid parameters for evaluation
-        level_sizes = h_grid.level_sizes_static
-        level_offsets = h_grid.level_offsets_static
-        level_grid_sizes = h_grid.level_grid_sizes_static
-        parent_indices = h_grid.parent_indices
-        num_levels = h_grid.num_levels
-
-        # Replicate dataset across devices (add leading axis)
-        inputs_replicated = jnp.broadcast_to(inputs_batch[None, ...], (num_devices,) + inputs_batch.shape)
-        targets_replicated = jnp.broadcast_to(targets_batch[None, ...], (num_devices,) + targets_batch.shape)
-
-        while best_so_far < target_fitness and generation < max_generations:
-            gen_start = time_module.perf_counter() if verbose else None
-
-            # CPPN ask + transform
-            cppn_population = self._compiled_ask(state)
-            cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-
-            # Compute variance and masks
-            all_weights_for_variance = batch_query_population_multi_source_jax_pure(
-                state, cppns_transformed, source_coord,
-                all_positions, True, self._jitted_cppn_forward
-            )
-            all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-            level_variances = compute_hierarchical_variances_batch_jit(
-                all_weights_for_variance,
-                level_sizes=level_sizes,
-                level_offsets=level_offsets,
-                level_grid_sizes=level_grid_sizes,
-                num_levels=num_levels,
-                legacy_level0_variance=self._legacy_level0_variance,
-            )
-            masks_A, _, _ = compute_subdivision_masks_batch_jit(
-                level_variances,
-                variance_threshold=self.variance_threshold,
-                initial_depth=self.initial_depth,
-                parent_indices_tuple=parent_indices,
-                level_offsets=level_offsets,
-                num_levels=num_levels,
-                total_positions=total_positions,
-            )
-
-            # Query W1 and W2
-            input_all_weights = batch_query_population_multi_source_jax_pure(
-                state, cppns_transformed, input_coords,
-                all_positions, True, self._jitted_cppn_forward
-            )
-            output_all_weights = batch_query_population_multi_source_jax_pure(
-                state, cppns_transformed, output_coords,
-                all_positions, False, self._jitted_cppn_forward
-            )
-
-            # Build W1 and W2 matrices
-            max_weight = self.max_weight
-            weight_thresh = 0.1
-
-            W1_raw = jnp.tanh(input_all_weights) * max_weight
-            active_mask_broadcast = masks_A[:, None, :]
-            W1_combined_mask = active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh)
-            W1 = W1_raw * W1_combined_mask
-
-            W2_raw = jnp.tanh(output_all_weights) * max_weight
-            W2_combined_mask = active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh)
-            W2_raw = W2_raw * W2_combined_mask
-            W2 = jnp.transpose(W2_raw, (0, 2, 1))
-
-            # Pad arrays if needed for even sharding
-            if pad_needed > 0:
-                W1 = jnp.concatenate([W1, jnp.zeros((pad_needed,) + W1.shape[1:], dtype=W1.dtype)], axis=0)
-                W2 = jnp.concatenate([W2, jnp.zeros((pad_needed,) + W2.shape[1:], dtype=W2.dtype)], axis=0)
-
-                # Pad sparse h→h arrays
-                from_idx_padded = jnp.concatenate([
-                    sparse_hh.from_indices,
-                    jnp.zeros((pad_needed, sparse_hh.from_indices.shape[1]), dtype=sparse_hh.from_indices.dtype)
-                ], axis=0)
-                to_idx_padded = jnp.concatenate([
-                    sparse_hh.to_indices,
-                    jnp.zeros((pad_needed, sparse_hh.to_indices.shape[1]), dtype=sparse_hh.to_indices.dtype)
-                ], axis=0)
-                weights_padded = jnp.concatenate([
-                    sparse_hh.weights,
-                    jnp.zeros((pad_needed, sparse_hh.weights.shape[1]), dtype=sparse_hh.weights.dtype)
-                ], axis=0)
-                valid_mask_padded = jnp.concatenate([
-                    sparse_hh.valid_mask,
-                    jnp.zeros((pad_needed, sparse_hh.valid_mask.shape[1]), dtype=sparse_hh.valid_mask.dtype)
-                ], axis=0)
-            else:
-                from_idx_padded = sparse_hh.from_indices
-                to_idx_padded = sparse_hh.to_indices
-                weights_padded = sparse_hh.weights
-                valid_mask_padded = sparse_hh.valid_mask
-
-            # Reshape for sharding: (num_devices, per_gpu_pop, ...)
-            W1_sharded = W1.reshape(num_devices, per_gpu_pop, *W1.shape[1:])
-            W2_sharded = W2.reshape(num_devices, per_gpu_pop, *W2.shape[1:])
-            from_idx_sharded = from_idx_padded.reshape(num_devices, per_gpu_pop, -1)
-            to_idx_sharded = to_idx_padded.reshape(num_devices, per_gpu_pop, -1)
-            weights_sharded = weights_padded.reshape(num_devices, per_gpu_pop, -1)
-            valid_mask_sharded = valid_mask_padded.reshape(num_devices, per_gpu_pop, -1)
-
-            # pmap evaluation: population sharded, data replicated
-            def eval_pop_shard_on_full_data(W1_shard, W2_shard, from_idx, to_idx, hh_weights, hh_valid,
-                                            inputs_full, targets_full):
-                """Evaluate population shard on full dataset."""
-                num_pos = total_positions
-
-                def eval_single_network_sparse_hh(W1_single, W2_single, f_idx, t_idx, hw, hv):
-                    input_contrib = safe_matmul(inputs_full, W1_single)
-                    hidden = jnp.zeros((inputs_full.shape[0], num_pos))
-
-                    safe_from = jnp.clip(f_idx, 0, num_pos - 1)
-                    safe_to = jnp.clip(t_idx, 0, num_pos - 1)
-                    effective_weights = jnp.where(hv, hw, 0.0)
-
-                    def sparse_hh_step(hidden, _):
-                        source_vals = hidden[:, safe_from]
-                        contributions = source_vals * effective_weights
-                        h_delta = jnp.zeros_like(hidden)
-                        h_delta = h_delta.at[:, safe_to].add(contributions)
-                        return jnp.tanh(input_contrib + h_delta), None
-
-                    hidden_final, _ = jax.lax.scan(sparse_hh_step, hidden, None, length=activate_time)
-                    outputs = jax.nn.sigmoid(safe_matmul(hidden_final, W2_single))
-                    errors = jnp.mean((outputs - targets_full) ** 2, axis=1)
-                    return 1.0 - jnp.mean(errors)
-
-                # vmap over population shard
-                return jax.vmap(eval_single_network_sparse_hh)(
-                    W1_shard, W2_shard, from_idx, to_idx, hh_weights, hh_valid
-                )
-
-            # Create pmap function
-            pmap_eval = jax.pmap(
-                eval_pop_shard_on_full_data,
-                in_axes=(0, 0, 0, 0, 0, 0, 0, 0),  # All arrays have leading device axis
-            )
-
-            # Run pmap evaluation
-            fitnesses_sharded = pmap_eval(
-                W1_sharded, W2_sharded,
-                from_idx_sharded, to_idx_sharded, weights_sharded, valid_mask_sharded,
-                inputs_replicated, targets_replicated
-            )
-
-            # Concatenate fitnesses across GPUs and trim padding
-            # fitnesses_sharded shape: (num_devices, per_gpu_pop)
-            fitnesses = fitnesses_sharded.reshape(-1)[:pop_size]
-            fitnesses = jnp.where(jnp.isnan(fitnesses), -jnp.inf, fitnesses)
-
-            # Optional random key split
-            if use_extra_split:
-                randkey_, randkey = jax.random.split(state.randkey)
-                state = state.update(randkey=randkey)
-
-            # NEAT evolution step
-            state = self._compiled_tell(state, fitnesses)
-
-            # Update tracking
-            gen_best = float(jnp.max(fitnesses))
-            best_so_far = max(best_so_far, gen_best)
-            generation += 1
-
-            if collect_history:
-                history.append(gen_best)
-
-            if verbose:
-                gen_time = time_module.perf_counter() - gen_start
-                print(f"  Gen {generation}: best={gen_best:.4f}, overall={best_so_far:.4f}, time={gen_time:.3f}s")
-
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            'sparse_hh_stats': {
-                'discovery_time_ms': discovery_time * 1000,
-                'hh_connections': total_hh_conns,
-                'total_connections': total_hh_conns,
-                'avg_connections_per_genome': avg_hh_conns,
-            },
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
-
-    def _run_until_threshold_pmap_unified_with_fixed_hh(
-        self,
-        state: Any,
-        problem: Any,
-        target_fitness: float,
-        max_generations: int,
-        collect_history: bool = False,
-        extended_config: Optional[Any] = None,
-        verbose: bool = False,
-    ) -> Dict[str, Any]:
-        """UNIFIED multi-GPU implementation with SINGLE pmap call per generation.
-
-        This is the OPTIMIZED multi-GPU approach that achieves true speedup:
-        - ENTIRE generation pipeline runs inside ONE pmap call
-        - CPPN queries are parallelized across GPUs (the bottleneck!)
-        - Each GPU processes its population slice through complete pipeline
-        - Reduces Python→JAX calls from 6+ to 1 per generation
-
-        Expected performance: ~400-600ms/gen (vs 2400ms with separate pmap calls)
-        This makes multi-GPU 1.5-2x FASTER than single-GPU (vs 3x slower before).
-
-        Uses the module-level _pmap_pop_parallel_with_hh() function which wraps
-        _full_pipeline_single_gpu_with_hh() to include CPPN queries, masks,
-        W1/W2 building, and sparse h→h evaluation in a SINGLE pmap call.
-        """
-        import time as time_module
-
-        # Lazy imports
-        from emr_hyperneat.emrhyperneat import (
-            EMRConfig,
-            discover_sparse_hh_vectorized_multi_hop,
-        )
-
-        num_devices = len(jax.devices())
-        devices = jax.devices()
-
-        # Get hierarchical grid
-        h_grid = get_hierarchical_grid(self.max_depth)
-
-        # Prepare coordinates
-        input_coords = jnp.array(self.substrate_input_coords, dtype=jnp.float32)
-        output_coords = jnp.array(self.substrate_output_coords, dtype=jnp.float32)
-        all_positions = h_grid.all_positions
-        total_positions = h_grid.total_positions
-
-        # Use cached problem data
-        inputs_batch = self._cached_inputs
-        targets_batch = self._cached_targets
-        n_samples = inputs_batch.shape[0]
-
-        # Get activate_time
-        activate_time = self.recurrence_config.activate_time
-
-        # Capture settings
-        use_extra_split = getattr(self, 'extra_randkey_split', False)
-
-        # ======================================================================
-        # Pre-compute sparse h→h connections ONCE
-        # ======================================================================
-        discovery_start = time_module.time()
-
-        # Get initial transformed CPPNs
-        cppn_population = self._compiled_ask(state)
-        cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-        pop_size = cppns_transformed[0].shape[0]
-
-        # Compute variance masks for h→h discovery
-        source_coord = input_coords[0:1]
-        all_weights_for_variance = batch_query_population_multi_source_chunked(
-            state, cppns_transformed, source_coord,
-            h_grid.all_positions, True, self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size)
-        )
-        all_weights_for_variance = all_weights_for_variance[:, 0, :]
-
-        level_variances = compute_hierarchical_variances_batch_jit(
-            all_weights_for_variance,
-            level_sizes=h_grid.level_sizes_static,
-            level_offsets=h_grid.level_offsets_static,
-            level_grid_sizes=h_grid.level_grid_sizes_static,
-            num_levels=h_grid.num_levels,
-            legacy_level0_variance=self._legacy_level0_variance,
-        )
-        masks_A, _, _ = compute_subdivision_masks_batch_jit(
-            level_variances,
-            variance_threshold=self.variance_threshold,
-            initial_depth=self.initial_depth,
-            parent_indices_tuple=h_grid.parent_indices,
-            level_offsets=h_grid.level_offsets_static,
-            num_levels=h_grid.num_levels,
-            total_positions=h_grid.total_positions,
-        )
-
-        # Create extended config for h→h discovery
-        if extended_config is None:
-            extended_config = EMRConfig(
-                allow_hidden_to_hidden=self.recurrence_config.allow_hidden_to_hidden,
-                allow_backward=self.recurrence_config.allow_backward,
-                allow_lateral=self.recurrence_config.allow_lateral,
-                allow_self_loops=self.recurrence_config.allow_self_loops,
-                iteration_level=self.recurrence_config.iteration_level,
-                activate_time=self.recurrence_config.activate_time,
-                max_connections=self.recurrence_config.max_connections,
-                max_sparse_conns=getattr(self.recurrence_config, 'max_connections', 10000),
-            )
-
-        # Discover sparse h→h connections ONCE
-        sparse_hh = discover_sparse_hh_vectorized_multi_hop(
-            state=state,
-            cppns_transformed=cppns_transformed,
-            h_grid=h_grid,
-            masks_A=masks_A,
-            band_threshold=self.band_threshold,
-            max_weight=self.max_weight,
-            config=extended_config,
-            cppn_forward=self._jitted_cppn_forward,
-            pop_chunk_size=min(100, pop_size),
-            verbose=False,
-            geometry_seeding_enabled=self.geometry_seeding_enabled,
-        )
-
-        discovery_time = time_module.time() - discovery_start
-        total_hh_conns = int(jax.device_get(sparse_hh.num_valid.sum()))
-        avg_hh_conns = float(jax.device_get(sparse_hh.num_valid.mean()))
-
-        # ======================================================================
-        # Prepare population and h→h for sharding
-        # ======================================================================
-
-        # Pad population to be divisible by num_devices
-        per_gpu_pop = (pop_size + num_devices - 1) // num_devices
-        padded_pop_size = per_gpu_pop * num_devices
-        pad_needed = padded_pop_size - pop_size
-
-        # Pad sparse h→h arrays if needed
-        if pad_needed > 0:
-            from_idx_padded = jnp.concatenate([
-                sparse_hh.from_indices,
-                jnp.zeros((pad_needed, sparse_hh.from_indices.shape[1]), dtype=sparse_hh.from_indices.dtype)
-            ], axis=0)
-            to_idx_padded = jnp.concatenate([
-                sparse_hh.to_indices,
-                jnp.zeros((pad_needed, sparse_hh.to_indices.shape[1]), dtype=sparse_hh.to_indices.dtype)
-            ], axis=0)
-            weights_padded = jnp.concatenate([
-                sparse_hh.weights,
-                jnp.zeros((pad_needed, sparse_hh.weights.shape[1]), dtype=sparse_hh.weights.dtype)
-            ], axis=0)
-            valid_mask_padded = jnp.concatenate([
-                sparse_hh.valid_mask,
-                jnp.zeros((pad_needed, sparse_hh.valid_mask.shape[1]), dtype=sparse_hh.valid_mask.dtype)
-            ], axis=0)
-        else:
-            from_idx_padded = sparse_hh.from_indices
-            to_idx_padded = sparse_hh.to_indices
-            weights_padded = sparse_hh.weights
-            valid_mask_padded = sparse_hh.valid_mask
-
-        # Pre-shard sparse h→h arrays: (padded_pop_size, ...) -> (num_devices, per_gpu_pop, ...)
-        sparse_from_sharded = from_idx_padded.reshape(num_devices, per_gpu_pop, -1)
-        sparse_to_sharded = to_idx_padded.reshape(num_devices, per_gpu_pop, -1)
-        sparse_weights_sharded = weights_padded.reshape(num_devices, per_gpu_pop, -1)
-        sparse_valid_sharded = valid_mask_padded.reshape(num_devices, per_gpu_pop, -1)
-
-        # Grid parameters (static) - must be hashable for pmap static_broadcasted_argnums
-        level_sizes = h_grid.level_sizes_static
-        level_offsets = h_grid.level_offsets_static
-        level_grid_sizes = h_grid.level_grid_sizes_static
-        # Convert parent_indices from JAX arrays to hashable Python tuples
-        parent_indices = tuple(
-            tuple(int(x) for x in arr.tolist()) if hasattr(arr, 'tolist') else tuple(arr)
-            for arr in h_grid.parent_indices
-        )
-        num_levels = h_grid.num_levels
-
-        if verbose:
-            print(f"UNIFIED pmap multi-GPU: {num_devices} GPUs")
-            print(f"  Positions: {total_positions}, Population: {pop_size} (padded: {padded_pop_size})")
-            print(f"  Per GPU: {per_gpu_pop} individuals")
-            print(f"  H→H connections: {total_hh_conns} total, {avg_hh_conns:.1f} avg")
-
-        # ======================================================================
-        # Python while loop with SINGLE UNIFIED pmap call per generation
-        # ======================================================================
-
-        history = [] if collect_history else None
-        best_so_far = -float('inf')
-        generation = 0
-
-        while best_so_far < target_fitness and generation < max_generations:
-            gen_start = time_module.perf_counter() if verbose else None
-
-            # CPPN ask + transform (only Python→JAX call besides the pmap)
-            cppn_population = self._compiled_ask(state)
-            cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-
-            # Pad CPPNs if needed
-            if pad_needed > 0:
-                cppns_padded = []
-                for arr in cppns_transformed:
-                    pad_shape = (pad_needed,) + arr.shape[1:]
-                    padded = jnp.concatenate([arr, jnp.zeros(pad_shape, dtype=arr.dtype)], axis=0)
-                    cppns_padded.append(padded)
-                cppns_transformed = tuple(cppns_padded)
-
-            # Shard CPPNs: (padded_pop_size, ...) -> (num_devices, per_gpu_pop, ...)
-            cppns_sharded = tuple(
-                arr.reshape(num_devices, per_gpu_pop, *arr.shape[1:])
-                for arr in cppns_transformed
-            )
-
-            # SINGLE UNIFIED PMAP CALL - ENTIRE generation pipeline
-            # This includes: CPPN queries + masks + W1/W2 + sparse h→h eval
-            fitnesses_sharded = _pmap_pop_parallel_with_hh(
-                cppns_sharded,           # 0: population sharded
-                all_positions,           # 1: replicated
-                input_coords,            # 2: replicated
-                output_coords,           # 3: replicated
-                inputs_batch,            # 4: replicated
-                targets_batch,           # 5: replicated
-                sparse_from_sharded,     # 6: population sharded
-                sparse_to_sharded,       # 7: population sharded
-                sparse_weights_sharded,  # 8: population sharded
-                sparse_valid_sharded,    # 9: population sharded
-                self.variance_threshold, # 10: replicated
-                self.max_weight,         # 11: replicated
-                0.1,                     # 12: weight_thresh replicated
-                state,                   # 13: replicated PyTree
-                level_sizes,             # 14: STATIC
-                level_offsets,           # 15: STATIC
-                level_grid_sizes,        # 16: STATIC
-                parent_indices,          # 17: STATIC
-                num_levels,              # 18: STATIC
-                total_positions,         # 19: STATIC
-                activate_time,           # 20: STATIC (must be concrete for jax.lax.scan!)
-                self._jitted_cppn_forward,  # 21: STATIC
-                total_positions,         # 22: STATIC (num_positions for inner function)
-                self.initial_depth,      # 23: STATIC
-                self._legacy_level0_variance,  # 24: STATIC
-            )
-
-            # Concatenate fitnesses and trim padding
-            # fitnesses_sharded shape: (num_devices, per_gpu_pop)
-            fitnesses = fitnesses_sharded.reshape(-1)[:pop_size]
-            fitnesses = jnp.where(jnp.isnan(fitnesses), -jnp.inf, fitnesses)
-
-            # Optional random key split
-            if use_extra_split:
-                randkey_, randkey = jax.random.split(state.randkey)
-                state = state.update(randkey=randkey)
-
-            # NEAT evolution step
-            state = self._compiled_tell(state, fitnesses)
-
-            # Update tracking
-            gen_best = float(jnp.max(fitnesses))
-            best_so_far = max(best_so_far, gen_best)
-            generation += 1
-
-            if collect_history:
-                history.append(gen_best)
-
-            if verbose:
-                gen_time = time_module.perf_counter() - gen_start
-                print(f"  Gen {generation}: best={gen_best:.4f}, overall={best_so_far:.4f}, time={gen_time:.3f}s")
-
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            'sparse_hh_stats': {
-                'discovery_time_ms': discovery_time * 1000,
-                'hh_connections': total_hh_conns,
-                'total_connections': total_hh_conns,
-                'avg_connections_per_genome': avg_hh_conns,
-            },
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
+        raise NotImplementedError(
+            "run_until_threshold_with_fixed_hh is refused: it discovered the hidden-to-hidden "
+            "connections once, from the generation-0 population, and kept each population slot's "
+            "set for the whole run, so after the first reproduction a genome was scored with the "
+            "connections discovered for another genome. Configure recurrence in the "
+            "emr_hyperneat.recurrence block and call run_generation or run_until_threshold, which "
+            "discover each genome's own connections every generation.")
 
 
 # ============================================================================

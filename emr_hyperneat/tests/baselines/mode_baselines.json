@@ -145,7 +145,7 @@
       },
       "class": "TensorNEATEMRHyperNEATDepthOffload",
       "digest": "4f53cda18c2baa0c",
-      "error": "generation 0: ValueError: Incompatible shapes for broadcasting: (5,) and requested shape (7,)  [geometry seeding on the offload path, fixed in 0.3.0; traceback elided]",
+      "error": "generation 0: ValueError: Incompatible shapes for broadcasting: (5,) and requested shape (7,)  [geometry seeding on the offload path, fixed in 0.1.0; traceback elided]",
       "final_best_fitness": null,
       "generations_completed": 0,
       "generations_requested": 5,

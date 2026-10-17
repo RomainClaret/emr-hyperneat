@@ -3,8 +3,7 @@
 Tests the ForwardPassMode enum and automatic mode selection:
 - DENSE_ONLY: Feedforward mode (W1 → tanh → W2, no H→H)
 - HYBRID_SPARSE_HH: Dense W1/W2 + sparse H→H connections
-- FULL_SPARSE: accepted, but yields no sparse h→h; the generation loop's h→h gates
-  all test for HYBRID_SPARSE_HH, so it behaves as DENSE_ONLY
+- FULL_SPARSE: not implemented and refused (0.1.0 accepted it and ran it as DENSE_ONLY)
 
 The forward pass mode is automatically determined based on recurrence settings:
 - feedforward preset → DENSE_ONLY
@@ -61,7 +60,7 @@ class TestDenseOnlyMode:
         """Verify DENSE_ONLY works with dynamic functions."""
         config = create_config_with_recurrence('feedforward')
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'global', 'global_activation': 'tanh'}
+        hmr['dynamic_functions'] = {'mode': 'global', 'hidden_activation': 'tanh'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -71,7 +70,7 @@ class TestDenseOnlyMode:
         """Verify DENSE_ONLY works with aggregation configuration."""
         config = create_config_with_recurrence('feedforward')
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {'mode': 'global', 'global_aggregation': 'sum'}
+        hmr['aggregation'] = {'mode': 'global', 'global_function': 'sum'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 

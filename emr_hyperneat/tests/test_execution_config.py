@@ -327,6 +327,30 @@ class TestMemoryAwareResolution:
                             device_bytes=self.GPU_USABLE)
         assert mode is ExecutionMode.STANDARD
 
+    def test_the_model_resolves_with_the_device_where_the_configuration_cannot(self, monkeypatch):
+        """A run's execution mode is the model's resolve_execution_mode, the generation loop's own decision: only
+        the model passes the population and the device memory, so on a GPU AUTO escalates where the configuration's
+        depth rule says STANDARD, and generation_execution_mode reports the escalation."""
+        import jax
+        from conftest import create_base_config
+        from emr_hyperneat import EMRHyperNEAT
+        from emr_hyperneat.execution import ExecutionMode
+        config = create_base_config(max_depth=7, population_size=1000)
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['execution'] = {'mode': 'auto'}
+        algo = EMRHyperNEAT()
+        algo.create_config(config)
+        usable = self.GPU_USABLE
+
+        class Device:
+            def memory_stats(self):
+                return {'bytes_limit': usable}
+
+        monkeypatch.setattr(jax, 'default_backend', lambda: 'gpu')
+        monkeypatch.setattr(jax, 'local_devices', lambda *args, **kwargs: [Device()])
+        assert algo.execution_config.resolve(algo.max_depth) is ExecutionMode.STANDARD
+        assert algo.resolve_execution_mode() is ExecutionMode.DEPTH_OFFLOAD
+        assert algo.generation_execution_mode() == 'depth_offload'
+
     def test_without_sizing_resolution_is_unchanged(self):
         # CPU runs and legacy callers pass no sizing: pure threshold logic.
         from emr_hyperneat.execution import (
@@ -359,10 +383,9 @@ class TestMemoryAwareResolution:
 
 
 class TestChunkProductBudget:
-    """Round-4 fix: the offload path sizes position chunks and the population
-    gate against the SAME shard target -- independently, in round 3, so the
-    realized per-call carry ran 53x UNDER budget and auto-mode d7 cost 1.97x
-    the hand-tuned cell. The gate now budgets
+    """The offload path sizes position chunks and the population gate against the
+    SAME shard target. Budgeted independently, the realized per-call carry ran 53x
+    UNDER budget and auto-mode d7 cost 1.97x the hand-tuned cell, so the gate budgets
     against the realized slab (min(largest level, largest position chunk))."""
 
     MN = 50
@@ -380,7 +403,7 @@ class TestChunkProductBudget:
         pop_chunk = population_chunk_for_query(1000, realized_slab, self.MN, self.BUDGET)
         carry = cppn_query_carry_bytes(pop_chunk, realized_slab, self.MN)
         budget_bytes = self.BUDGET * 1e9
-        # Round 3's independent budgeting realized ~9.4 MB here (53x under).
+        # Independent budgeting realized ~9.4 MB here (53x under).
         # The product budget must land within 2x of the target, either side.
         assert budget_bytes / 2 <= carry <= budget_bytes * 2, (
             f"realized carry {carry/1e6:.1f} MB vs budget {budget_bytes/1e6:.0f} MB")

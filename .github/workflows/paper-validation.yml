@@ -104,3 +104,34 @@ jobs:
         run: |
           pytest emr_hyperneat/tests/test_paper_validation.py \
             -m "paper and slow" -q --tb=short
+
+  replicate:
+    name: Each paper on its own release (manual)
+    # Only on manual dispatch: scripts/replicate.py builds every release that papers/releases.json
+    # names in its own checkout and environment, then runs that release's fast paper findings
+    # there, so a release whose pinned stack no longer installs or reproduces shows up here.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout (all history, for the release tags)
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Run each release's fast paper findings in its own checkout
+        env:
+          JAX_PLATFORMS: cpu
+          TF_CPP_MIN_LOG_LEVEL: "3"
+        run: |
+          releases=$(python -c "import json; print(*sorted(set(json.load(open('papers/releases.json')).values())))")
+          for release in $releases; do
+            python scripts/replicate.py run --release "$release" -- \
+              python -m pytest emr_hyperneat/tests/test_paper_validation.py -m "paper and not slow" -q --tb=short
+          done

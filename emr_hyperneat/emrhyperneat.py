@@ -33,20 +33,17 @@ HYBRID SPARSE-DENSE ARCHITECTURE
 2. **Sparse hidden→hidden** with multi-hop expansion via matrix power
 3. **Multi-iteration forward** using scatter-add for h→h, matmul for rest
 
-MULTI-HOP EXPANSION (KEY INNOVATION)
-====================================
+MULTI-HOP EXPANSION
+===================
 
-Multi-hop support uses a JIT-compatible matrix power approach:
-
-```python
-# For iteration_level k hops:
-A_total = A + decay*A^2 + decay^2*A^3 + ... + decay^(k-1)*A^k
-
-# This captures transitive connections: if A→B→C exists, we add A→C
-```
-
-The algorithm is JIT-compatible because iteration_level is a static argument,
-allowing the Python loop to compile away.
+With A the genome's direct h->h connections (the masked adjacency), iteration_level k forms the
+hop terms decay^(h-1) A^h for h = 1..k and keeps, per pair, the term of largest magnitude; each
+product is thresholded before the decay. Every hop is an existing direct connection
+(`recurrence.multi_hop_second_factor: masked`, the default since 0.2.0). `raw` reproduces
+0.1.0's expansion, which multiplied by the raw weights over the population's union of active
+positions, so a genome's composite connections could end on positions it did not have active,
+ignore its connection class and depend on the other genomes. JIT-compatible because
+iteration_level and the second factor are static, so the Python loop compiles away.
 
 EXECUTION MODES
 ===============
@@ -64,6 +61,9 @@ PRESETS
 - with_lateral: h→h + same-layer connections
 - with_self: h→h + self-loops
 - full_recurrent: Everything (activate_time=20)
+
+The recurrent presets discover direct h->h connections only (iteration_level 1) since 0.2.0; in
+0.1.0 they composed two hops (level 2). Set recurrence.iteration_level to compose connections.
 
 AGGREGATION MODES
 =================
@@ -103,20 +103,11 @@ Stores compiled XLA functions on disk for reuse across runs.
 
 LEVEL 2: H→H Connection Cache (Algorithm-Level)
 -----------------------------------------------
-Caches hidden-to-hidden connections within a run to skip redundant discovery.
-
-- Location: In-memory via HHCacheManager class
-- Scope: Skips Phase 2 discovery when variance mask unchanged
-- Impact: 2-3x speedup for hybrid/recurrent modes
-- Configuration (via recurrence config):
-    hh_cache_enabled: true       # Enable/disable caching
-    hh_refresh_interval: 5       # Generations between forced refresh
-    hh_mask_change_threshold: 0.1  # Refresh if mask changes >10%
-
-Combined Effect:
-- Without caching: ~5000-12000ms per generation
-- With both caches: ~900-1500ms per generation
-- Total potential speedup: Up to 9x faster
+HHCacheManager reuses one population-wide h->h connection set for up to hh_refresh_interval
+generations. Off by default since 0.2.0 (on in 0.1.0): reproduction moves genomes between
+population slots, so between refreshes a genome is scored with the recurrent connections
+discovered for whichever genome held its slot. Set hh_cache_enabled: true only to reproduce a
+cache-on campaign.
 
 CONFIGURATION
 =============
@@ -131,14 +122,16 @@ emr_hyperneat:
     # enabled: true
     # allow_hidden_to_hidden: true
     # allow_backward: false
-    # iteration_level: 2
+    # iteration_level: 1  # the presets' level since 0.2.0; 2 composes connections
     # multi_hop_algorithm: matrix_power  # or fori_loop
     # hop_decay_factor: 0.8
-    # hh_cache_enabled: true
+    # multi_hop_second_factor: masked  # or raw, the 0.1.0 algebra
+    # hh_cache_enabled: false  # default since 0.2.0
     # hh_refresh_interval: 5
 ```
 """
 
+import dataclasses
 import functools
 import time
 import os
@@ -186,6 +179,7 @@ from emr_hyperneat.emrhyperneat_base import (
     compute_subdivision_masks_batch_jit,
     batch_query_population_multi_source_chunked,
     batch_query_population_positions,
+    cppn_query_rows,
     safe_matmul,
     traced_device_get,
     clear_per_device_caches,
@@ -198,6 +192,7 @@ from emr_hyperneat._compat.utils.config_manager import ConfigManager
 # are imported here; the strategy modules import from this one, so the dispatcher
 # imports them lazily at call time to keep the dependency one-way.
 from emr_hyperneat.execution import (  # noqa: E501
+    EXECUTION_KEYS,
     ExecutionConfig,
     ExecutionMode,
     parse_execution_config,
@@ -320,7 +315,8 @@ class NeuromodulationConfig:
 
         # Level 3: Modulatory Neurons (Soltoggio-style)
         modulatory_neurons: Enable modulatory neuron types
-        mod_neuron_ratio: Fraction of hidden neurons that are modulatory (default 0.1)
+        mod_neuron_ratio: Fraction of a genome's active hidden positions that are modulatory, at least one
+            (default 0.1)
         mod_connection_type: How modulatory signal affects targets
             - 'multiplicative': target = activation * (1 + mod_signal)
             - 'additive': target = activation + mod_signal
@@ -371,6 +367,9 @@ class NeuromodulationConfig:
     gate_hardness: float = 10.0  # For soft_threshold gate scaling
     modulation_mode: str = 'full'  # 'full', 'gating_only', 'gain_bias_only'
     use_output_inversion: bool = True  # Whether NT4 controls output inversion
+    # The neuromodulated node: 'paper' (the published rule, on every path) or 'hmr_full' (HMR FULL's
+    # rule, which 0.1.0's single-task path computed); see true_neuromodulation_node_fn.
+    node_rule: str = 'paper'
     branch_gating: bool = False  # Branch-specific gating (e.g., IH vs HH)
 
     # Self-connection query for receptor densities (proper CPPN-based method)
@@ -402,8 +401,8 @@ class MultiTaskConfig:
             - 'harmonic': Harmonic mean
         task_weights: Optional weights for 'weighted' aggregation
         joint_evolution: If True, evolve on all tasks jointly (default True)
-        orthogonality_bonus: Bonus for orthogonal NT vectors (default 0.0)
-        specialization_bonus: Bonus for task-specialized activations (default 0.0)
+        orthogonality_bonus: Must stay 0.0: a non-zero value raises (one value added to every genome)
+        specialization_bonus: Must stay 0.0: a non-zero value raises (one value added to every genome)
         hidden_activation: Global hidden layer activation function name (default: 'tanh')
             Use this when all tasks should use the same activation function.
             Available: 'tanh', 'sigmoid', 'relu', 'sin', 'gauss', 'identity',
@@ -432,7 +431,7 @@ class MultiTaskConfig:
     tasks: Optional[Dict[str, Tuple[Any, Any]]] = None
 
     # Fitness mode for evaluation
-    fitness_mode: str = 'mse'  # 'mse', 'accuracy', 'acc_mse', 'hybrid', 'bce', 'soft_accuracy', 'ce'
+    fitness_mode: str = 'mse'  # MULTITASK_FITNESS_MODES ('ce' and unknown names raise)
 
     # Modulation penalty: rewards networks that produce different modulation per task
     modulation_penalty: float = 0.0  # 0.01-0.1 recommended; 0.0 = disabled
@@ -454,7 +453,7 @@ class MultiTaskConfig:
     confusion_eval_frequency: int = 0  # Compute confusion matrix every N generations (0 = disabled)
 
     # Subspace orthogonality bonus (Liu & Wang 2024 mechanism)
-    orthogonality_bonus_weight: float = 0.0  # 0.1-0.5 recommended; 0.0 = disabled
+    orthogonality_bonus_weight: float = 0.0  # any non-zero value raises in run_generation_multitask (a constant)
     orthogonality_metric: str = 'cosine_mean'  # 'cosine_mean', 'cosine_max', 'correlation'
 
     # Dendritic branch-specific gating (Liu & Wang 2024 SST mechanism)
@@ -795,8 +794,37 @@ def derive_receptor_from_weight(
     return jnp.stack(receptors[:num_nt_types], axis=-1)
 
 
+#: The fitness modes of the multi-task evaluators (compute_fitness).
+MULTITASK_FITNESS_MODES = ('mse', 'accuracy', 'acc_mse', 'hybrid', 'bce', 'soft_accuracy', 'accuracy_confident')
+#: Fitness modes the single-task evaluation computes (emr_hyperneat.fitness_mode, _eval_single_fitness).
+#: create_config raises on any other name; 0.1.0 scored it, and acc_mse and accuracy_confident, as MSE.
+FITNESS_MODES = ('mse', 'accuracy', 'hybrid', 'bce', 'soft_accuracy', 'ce', 'acc_mse', 'accuracy_confident')
+#: Accepted values of the multi-task settings (create_config raises on any other).
+MULTITASK_AGGREGATIONS = ('mean', 'min', 'weighted', 'product', 'softmin', 'harmonic')
+#: Weight interpretations of dynamic_functions and aggregation mode 'weight_interpretation'.
+#: create_config raises on any other name; 0.1.0 ran magnitude_bio for it (HMR's dynamic-functions
+#: variant had more, among them an inverted 'magnitude', which EMR never implemented).
+ACTIVATION_INTERPRETATIONS = ('magnitude_bio', 'variance', 'sign')
+AGGREGATION_INTERPRETATIONS = ('magnitude_bio', 'variance', 'sign_uniformity', 'fan_in')
+GENERALIST_BONUS_TYPES = ('none', 'min_bonus', 'variance_penalty', 'threshold_bonus')
+TWO_MODULE_MODES = ('none', 'parallel', 'sequential')
+MODULATION_MODES = ('full', 'gating_only', 'gain_bias_only')
+
+
 def compute_fitness(outputs: jnp.ndarray, targets: jnp.ndarray, mode: str = 'mse') -> float:
-    """Compute fitness using specified mode ('mse', 'accuracy', 'acc_mse', 'hybrid', 'bce', 'soft_accuracy')."""
+    """The multi-task evaluators' fitness over flattened outputs and targets: 'mse', 'accuracy', 'acc_mse', 'hybrid',
+    'bce', 'soft_accuracy' and 'accuracy_confident' (accuracy plus 0.1 of the outputs' mean distance from 0.5, scaled
+    to [0, 1]); MULTITASK_FITNESS_MODES. In 0.1.0 'accuracy_confident', 'ce' and any unknown name computed MSE.
+
+    Raises:
+        ValueError: 'ce', categorical cross-entropy over softmax outputs: these evaluators score sigmoid outputs of
+            Boolean tasks, where it ranks a constant output above a solver (a constant 0.9999 scores 0.99995, a
+            0.99/0.01 XOR solver 0.99499); and an unknown mode.
+    """
+    if mode == 'ce':
+        raise ValueError("fitness mode 'ce' is categorical cross-entropy over softmax outputs; the multi-task "
+                         "evaluators score sigmoid outputs, where it ranks a constant output above a solver: "
+                         "use 'bce'")
     outputs = outputs.flatten()
     targets = targets.flatten()
 
@@ -828,9 +856,10 @@ def compute_fitness(outputs: jnp.ndarray, targets: jnp.ndarray, mode: str = 'mse
         T = 10.0
         soft_pred = jax.nn.sigmoid((outputs - 0.5) * T)
         return jnp.mean(soft_pred * targets + (1.0 - soft_pred) * (1.0 - targets))
-    else:
-        mse = jnp.mean((outputs - targets) ** 2)
-        return 1.0 - mse
+    elif mode == 'accuracy_confident':
+        predictions = (outputs > 0.5).astype(jnp.float32)
+        return jnp.mean(predictions == targets) + 0.1 * jnp.mean(jnp.abs(outputs - 0.5) * 2.0)
+    raise ValueError(f"unknown fitness mode {mode!r}; the multi-task modes are {MULTITASK_FITNESS_MODES}")
 
 
 def _eval_single_fitness(outputs, targets_batch, mode):
@@ -888,7 +917,17 @@ def _eval_single_fitness(outputs, targets_batch, mode):
         outputs_safe = jnp.clip(outputs, eps, 1.0 - eps)
         ce = -jnp.mean(jnp.sum(targets_batch * jnp.log(outputs_safe), axis=-1))
         return jnp.exp(-ce)
-    else:  # 'mse' default
+    elif mode == 'acc_mse':
+        # Accuracy with 0.01 of (1 - MSE) as a tie-break, as the multi-task evaluators and HMR's
+        # neuromodulation variant define it; in 0.1.0 this name computed MSE here
+        return (_eval_single_fitness(outputs, targets_batch, 'accuracy')
+                + 0.01 * _eval_single_fitness(outputs, targets_batch, 'mse'))
+    elif mode == 'accuracy_confident':
+        # Accuracy plus 0.1 of the outputs' mean distance from 0.5, scaled to [0, 1]; in 0.1.0 this
+        # name computed MSE here
+        return (_eval_single_fitness(outputs, targets_batch, 'accuracy')
+                + 0.1 * jnp.mean(jnp.abs(outputs - 0.5) * 2.0))
+    else:  # 'mse' (FITNESS_MODES is checked at configuration)
         errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
         return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
 
@@ -997,6 +1036,38 @@ def compute_modulation_with_branch_gating(
 # Proper CPPN-based method for extracting per-node receptor densities using
 # self-connection queries at (x, y, x, y, bias).
 
+def self_connection_rows(
+    positions: jnp.ndarray,
+    geometry_seeding_enabled: bool = False,
+) -> jnp.ndarray:
+    """CPPN input rows for the self-connection query at every position.
+
+    A self-connection has source and target at the same position, ``(x, y, x, y, 1)``.
+    The query reads per-node properties from it: a hidden node's activation and
+    aggregation function in ``cppn_output`` mode, and its receptor densities under
+    neuromodulation. Column order matches `cppn_query_rows` exactly:
+
+      - 5-D: ``[x1, y1, x2, y2, bias]``
+      - 7-D: ``[x1, y1, x2, y2, delta_x, delta_y, bias]`` (deltas before the bias,
+        both exactly zero here, but present so the genome's input count matches)
+
+    Args:
+        positions: Positions to query (num_positions, 2).
+        geometry_seeding_enabled: Add the two zero delta columns (7-D rows).
+
+    Returns:
+        (num_positions, 5) or (num_positions, 7) rows.
+    """
+    num_positions = positions.shape[0]
+    bias = jnp.ones((num_positions, 1))
+    if geometry_seeding_enabled:
+        zero_delta = jnp.zeros((num_positions, 1))
+        return jnp.concatenate(
+            [positions, positions, zero_delta, zero_delta, bias], axis=1
+        )  # (num_positions, 7)
+    return jnp.concatenate([positions, positions, bias], axis=1)  # (num_positions, 5)
+
+
 def batch_query_population_self_connections(
     state: Any,
     cppns_transformed: Tuple,
@@ -1028,20 +1099,9 @@ def batch_query_population_self_connections(
         (pop_size, num_positions, num_cppn_outputs) array of CPPN outputs at self-connections
     """
     pop_size = cppns_transformed[0].shape[0]
-    num_positions = positions.shape[0]
 
     # Build self-connection inputs. For self-connections, source == target.
-    # Column order must match the standard query exactly:
-    #   5-D: [x1, y1, x2, y2, bias]
-    #   7-D: [x1, y1, x2, y2, delta_x, delta_y, bias]   (deltas BEFORE bias)
-    bias = jnp.ones((num_positions, 1))
-    if geometry_seeding_enabled:
-        zero_delta = jnp.zeros((num_positions, 1))
-        inputs = jnp.concatenate(
-            [positions, positions, zero_delta, zero_delta, bias], axis=1
-        )  # (num_positions, 7)
-    else:
-        inputs = jnp.concatenate([positions, positions, bias], axis=1)  # (num_positions, 5)
+    inputs = self_connection_rows(positions, geometry_seeding_enabled)
 
     def query_single_cppn(cppn_tuple):
         """Query one CPPN at all positions for self-connections."""
@@ -1274,20 +1334,32 @@ ACTIVATION_LIST = [
 ]
 
 
-def continuous_to_index(raw: jnp.ndarray, num_options: int) -> jnp.ndarray:
-    """Convert continuous CPPN output to discrete function index.
+#: How a value in [-1, 1] becomes one of K function indices (dynamic_functions.index_decode,
+#: aggregation.index_decode). 'tanh', the default and 0.1.0's decode, applies tanh before binning; the values
+#: it bins (the CPPN's channels, whose output transform is tanh, and every weight-interpretation signal) are
+#: already in [-1, 1], so tanh squeezes them into [-0.762, 0.762] and the end bins of a palette of 9 or more
+#: functions are never reached (18 functions: positions 2 to 15). 'uniform' bins the value itself, every bin
+#: equally wide.
+INDEX_DECODES = ('tanh', 'uniform')
 
-    Maps values (typically in [-1, 1] from tanh) to discrete indices [0, num_options-1].
-    Uses tanh to normalize before scaling to handle any input range.
+
+def continuous_to_index(raw: jnp.ndarray, num_options: int, decode: str = 'tanh') -> jnp.ndarray:
+    """Convert a continuous value to a discrete function index in [0, num_options - 1].
 
     Args:
-        raw: Continuous values from CPPN
-        num_options: Number of function options
+        raw: Continuous values, in [-1, 1] for every caller in this module (CPPN channels and
+            weight-interpretation signals).
+        num_options: Number of function options.
+        decode: 'tanh' (the default): bin tanh(raw); 'uniform': bin raw itself, clipped to [-1, 1]
+            (INDEX_DECODES).
 
     Returns:
         Integer indices in [0, num_options-1]
     """
-    scaled = (jnp.tanh(raw) + 1.0) / 2.0 * num_options
+    if decode == 'uniform':
+        scaled = (jnp.clip(raw, -1.0, 1.0) + 1.0) / 2.0 * num_options
+    else:
+        scaled = (jnp.tanh(raw) + 1.0) / 2.0 * num_options
     return jnp.clip(jnp.floor(scaled).astype(jnp.int32), 0, num_options - 1)
 
 
@@ -1342,6 +1414,7 @@ PALETTE_CONFIGS = {
 def continuous_to_palette_index(
     raw: jnp.ndarray,
     palette: jnp.ndarray,
+    decode: str = 'tanh',
 ) -> jnp.ndarray:
     """Convert continuous CPPN output to activation index using custom palette.
 
@@ -1351,13 +1424,12 @@ def continuous_to_palette_index(
     Args:
         raw: Continuous values from CPPN
         palette: Array of activation indices to use, e.g., [4, 11, 12] for sin, burst, resonator
+        decode: 'tanh' (the default) or 'uniform', as in `continuous_to_index`.
 
     Returns:
         Integer indices from the palette array
     """
-    num_options = len(palette)
-    scaled = (jnp.tanh(raw) + 1.0) / 2.0 * num_options
-    position = jnp.clip(jnp.floor(scaled).astype(jnp.int32), 0, num_options - 1)
+    position = continuous_to_index(raw, len(palette), decode)
     return palette[position]
 
 
@@ -1374,13 +1446,17 @@ def grouped_activation_forward_with_palette(
     Args:
         pre_activation: Pre-activation values, shape (batch, num_nodes)
         act_indices: Per-node activation indices from ACTIVATION_LIST, shape (num_nodes,)
-        palette: Array of activation indices that may be present, for efficient iteration
+        palette: Activation indices that may be present, for efficient iteration. Concrete
+            (a sequence or a concrete array): it selects Python functions while tracing.
 
     Returns:
         Activated values with same shape as pre_activation
     """
     result = jnp.zeros_like(pre_activation)
-    for act_idx in palette:
+    # Python ints, not the array's elements: iterating a jax array inside lax.scan stages
+    # the unstack, and a traced index cannot select a function. In 0.1.0 this made every
+    # recurrent palette configuration fail under hh_activation_mode 'every_iteration'.
+    for act_idx in np.asarray(palette).tolist():
         func = ACTIVATION_FUNCTIONS[ACTIVATION_LIST[act_idx]]
         mask = (act_indices == act_idx)
         activated = func(pre_activation)
@@ -1481,6 +1557,7 @@ def aggregation_from_weight_interpretation(
     weights: jnp.ndarray,
     interpretation: str,
     num_aggregations: int,
+    decode: str = 'tanh',
 ) -> jnp.ndarray:
     """Derive aggregation indices from weight patterns.
 
@@ -1494,6 +1571,7 @@ def aggregation_from_weight_interpretation(
         weights: Weight matrix, shape (pop_size, num_inputs, num_nodes)
         interpretation: Method name: 'magnitude_bio', 'variance', 'sign_uniformity'
         num_aggregations: Number of aggregation functions available
+        decode: 'tanh' or 'uniform' (INDEX_DECODES)
 
     Returns:
         Aggregation indices, shape (pop_size, num_nodes)
@@ -1502,19 +1580,19 @@ def aggregation_from_weight_interpretation(
         # High magnitude → sum (preserve scale), low → mean (normalize)
         mean_abs = jnp.mean(jnp.abs(weights), axis=1)  # (pop_size, num_nodes)
         normalized = -jnp.tanh(mean_abs * 2 - 1)  # Inverted like activation
-        return continuous_to_index(normalized, num_aggregations)
+        return continuous_to_index(normalized, num_aggregations, decode)
 
     elif interpretation == 'variance':
         # High variance → max (winner-take-all), low → mean (equal contribution)
         weight_var = jnp.var(weights, axis=1)  # (pop_size, num_nodes)
         normalized = jnp.tanh(weight_var * 5)
-        return continuous_to_index(normalized, num_aggregations)
+        return continuous_to_index(normalized, num_aggregations, decode)
 
     elif interpretation == 'sign_uniformity':
         # All same sign → product (AND-gate), mixed → sum (preserve cancellation)
         pos_ratio = jnp.mean((weights > 0).astype(jnp.float32), axis=1)  # (pop_size, num_nodes)
         sign_uniformity = 2 * jnp.abs(pos_ratio - 0.5)  # 0 = mixed, 1 = uniform
-        return continuous_to_index(sign_uniformity, num_aggregations)
+        return continuous_to_index(sign_uniformity, num_aggregations, decode)
 
     elif interpretation == 'fan_in':
         # Based on number of significant inputs (above threshold)
@@ -1522,13 +1600,65 @@ def aggregation_from_weight_interpretation(
         fan_in = jnp.sum(significant.astype(jnp.float32), axis=1)  # (pop_size, num_nodes)
         max_fan_in = weights.shape[1]
         normalized = jnp.tanh((fan_in / max_fan_in) * 2 - 1)
-        return continuous_to_index(normalized, num_aggregations)
+        return continuous_to_index(normalized, num_aggregations, decode)
 
     else:
         # Default: magnitude_bio (same as activation)
         mean_abs = jnp.mean(jnp.abs(weights), axis=1)
         normalized = -jnp.tanh(mean_abs * 2 - 1)
-        return continuous_to_index(normalized, num_aggregations)
+        return continuous_to_index(normalized, num_aggregations, decode)
+
+
+#: Draws of the random function modes. 'genome': one draw per population slot from the run's key,
+#: as HMR drew its negative controls; 'shared': 0.1.0's draw, one assignment for every genome from a
+#: fixed key.
+RANDOM_SCOPES = ('genome', 'shared')
+
+
+def random_function_indices(scope: str, seed: Optional[int], run_key: jnp.ndarray, salt: int,
+                            generation: Optional[int], num_options: int,
+                            palette: Optional[jnp.ndarray], pop_size: int,
+                            total_positions: int) -> jnp.ndarray:
+    """One random function index per node, for the random_fixed and random_generation modes.
+
+    Scope 'genome' draws each population slot independently, from the run's key folded with
+    ``salt`` (a fresh key every generation, so random_generation redraws) or, when ``seed`` is set,
+    from the seed (the same draw in every run; folded with the generation for random_generation).
+    Scope 'shared' is 0.1.0's draw, bit for bit: one assignment for every genome from
+    ``PRNGKey(seed or 42)``, or ``PRNGKey(generation + (seed or 0))`` per generation, so every
+    genome and every run of a configuration drew the same. It is kept to reproduce runs made that
+    way; as a control it compares the evolved assignment with one random assignment per run, not
+    with random assignments.
+
+    Args:
+        scope: 'genome' or 'shared'.
+        seed: The block's random_seed, or None.
+        run_key: The run's key this generation (state.randkey).
+        salt: Separates this draw from the run's other uses of the key.
+        generation: The generation for a per-generation draw, None for a fixed one.
+        num_options: Functions to draw from (the palette's size with a palette).
+        palette: ACTIVATION_LIST indices to map the draw to, or None.
+        pop_size: Population size, the first dimension of the result.
+        total_positions: Grid positions, the second dimension of the result.
+
+    Returns:
+        Indices of shape (pop_size, total_positions).
+    """
+    if scope == 'shared':
+        key = jax.random.PRNGKey((seed or 42) if generation is None else generation + (seed or 0))
+        draw = jax.random.randint(key, (total_positions,), 0, num_options, dtype=jnp.int32)
+    else:
+        if seed is None:
+            key = jax.random.fold_in(run_key, salt)
+        else:
+            key = jax.random.PRNGKey(seed)
+            if generation is not None:
+                key = jax.random.fold_in(key, generation)
+        draw = jax.random.randint(key, (pop_size, total_positions), 0, num_options,
+                                  dtype=jnp.int32)
+    if palette is not None:
+        draw = palette[draw]
+    return jnp.broadcast_to(draw, (pop_size, total_positions))
 
 
 def compute_aggregation_correction_factors(
@@ -1564,6 +1694,691 @@ def compute_aggregation_correction_factors(
     factors = jnp.where(agg_indices == mean_idx, 1.0 / num_inputs, factors)
 
     return factors
+
+
+# ============================================================================
+# Feed-forward substrate: shared by the generation loop and the public API
+# ============================================================================
+# The standard path of run_generation_verbose builds and evaluates its substrate
+# through these functions, and emr_hyperneat.substrate composes the same ones, so a
+# substrate built outside the generation loop is the one EMR evaluates rather than a
+# second implementation of it. Change them only together with that module's tests.
+
+#: Weights whose magnitude is at or below this, after tanh scaling, are pruned. EMR
+#: has always used this constant on every path; it is not a configuration option.
+WEIGHT_THRESHOLD = 0.1
+
+
+def substrate_masks(
+    variance_weights: jnp.ndarray,
+    grid: HierarchicalGridStructure,
+    variance_threshold: float,
+    initial_depth: int = 0,
+    legacy_level0_variance: bool = False,
+) -> jnp.ndarray:
+    """Which grid positions become hidden nodes.
+
+    The variance source is the raw CPPN weight output from the first substrate input
+    to every grid position. A cell subdivides when the variance over its four children
+    exceeds the threshold (or while its level is below ``initial_depth``), and every
+    reached cell, at every level, is a hidden node: not only the leaves.
+
+    Args:
+        variance_weights: (pop_size, total_positions) raw CPPN weight outputs.
+        grid: The multi-resolution grid from ``get_hierarchical_grid(max_depth)``.
+        variance_threshold: Subdivision threshold.
+        initial_depth: Levels subdivided unconditionally.
+        legacy_level0_variance: The original standard-path level-0 rule (``variance_rule: legacy``).
+
+    Returns:
+        (pop_size, total_positions) boolean mask.
+    """
+    level_variances = compute_hierarchical_variances_batch(
+        variance_weights, grid, legacy_level0_variance=legacy_level0_variance
+    )
+    return compute_subdivision_masks_batch(
+        level_variances, variance_threshold, grid, return_all_masks=False,
+        initial_depth=initial_depth,
+    )
+
+
+def substrate_weight_matrices(
+    input_weights: jnp.ndarray,
+    output_weights: jnp.ndarray,
+    masks: jnp.ndarray,
+    max_weight: float,
+    weight_threshold: float = WEIGHT_THRESHOLD,
+    locality_radius: Optional[float] = None,
+    input_coords: Optional[jnp.ndarray] = None,
+    output_coords: Optional[jnp.ndarray] = None,
+    positions: Optional[jnp.ndarray] = None,
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """Input-to-hidden and hidden-to-output weights from raw CPPN weight outputs.
+
+    A weight is ``tanh(cppn) * max_weight``, optionally scaled down with distance
+    beyond ``locality_radius``, and kept only at a hidden position and when its
+    magnitude exceeds ``weight_threshold``.
+
+    Args:
+        input_weights: (pop_size, num_inputs, total_positions) raw CPPN outputs,
+            substrate input -> grid position.
+        output_weights: (pop_size, num_outputs, total_positions) raw CPPN outputs,
+            grid position -> substrate output.
+        masks: (pop_size, total_positions) hidden-node mask from `substrate_masks`.
+        max_weight: Weight scale.
+        weight_threshold: Pruning threshold.
+        locality_radius: Radius of the geometry-seeding locality penalty, or None.
+        input_coords: (num_inputs, 2); needed only with ``locality_radius``.
+        output_coords: (num_outputs, 2); needed only with ``locality_radius``.
+        positions: (total_positions, 2) grid positions; needed only with
+            ``locality_radius``.
+
+    Returns:
+        ``(W1, W2)``: W1 is (pop_size, num_inputs, total_positions), W2 is
+        (pop_size, total_positions, num_outputs), zero wherever pruned.
+    """
+    # Broadcast mask: (pop_size, 1, total_positions) for weight masking
+    active_mask_broadcast = masks[:, None, :]
+
+    # Apply tanh + max_weight scaling, then mask
+    W1_raw = jnp.tanh(input_weights) * max_weight
+
+    # Locality penalty for geometry seeding. W1: input_coords -> positions.
+    if locality_radius is not None:
+        W1_raw = apply_locality_penalty_to_weights(
+            W1_raw, input_coords, positions, locality_radius
+        )
+
+    W1 = jnp.where(
+        active_mask_broadcast & (jnp.abs(W1_raw) > weight_threshold),
+        W1_raw,
+        0.0
+    )
+
+    W2_raw = jnp.tanh(output_weights) * max_weight
+
+    # W2_raw is (pop, num_outputs, total_positions) before the transpose, so the
+    # penalty is applied on the (pop, positions, outputs) view and moved back.
+    if locality_radius is not None:
+        W2_for_penalty = W2_raw.transpose(0, 2, 1)  # (pop, total_positions, num_outputs)
+        W2_for_penalty = apply_locality_penalty_to_weights(
+            W2_for_penalty, positions, output_coords, locality_radius
+        )
+        W2_raw = W2_for_penalty.transpose(0, 2, 1)  # Back to (pop, num_outputs, total_positions)
+
+    W2 = jnp.where(
+        active_mask_broadcast & (jnp.abs(W2_raw) > weight_threshold),
+        W2_raw,
+        0.0
+    )
+    W2 = W2.transpose(0, 2, 1)  # (pop, num_outputs, total_positions) → (pop, total_positions, num_outputs)
+    return W1, W2
+
+
+def cppn_output_function_indices(
+    self_conn: Optional[jnp.ndarray],
+    masks: jnp.ndarray,
+    W1: jnp.ndarray,
+    channel: int,
+    num_options: int,
+    num_cppn_outputs: int,
+    palette: Optional[jnp.ndarray] = None,
+    decode: str = 'tanh',
+) -> jnp.ndarray:
+    """Per-node function indices in ``cppn_output`` mode.
+
+    With a dedicated CPPN output, a hidden node's index comes from that output at the
+    node's self-connection ``(x, y, x, y, 1)``, zeroed where the mask drops the node,
+    and binned by `continuous_to_index`. A one-output CPPN has no dedicated channel,
+    and the index is derived from the node's mean incoming weight instead.
+
+    Args:
+        self_conn: (pop_size, total_positions, num_cppn_outputs) self-connection query,
+            or None.
+        masks: (pop_size, total_positions) hidden-node mask.
+        W1: (pop_size, num_inputs, total_positions), used by the one-output fallback.
+        channel: CPPN output channel that carries this function choice.
+        num_options: Number of bins (the palette size when a palette is given).
+        num_cppn_outputs: The CPPN's output count.
+        palette: Optional array of ACTIVATION_LIST indices; bins are mapped through it.
+        decode: 'tanh' (the default) or 'uniform' (INDEX_DECODES). The one-output fallback's mean
+            weight is unbounded and is squashed with tanh under both decodes.
+
+    Returns:
+        (pop_size, total_positions) int32 indices (ACTIVATION_LIST or
+        AGGREGATION_LIST positions).
+    """
+    if num_cppn_outputs > 1 and self_conn is not None:
+        raw = self_conn[:, :, channel]  # (pop, positions)
+        raw = jnp.where(masks, raw, 0.0)
+    else:
+        # Fallback: derive from weight matrix (1-output CPPN); the mean weight is unbounded
+        raw = jnp.mean(W1, axis=1)  # (pop, num_positions)
+        if decode == 'uniform':
+            raw = jnp.tanh(raw)
+    indices = continuous_to_index(raw, num_options, decode)
+    if palette is not None:
+        indices = palette[indices]
+    return indices
+
+
+def input_drive(
+    inputs: jnp.ndarray,
+    W1: jnp.ndarray,
+    agg_indices: Optional[jnp.ndarray] = None,
+    global_agg_fn: Optional[Callable] = None,
+    per_node_aggregation: bool = False,
+    true_aggregation: bool = True,
+    num_aggregations: int = 4,
+) -> jnp.ndarray:
+    """What hidden nodes receive from the substrate inputs, before their activation.
+
+    Aggregation at a hidden node is a global function, a per-node function (exact, or
+    approximated by a matmul with correction factors), or the sum. Every evaluation path,
+    feed-forward, recurrent and neuromodulated, takes its input drive from here, which is what
+    makes a recurrent substrate with no hidden-to-hidden connection compute the feed-forward
+    one's arithmetic (see :func:`settle_hidden`).
+
+    Args:
+        inputs: (n_samples, num_inputs)
+        W1: (num_inputs, num_positions)
+        agg_indices: (num_positions,) aggregation indices; read only when
+            ``per_node_aggregation``.
+        global_agg_fn: One aggregation function for every hidden node.
+        per_node_aggregation: Use ``agg_indices``.
+        true_aggregation: Exact per-node aggregation rather than the approximation.
+        num_aggregations: Size of the leading AGGREGATION_LIST slice.
+
+    Returns:
+        (n_samples, num_positions)
+    """
+    if global_agg_fn is not None:
+        # Global aggregation: all nodes use same function
+        weighted = inputs[:, :, None] * W1[None, :, :]
+        return global_agg_fn(weighted)
+    if per_node_aggregation and true_aggregation:
+        # True per-node aggregation
+        weighted = inputs[:, :, None] * W1[None, :, :]
+        return grouped_aggregation_forward(weighted, agg_indices, num_aggregations)
+    if per_node_aggregation:
+        # Approximated aggregation: matmul + correction factors
+        pre_h = inputs @ W1
+        factors = compute_aggregation_correction_factors(
+            agg_indices, W1.shape[0], num_aggregations
+        )
+        return pre_h * factors
+    # Standard matmul (sum aggregation)
+    return inputs @ W1
+
+
+def hidden_activation(
+    pre: jnp.ndarray,
+    act_indices: Optional[jnp.ndarray] = None,
+    hidden_act_fn: Callable = jnp.tanh,
+    palette: Optional[jnp.ndarray] = None,
+    num_activations: int = 4,
+) -> jnp.ndarray:
+    """Hidden nodes' activation: per node when ``act_indices`` is given, else ``hidden_act_fn``.
+
+    Args:
+        pre: (n_samples, num_positions) pre-activation.
+        act_indices: Optional (num_positions,) activation indices.
+        hidden_act_fn: The activation of every node when ``act_indices`` is None.
+        palette: Optional ACTIVATION_LIST indices; ``act_indices`` then holds those
+            indices rather than positions 0..N-1.
+        num_activations: Size of the leading ACTIVATION_LIST slice without a palette.
+
+    Returns:
+        (n_samples, num_positions)
+    """
+    if act_indices is None:
+        return hidden_act_fn(pre)
+    if palette is not None:
+        return grouped_activation_forward_with_palette(pre, act_indices, palette)
+    return grouped_activation_forward(pre, act_indices, num_activations)
+
+
+def dense_substrate_forward(
+    inputs: jnp.ndarray,
+    W1: jnp.ndarray,
+    W2: jnp.ndarray,
+    act_indices: Optional[jnp.ndarray] = None,
+    agg_indices: Optional[jnp.ndarray] = None,
+    hidden_act_fn: Callable = jnp.tanh,
+    output_act_fn: Callable = jax.nn.sigmoid,
+    palette: Optional[jnp.ndarray] = None,
+    num_activations: int = 4,
+    global_agg_fn: Optional[Callable] = None,
+    per_node_aggregation: bool = False,
+    true_aggregation: bool = True,
+    num_aggregations: int = 4,
+) -> jnp.ndarray:
+    """One feed-forward substrate's outputs: input -> hidden -> output.
+
+    The input drive of :func:`input_drive`, the activation of :func:`hidden_activation`,
+    then the output activation.
+
+    Args:
+        inputs: (n_samples, num_inputs)
+        W1: (num_inputs, num_positions)
+        W2: (num_positions, num_outputs)
+        act_indices: Optional (num_positions,) activation indices.
+        agg_indices: (num_positions,) aggregation indices; read only when
+            ``per_node_aggregation``.
+        hidden_act_fn: Hidden activation when ``act_indices`` is None.
+        output_act_fn: Output activation.
+        palette: Optional ACTIVATION_LIST indices; ``act_indices`` then holds those
+            indices rather than positions 0..N-1.
+        num_activations: Size of the leading ACTIVATION_LIST slice without a palette.
+        global_agg_fn: One aggregation function for every hidden node.
+        per_node_aggregation: Use ``agg_indices``.
+        true_aggregation: Exact per-node aggregation rather than the approximation.
+        num_aggregations: Size of the leading AGGREGATION_LIST slice.
+
+    Returns:
+        (n_samples, num_outputs)
+    """
+    pre_h = input_drive(inputs, W1, agg_indices, global_agg_fn, per_node_aggregation,
+                        true_aggregation, num_aggregations)
+    h = hidden_activation(pre_h, act_indices, hidden_act_fn, palette, num_activations)
+    return output_act_fn(h @ W2)
+
+
+# ============================================================================
+# Recurrent substrate: one settling rule for every recurrent evaluation
+# ============================================================================
+
+#: How the settling steps of the recurrent path activate hidden nodes. ``every_iteration``
+#: (the default) applies the configured activation, per node or the one global function, at
+#: every step; ``tanh`` settles through tanh whatever the configuration says. There is no
+#: ``initial_only``: the name described an initial activated step the forward pass did not take,
+#: so in 0.1.0 that mode applied no configured activation at all; it is rejected with an explanation.
+HH_ACTIVATION_MODES = ('every_iteration', 'tanh')
+
+
+def node_activation(
+    hh_activation_mode: str,
+    act_indices: Optional[jnp.ndarray] = None,
+    hidden_act_fn: Optional[Callable] = None,
+    palette: Optional[jnp.ndarray] = None,
+    num_activations: int = 4,
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """The activation a settling step applies to hidden nodes.
+
+    Args:
+        hh_activation_mode: One of :data:`HH_ACTIVATION_MODES`.
+        act_indices: Optional (num_positions,) per-node activation indices.
+        hidden_act_fn: The one activation of every node when there are no indices; tanh when
+            None.
+        palette: Optional ACTIVATION_LIST indices the indices refer to.
+        num_activations: Size of the leading ACTIVATION_LIST slice without a palette.
+
+    Returns:
+        A function from pre-activation to activation. Without indices it is ``hidden_act_fn``
+        itself (tanh when None), which :func:`hidden_activation` would apply alone: the same
+        object on every call, so a registry function's settling step is made once
+        (:func:`settle_hidden`).
+
+    Raises:
+        ValueError: An unknown mode.
+    """
+    if hh_activation_mode == 'tanh':
+        return jnp.tanh
+    if hh_activation_mode != 'every_iteration':
+        raise ValueError(
+            f"hh_activation_mode must be one of {HH_ACTIVATION_MODES}, "
+            f"got {hh_activation_mode!r}"
+        )
+    hidden_fn = hidden_act_fn if hidden_act_fn is not None else jnp.tanh
+    if act_indices is None:
+        return hidden_fn
+    return functools.partial(
+        hidden_activation, act_indices=act_indices, hidden_act_fn=hidden_fn,
+        palette=palette, num_activations=num_activations,
+    )
+
+
+#: Node functions whose settling step is made once and reused: the activation registry's
+#: functions, which stay the same objects for the life of the module (``jnp.tanh`` among them).
+_STABLE_NODE_FNS = tuple(ACTIVATION_FUNCTIONS.values())
+
+#: Settling steps of the stable node functions, by (node function, dynamic recurrent input,
+#: return_states, number of h->h aggregations); bounded by the registry and those settings.
+_SETTLE_STEPS: Dict[Tuple[Any, ...], Callable] = {}
+
+
+def _recurrent_input(hidden: jnp.ndarray, operands: Tuple[jnp.ndarray, ...], dynamic: bool,
+                     num_hh_aggregations: int) -> jnp.ndarray:
+    """The hidden-to-hidden input of one settling step (see :func:`settle_hidden`)."""
+    if dynamic:
+        safe_from, safe_to, effective_weights, hh_agg_indices, valid_mask = operands
+        return scatter_aggregate_by_target(
+            hidden[:, safe_from] * effective_weights, safe_to, hidden.shape[1],
+            hh_agg_indices, valid_mask, num_hh_aggregations
+        )
+    (Whh,) = operands
+    return hidden @ Whh
+
+
+def _stable_settle_step(node_fn: Callable[[jnp.ndarray], jnp.ndarray], dynamic: bool,
+                        return_states: bool, num_hh_aggregations: int) -> Callable:
+    """The settling step of a stable node function, made once and reused.
+
+    ``lax.scan`` traces its step through a cache keyed on the step's function object, and the
+    generation's evaluation runs the scan under ``vmap`` without ``jit``, which compiles it
+    once per traced step. A step made inside every call is a new object every time, so the
+    scan is traced and compiled again on every call, once per generation. This one takes the
+    drive and the recurrent operands from the carry and closes over nothing that changes
+    between calls, so a run compiles it once per shape.
+    """
+    key = (node_fn, dynamic, return_states, num_hh_aggregations if dynamic else None)
+    step = _SETTLE_STEPS.get(key)
+    if step is None:
+        def step(carry, _):
+            hidden, drive, *operands = carry
+            new = node_fn(drive + _recurrent_input(hidden, operands, dynamic, num_hh_aggregations))
+            return (new, drive, *operands), (new if return_states else None)
+        _SETTLE_STEPS[key] = step
+    return step
+
+
+def settle_hidden(
+    drive: jnp.ndarray,
+    from_indices: jnp.ndarray,
+    to_indices: jnp.ndarray,
+    hh_weights: jnp.ndarray,
+    valid_mask: jnp.ndarray,
+    activate_time: int,
+    node_fn: Callable[[jnp.ndarray], jnp.ndarray],
+    hh_agg_indices: Optional[jnp.ndarray] = None,
+    hh_aggregation_mode: str = 'sum',
+    num_hh_aggregations: int = 4,
+    return_states: bool = False,
+) -> Any:
+    """Settle a recurrent substrate's hidden layer.
+
+    The one rule of every recurrent evaluation: ``h(0) = 0`` and, for ``activate_time``
+    steps, ``h(t+1) = node_fn(drive + recurrent(h(t)))``. ``drive`` is the input drive of
+    :func:`input_drive`, constant across steps and re-injected at each; ``recurrent`` sums the
+    hidden-to-hidden contributions (or aggregates them per node in
+    ``hh_aggregation_mode='dynamic'``); ``node_fn`` is the node's whole transformation,
+    activation and any neuromodulation, the same one the feed-forward evaluation applies. With
+    no hidden-to-hidden connection every step returns ``node_fn(drive)``, so the recurrent path
+    computes the feed-forward substrate's arithmetic. On CPU the two agree bit for bit, except
+    for compound activations such as ``resonator`` and ``osc_adapt``, which XLA can lower
+    differently inside the settling loop: those differ by a float32 ulp.
+
+    A node function of the activation registry (``jnp.tanh`` on the plain recurrent path, the
+    configured function under a global activation, :func:`node_activation`) settles through a
+    step made once (:func:`_stable_settle_step`), so repeated calls with the same shapes
+    compile nothing new. Any other node function, such as the partials and closures of
+    per-node activation and neuromodulation, which are new objects on every call, gets a step
+    made per call and is traced and compiled again on every call.
+
+    Args:
+        drive: (n_samples, num_positions) input drive.
+        from_indices: (max_sparse_conns,) source indices.
+        to_indices: (max_sparse_conns,) target indices.
+        hh_weights: (max_sparse_conns,) weights.
+        valid_mask: (max_sparse_conns,) validity mask.
+        activate_time: Number of settling steps, at least 1 (static).
+        node_fn: Pre-activation to activation, per node.
+        hh_agg_indices: Per-node hidden-to-hidden aggregation indices, for
+            ``hh_aggregation_mode='dynamic'``.
+        hh_aggregation_mode: ``'sum'`` or ``'dynamic'``.
+        num_hh_aggregations: Number of aggregation functions for the dynamic mode.
+        return_states: Also return the hidden state after each step (the substrate API's settling view);
+            the settled state is computed the same way either way.
+
+    Returns:
+        (n_samples, num_positions) settled hidden activity; with ``return_states`` the pair
+        ``(hidden, states)``, states (activate_time, n_samples, num_positions), the last equal to hidden.
+
+    Raises:
+        ValueError: ``activate_time`` below 1, which would return the zero state.
+    """
+    if activate_time < 1:
+        raise ValueError(
+            f"activate_time must be at least 1 on the recurrent path, got {activate_time}"
+        )
+    num_positions = drive.shape[1]
+    hidden = jnp.zeros((drive.shape[0], num_positions))
+    safe_from = jnp.clip(from_indices, 0, num_positions - 1)
+    safe_to = jnp.clip(to_indices, 0, num_positions - 1)
+    effective_weights = jnp.where(valid_mask, hh_weights, 0.0)
+
+    dynamic = hh_aggregation_mode == 'dynamic' and hh_agg_indices is not None
+    if dynamic:
+        operands = (safe_from, safe_to, effective_weights, hh_agg_indices, valid_mask)
+    else:
+        # The sparse h->h weights as one dense matrix (Whh[i, j] = sum of weights i->j), so
+        # each settling step is a matmul instead of a per-step scatter-add, the CPU bottleneck
+        # that made recurrent topologies look infeasible. Equal to the scatter-add up to
+        # float32 rounding (max abs diff ~5e-7); all zero without h->h connections.
+        operands = (jnp.zeros((num_positions, num_positions)).at[safe_from, safe_to].add(
+            effective_weights
+        ),)
+
+    if any(node_fn is fn for fn in _STABLE_NODE_FNS):
+        step = _stable_settle_step(node_fn, dynamic, return_states, num_hh_aggregations)
+        (hidden, *_), states = lax.scan(step, (hidden, drive) + operands, None,
+                                        length=activate_time)
+    else:
+        # Any other node function, typically a partial or closure made per call: caching its
+        # step would add an entry per call and never reuse one
+        def step(hidden, _):
+            new = node_fn(drive + _recurrent_input(hidden, operands, dynamic,
+                                                   num_hh_aggregations))
+            return new, (new if return_states else None)
+
+        hidden, states = lax.scan(step, hidden, None, length=activate_time)
+    if return_states:
+        return hidden, states
+    return hidden
+
+
+#: The neuromodulated node's rules (neuromodulation.node_rule).
+NEUROMODULATION_NODE_RULES = ('paper', 'hmr_full')
+
+
+def modulatory_neuron_masks(weight_var: jnp.ndarray, active: jnp.ndarray, ratio: float) -> jnp.ndarray:
+    """Each genome's modulatory neurons (neuromodulation mode modulatory_neurons): `ratio` of its own active
+    positions, at least one, those of highest input-weight variance.
+
+    0.1.0 gave every genome the same positions, the top of the population's mean variance, so a genome's network
+    depended on the rest of the population and could use positions it did not have; and it counted them as a fraction
+    of every grid position, so at depths 3 to 5 nearly every genome's whole active set was modulatory.
+
+    Args:
+        weight_var: (pop_size, positions) variance of each position's input weights.
+        active: (pop_size, positions) active-position mask (concrete: the counts are taken on the host).
+        ratio: mod_neuron_ratio, the modulatory fraction of a genome's active positions.
+
+    Returns:
+        (pop_size, positions) boolean mask.
+    """
+    score = jnp.where(active, weight_var, -jnp.inf)
+    # Each position's rank by descending variance within its genome (a tie: the lower position first)
+    rank = jnp.argsort(jnp.argsort(-score, axis=1), axis=1)
+    # Counted in float64 on the host, as Python's int(n * ratio) and 0.1.0's grid count are: float32 can differ
+    # (0.7 of 90 active positions is 63 in float32, 62 in float64)
+    active_count = np.asarray(jnp.sum(active, axis=1))
+    count = jnp.asarray(np.maximum(1, np.floor(active_count * float(ratio))).astype(np.int32))
+    return (rank < count[:, None]) & active
+
+
+def true_neuromodulation_node_fn(
+    act_fn: Callable[[jnp.ndarray], jnp.ndarray],
+    receptors: jnp.ndarray,
+    base_gains: jnp.ndarray,
+    neurotransmitter: jnp.ndarray,
+    mod_strength: float,
+    num_nt: int,
+    modulation_mode: str,
+    rule: str = 'paper',
+) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """A node under true neuromodulation, as a function of its pre-activation.
+
+    The first three neurotransmitter channels select among a node's receptors,
+    m = receptors[:, :3] @ nt[:3]; the fourth only inverts outputs (:func:`invert_outputs`).
+
+    'paper' (the published rule; HMR's neuromodulation variant, and the rule of every EMR path):
+    gating_only act(pre) * sigmoid(s m); otherwise gains clip(bg + s m, 0.1, 5) (NaN to 1) and
+    bias s m, gain_bias_only act(gains pre + bias), full act(gains pre + bias) * sigmoid(m).
+    'hmr_full' (HMR FULL's rule, which 0.1.0's single-task path computed): gains bg + s m, gate
+    sigmoid(5 m); gating_only act(pre) * gate, gain_bias_only act(gains pre), full
+    act(gains pre) * gate.
+
+    Args:
+        act_fn: The node's activation.
+        receptors: (num_positions, num_nt) receptor densities.
+        base_gains: (num_positions,) base gains.
+        neurotransmitter: The task's neurotransmitter vector.
+        mod_strength: Modulation strength s.
+        num_nt: Number of neurotransmitter channels.
+        modulation_mode: 'full', 'gating_only' or 'gain_bias_only'.
+        rule: 'paper' or 'hmr_full'.
+
+    Returns:
+        The node function of the pre-activation.
+    """
+    k = min(3, num_nt)
+    modulation = receptors[:, :k] @ neurotransmitter[:k]
+    if rule == 'hmr_full':
+        gains, gates = base_gains + mod_strength * modulation, jax.nn.sigmoid(modulation * 5.0)
+        if modulation_mode == 'gating_only':
+            return lambda pre: act_fn(pre) * gates
+        if modulation_mode == 'gain_bias_only':
+            return lambda pre: act_fn(gains * pre)
+        return lambda pre: act_fn(gains * pre) * gates
+    if modulation_mode == 'gating_only':
+        gates = jax.nn.sigmoid(modulation * mod_strength)
+        return lambda pre: act_fn(pre) * gates
+    gains = jnp.clip(base_gains + mod_strength * modulation, 0.1, 5.0)
+    gains = jnp.where(jnp.isnan(gains), 1.0, gains)
+    bias = modulation * mod_strength
+    if modulation_mode == 'gain_bias_only':
+        return lambda pre: act_fn(gains * pre + bias)
+    gates = jax.nn.sigmoid(modulation)
+    return lambda pre: act_fn(gains * pre + bias) * gates
+
+
+def invert_outputs(
+    outputs: jnp.ndarray,
+    neurotransmitter: jnp.ndarray,
+    use_output_inversion: bool,
+    num_nt: int,
+    rule: str = 'paper',
+) -> jnp.ndarray:
+    """The fourth neurotransmitter channel's output inversion, clipped to [0, 1] under the paper's rule.
+
+    Only a vector of four or more channels has an inversion channel. 0.1.0's multi-task path read
+    nt[3] whatever the count, and JAX clamps an out-of-range index to the last element, so with two
+    or three neurotransmitters a modulation channel also inverted the outputs.
+    """
+    if use_output_inversion and num_nt >= 4:
+        invert = jnp.clip(neurotransmitter[3], 0.0, 1.0) if rule == 'paper' else neurotransmitter[3]
+        return invert * outputs + (1 - invert) * (1 - outputs)
+    return outputs
+
+
+def sanitize_fitness(fitnesses: jnp.ndarray) -> Tuple[jnp.ndarray, int]:
+    """NaN fitness to -inf, as TensorNEAT's own pipeline does, and how many there were.
+
+    The generation loop calls a jitted ``tell`` directly, which bypasses TensorNEAT's guard,
+    so without this a NaN (an overflowing settling, a NaN target) reaches selection and the
+    reported best fitness. A population without NaN is returned unchanged.
+
+    Returns:
+        ``(fitnesses, nan_count)``.
+    """
+    nan = jnp.isnan(fitnesses)
+    count = int(jnp.sum(nan))
+    if count == 0:
+        return fitnesses, 0
+    return jnp.where(nan, -jnp.inf, fitnesses), count
+
+
+def fitness_statistics(fitnesses: jnp.ndarray,
+                       nan_count: int) -> Tuple[float, float, float, float]:
+    """Best, mean, min and std of a population as told, the last three over its finite entries.
+
+    A NaN fitness is told as -inf (``sanitize_fitness``); counting it would report a mean of -inf.
+
+    Args:
+        fitnesses: (pop_size,) fitness after ``sanitize_fitness``.
+        nan_count: How many entries ``sanitize_fitness`` replaced.
+
+    Returns:
+        ``(best, mean, min, std)``; the last three are NaN when no entry is finite.
+    """
+    best = float(jnp.max(fitnesses))
+    finite = fitnesses if nan_count == 0 else fitnesses[jnp.isfinite(fitnesses)]
+    if not finite.size:
+        return best, float('nan'), float('nan'), float('nan')
+    return best, float(jnp.mean(finite)), float(jnp.min(finite)), float(jnp.std(finite))
+
+
+def species_summary(species_state: Any,
+                    fitnesses: jnp.ndarray) -> Tuple[int, List[int], List[float]]:
+    """The CPPN species of an evaluated population, as TensorNEAT's speciation assigned them.
+
+    ``species_state`` is ``state.species`` of the state the population was evaluated under, before
+    ``tell``: its ``idx2species`` holds each genome's species key and its ``member_count`` the size
+    of each slot (NaN for an empty slot). After ``tell`` the same fields describe the next
+    population, so passing the new state would pair this generation's fitness with the next
+    generation's species.
+
+    Args:
+        species_state: TensorNEAT's species state (``state.species``).
+        fitnesses: (pop_size,) fitness the population was told with.
+
+    Returns:
+        ``(num_species, sizes, best)``: the number of non-empty species, their sizes and the best
+        fitness of each, in TensorNEAT's slot order.
+    """
+    counts, keys, members, fitness = (np.asarray(a) for a in jax.device_get((
+        species_state.member_count, species_state.species_keys, species_state.idx2species,
+        fitnesses)))
+    live = np.flatnonzero(np.nan_to_num(counts, nan=0.0) > 0)
+    sizes = [int(counts[s]) for s in live]
+    best = [float(np.max(fitness[members == keys[s]])) for s in live]
+    return len(live), sizes, best
+
+
+def topology_summary(
+    W1: jnp.ndarray,
+    W2: jnp.ndarray,
+    masks: jnp.ndarray,
+    hh_counts: Optional[jnp.ndarray] = None,
+) -> Dict[str, float]:
+    """Population mean and spread of each genome's hidden nodes and expressed connections.
+
+    A hidden node is an active substrate position. A connection is expressed when its weight
+    survived pruning: a nonzero entry of W1 (input -> hidden) or W2 (hidden -> output), plus the
+    genome's discovered h->h connections.
+
+    Args:
+        W1: (pop_size, num_inputs, positions) input weights as evaluated.
+        W2: (pop_size, positions, num_outputs) output weights as evaluated.
+        masks: (pop_size, positions) active-position mask.
+        hh_counts: (pop_size,) h->h connection counts, or None on a feed-forward run.
+
+    Returns:
+        ``hidden_nodes_mean``, ``hidden_nodes_std``, ``connections_mean`` and ``connections_std``,
+        the population fields of ``AlgorithmMetrics``.
+    """
+    connections = jnp.sum(W1 != 0, axis=(1, 2)) + jnp.sum(W2 != 0, axis=(1, 2))
+    if hh_counts is not None:
+        connections = connections + hh_counts
+    hidden, connections = (np.asarray(a) for a in jax.device_get(
+        (jnp.sum(masks, axis=1), connections)))
+    return {
+        'hidden_nodes_mean': float(np.mean(hidden)),
+        'hidden_nodes_std': float(np.std(hidden)),
+        'connections_mean': float(np.mean(connections)),
+        'connections_std': float(np.std(connections)),
+    }
 
 
 # ============================================================================
@@ -1607,10 +2422,11 @@ def _pmap_eval_single_hybrid(w1: jnp.ndarray, w2: jnp.ndarray,
                               activate_time: int, num_hidden: int) -> jnp.ndarray:
     """Evaluate single network with h→h connections - pmap compatible.
 
-    Pure JAX function using lax.scan for activation steps.
-    Matches _forward_hybrid_sparse_hh behavior exactly:
-    1. Initialize with h = tanh(inputs @ W1)
-    2. Run activate_time - 1 more steps with residual: tanh(h + h_delta)
+    The standard path's settling rule (:func:`settle_hidden` with tanh): ``h(0) = 0``, then
+    ``tanh(inputs @ W1 + recurrent(h))`` for ``activate_time`` steps. In 0.1.0 this
+    evaluator kept an older rule (an activated initial state, a residual step, one step
+    fewer), so the data-parallel strategy scored the same network differently from a
+    single-device run.
 
     Args:
         w1: Input→Hidden weights, shape (n_inputs, n_hidden)
@@ -1622,53 +2438,15 @@ def _pmap_eval_single_hybrid(w1: jnp.ndarray, w2: jnp.ndarray,
         inputs: Input samples, shape (batch_size, n_inputs)
         targets: Target outputs, shape (batch_size, n_outputs)
         activate_time: Number of activation steps
-        num_hidden: Number of hidden positions
+        num_hidden: Number of hidden positions (unused; the shape carries it)
 
     Returns:
         Sum of squared errors for this genome on this data shard (scalar)
     """
-    # Step 1: Dense input→hidden (matches single-GPU)
-    h = jnp.tanh(inputs @ w1)  # (batch_size, num_hidden)
-
-    # Step 2: Sparse h→h iterations with RESIDUAL connection (matches single-GPU)
-    # Only run if activate_time > 1 and we have valid h→h connections
-    num_valid = jnp.sum(hh_valid)
-
-    def run_hh_steps(h_init):
-        # Clip indices to valid range for safe scatter operations
-        safe_from = jnp.clip(hh_from, 0, num_hidden - 1)
-        safe_to = jnp.clip(hh_to, 0, num_hidden - 1)
-        effective_hh_w = jnp.where(hh_valid, hh_weights, 0.0)
-
-        def hh_step(h, _):
-            """Single h→h step with residual connection."""
-            # Gather source values
-            source_vals = h[:, safe_from]  # (batch_size, max_connections)
-
-            # Multiply by weights
-            contributions = source_vals * effective_hh_w
-
-            # Scatter-add to target positions
-            h_delta = jnp.zeros_like(h)
-            h_delta = h_delta.at[:, safe_to].add(contributions)
-
-            # Update with RESIDUAL connection and activation (matches single-GPU)
-            return jnp.tanh(h + h_delta), None
-
-        # Run activate_time - 1 MORE steps (first step was input→hidden)
-        h_final, _ = lax.scan(hh_step, h_init, None, length=activate_time - 1)
-        return h_final
-
-    # Use lax.cond to handle the case where we skip h→h steps
-    h_final = lax.cond(
-        (activate_time > 1) & (num_valid > 0),
-        run_hh_steps,
-        lambda h: h,
-        h
-    )
-
-    # Step 3: Dense hidden→output
-    outputs = jax.nn.sigmoid(h_final @ w2)
+    del num_hidden
+    hidden = settle_hidden(inputs @ w1, hh_from, hh_to, hh_weights, hh_valid,
+                           activate_time, jnp.tanh)
+    outputs = jax.nn.sigmoid(hidden @ w2)
     errors = (outputs - targets) ** 2
     return jnp.sum(errors)
 
@@ -2251,6 +3029,119 @@ def compute_single_level_variance_chunked(
     return np.concatenate(parts, axis=1)
 
 
+#: Why a key is not a setting, for the keys configurations are known to use. Every other unknown key
+#: gets the list of the block's settings.
+_UNKNOWN_KEY_HINTS: Dict[Tuple[str, str], str] = {
+    ('dynamic_functions', 'aggregation'): (
+        "aggregation is its own block next to dynamic_functions in emr_hyperneat (HMR's aggregation "
+        "variant read it nested); nested, it was ignored and the run used sum aggregation with a "
+        "one-output CPPN"),
+    ('dynamic_functions', 'activation_palette'): (
+        "the palette is dynamic_functions.palette, a preset name or a list of ACTIVATION_LIST indices "
+        "or names; this key was ignored, so the run had no palette"),
+    ('dynamic_functions', 'global_activation'): (
+        "the one hidden activation of mode 'global' is dynamic_functions.hidden_activation"),
+    ('geometry_seeding', 'use_7d_inputs'): (
+        "geometry seeding always queries 7-D rows (x1, y1, x2, y2, delta_x, delta_y, bias) and 5-D "
+        "rows without it; nothing read this key, so use_7d_inputs false ran 7-D inputs"),
+    ('dynamic_functions', 'live_strategy'): (
+        "HMR's live palette strategy is not part of EMR; set algo.df_palette from the runner"),
+    ('dynamic_functions', 'interp_method'): "the setting is dynamic_functions.interpretation",
+    ('dynamic_functions', 'weight_interpretation_method'): (
+        "the setting is dynamic_functions.interpretation"),
+    ('dynamic_functions', 'method'): "the setting is dynamic_functions.interpretation",
+    ('dynamic_functions', 'num_outputs'): (
+        "the CPPN's output count follows from the configuration; dynamic_functions.num_cppn_outputs "
+        "forces it"),
+    ('dynamic_functions', 'global_function'): "the global aggregation is aggregation.global_function",
+    ('aggregation', 'global_aggregation'): (
+        "the function of aggregation mode 'global' is aggregation.global_function (the misspelled key "
+        "was ignored, so such a configuration ran 'sum')"),
+    ('aggregation', 'aggregation_func'): (
+        "the function of aggregation mode 'global' is aggregation.global_function"),
+    ('emr_hyperneat', 'extended'): (
+        "the recurrence settings are emr_hyperneat.recurrence; this block was ignored, so the run was "
+        "feed-forward"),
+    ('emr_hyperneat', 'strategy'): "the setting is emr_hyperneat.multi_gpu_strategy",
+    ('emr_hyperneat', 'num_cppn_outputs'): (
+        "the CPPN's output count follows from dynamic_functions and aggregation; "
+        "dynamic_functions.num_cppn_outputs forces it"),
+    ('emr_hyperneat', 'hmr_hyperneat'): (
+        "this is HMR's block name; EMR reads algorithm_params.emrhyperneat.emr_hyperneat"),
+    ('emr_hyperneat', 'activate_time'): (
+        "the settling steps are recurrence.activate_time or substrate.activate_time"),
+    ('emr_hyperneat', 'pop_size'): (
+        "the population size is algorithm_params.emrhyperneat.population_size (or neat.pop_size)"),
+    ('emr_hyperneat', 'leo'): "link-expression output (LEO) is not part of EMR",
+    ('recurrence', 'recurrence_preset'): (
+        "the preset is recurrence.preset (HMR's extended block named it so)"),
+    ('recurrence', 'cache_enabled'): "the setting is recurrence.hh_cache_enabled",
+    ('recurrence', 'use_cache'): "the setting is recurrence.hh_cache_enabled",
+    ('neuromodulation', 'gate_from_cppn'): (
+        "EMR derives its gates from the incoming weights; HMR's neuromodulation variant evolved them "
+        "as a CPPN output per connection, which is not part of EMR"),
+    ('neuromodulation', 'static_gating'): (
+        "a level is chosen with neuromodulation.mode or neuromodulation.preset"),
+    ('neuromodulation', 'context_gating'): (
+        "a level is chosen with neuromodulation.mode or neuromodulation.preset"),
+    ('neuromodulation', 'modulatory_neurons'): (
+        "a level is chosen with neuromodulation.mode or neuromodulation.preset"),
+    ('neuromodulation', 'true_neuromodulation'): (
+        "a level is chosen with neuromodulation.mode or neuromodulation.preset"),
+    ('neuromodulation', 'num_nt'): "the setting is neuromodulation.num_nt_types",
+    ('neuromodulation', 'context_derivation'): (
+        "nothing ever read it (only tests set it); context gating takes its context from "
+        "neuromodulation.context_source ('input', 'task_id', 'learned')"),
+}
+
+
+def _refuse_unknown_keys(section: str, block: Any, known: frozenset) -> None:
+    """Raise on a key of a configuration block that EMR does not read.
+
+    In 0.1.0 such a key was ignored, so a misspelled or misplaced setting ran the default without a
+    word. The message names the right key when it is known (``_UNKNOWN_KEY_HINTS``), and the block's
+    settings otherwise.
+
+    Args:
+        section: The block's name, as the message prints it.
+        block: The block; anything but a dict is left to the parser.
+        known: The keys EMR reads in this block.
+
+    Raises:
+        ValueError: The block has a key outside ``known``.
+    """
+    if not isinstance(block, dict):
+        return
+    unknown = sorted(k for k in block if k not in known)
+    if unknown:
+        key = unknown[0]
+        hint = _UNKNOWN_KEY_HINTS.get((section, key), f"the settings of {section} are {sorted(known)}")
+        more = f" (also not settings: {unknown[1:]})" if len(unknown) > 1 else ""
+        raise ValueError(f"{section}.{key} is not a setting; {hint}{more}")
+
+
+def legacy_level0_variance(level0_weights: jnp.ndarray) -> jnp.ndarray:
+    """The original level-0 rule (``variance_rule: legacy``) for the paths that compute variance
+    one level at a time.
+
+    Streaming and depth_offload derive each level's variance from its children
+    (``compute_single_level_variance``), which is the canonical rule. Under ``legacy`` the standard
+    path instead takes one variance per genome over level 0's own four raw weights
+    (``compute_hierarchical_variances_batch``), so level 0 subdivides all or nothing. This gives the
+    other paths the same value, repeated over level 0's four cells so their per-parent arithmetic
+    is unchanged. In 0.1.0 those paths ignored ``legacy``, with a warning at configuration and none
+    when the mode changed at run time.
+
+    Args:
+        level0_weights: (pop_size, 4) raw CPPN weights from the first substrate input to the
+            level-0 positions.
+
+    Returns:
+        (pop_size, 4) variance: each genome's single level-0 value in all four cells.
+    """
+    return jnp.broadcast_to(jnp.var(level0_weights, axis=1, keepdims=True), level0_weights.shape)
+
+
 def compute_single_level_variance(
     next_level_weights: jnp.ndarray,
     grid: 'HierarchicalGridStructure',
@@ -2332,8 +3223,9 @@ class EMRConfig:
 
     Attributes:
         # From RecurrenceConfig (unified.py)
-        enabled: Master switch for recurrence features
-        allow_hidden_to_hidden: Enable Phase 2 discovery (iteration_level > 0)
+        enabled: Must agree with allow_hidden_to_hidden (False with it True is refused)
+        allow_hidden_to_hidden: Discover hidden-to-hidden connections and settle the
+            recurrent forward pass; the forward mode follows this flag
         allow_backward: Enable backward connections (y_source > y_target)
         allow_lateral: Enable same-layer connections (y_source == y_target)
         allow_self_loops: Enable self-connections (same x,y)
@@ -2358,7 +3250,7 @@ class EMRConfig:
     allow_backward: bool = True
     allow_lateral: bool = True
     allow_self_loops: bool = True
-    iteration_level: int = 2
+    iteration_level: int = 1  # 2 in 0.1.0 (see RECURRENCE_PRESETS)
     activate_time: Optional[int] = None  # None = auto-compute from depth
     max_connections: int = 10000
 
@@ -2370,9 +3262,17 @@ class EMRConfig:
     # NEW: Multi-hop settings
     multi_hop_algorithm: str = "matrix_power"  # "matrix_power" or "fori_loop"
     hop_decay_factor: float = 0.8  # Weight decay per hop
+    # Right operand of every multi-hop product: 'masked' composes the genome's own direct
+    # connections (the documented formula); 'raw' multiplies by the raw weights over the
+    # population union, as 0.1.0 did, kept to reproduce recorded level-2 runs.
+    # Refused together with hh_discovery_mode 'per_genome' (the leak needs the union).
+    multi_hop_second_factor: str = 'masked'
 
-    # Caching settings
-    hh_cache_enabled: bool = True
+    # Caching settings. Off by default since 0.2.0: the cache indexes the discovered h->h set by
+    # population slot and reuses it for up to hh_refresh_interval generations while reproduction
+    # moves genomes between slots, so a genome is scored with another genome's recurrent
+    # connections between refreshes. Set True only to reproduce a cache-on campaign.
+    hh_cache_enabled: bool = False
     hh_refresh_interval: int = 5
     hh_mask_change_threshold: float = 0.1
 
@@ -2380,6 +3280,21 @@ class EMRConfig:
     # - False (default): Sparse per-genome filtering (better for full_recurrent)
     # - True: Dense discovery without per-genome filtering (better for hybrid at low pop)
     use_dense_discovery: bool = False
+    # How the h->h candidate pairs are queried:
+    # - 'union': one CPPN query over the population's union of active positions, then each
+    #   genome restricted to its own positions (the published path; cost ~ pop x U^2)
+    # - 'per_genome': each genome queried over its own active positions only, in buckets of
+    #   static size (cost ~ sum of n_i^2). Same connections and weights as 'union' at every
+    #   iteration_level with multi_hop_second_factor 'masked'; the two settings are orthogonal
+    #   (this one is the query shape, that one the algebra of the hops). Ignored
+    #   under use_dense_discovery, where the union is part of the semantics, and by the pmap
+    #   (multi-GPU) pipeline, which has its own inline discovery over the whole grid per genome
+    #   at iteration level 1 (levels above 1 are refused there).
+    # Default per_genome: on XOR, population 1000, an RTX 2080 Ti, cache off, it was faster than union
+    # at every depth 1-7 and every seed (1.52x at the least, depth 7; 5-12x at depths 2-6) with identical
+    # trajectories. Left unset, it resolves in __post_init__: 'per_genome', or 'union' under
+    # multi_hop_second_factor 'raw', which exists only on the union path.
+    hh_discovery_mode: Optional[str] = None
 
     # Evaluation chunking to prevent OOM on large populations
     # - None or 0: No chunking (process entire population at once via vmap)
@@ -2405,6 +3320,21 @@ class EMRConfig:
             raise ValueError(f"multi_hop_algorithm must be 'matrix_power' or 'fori_loop', got {self.multi_hop_algorithm}")
         if not (0.0 < self.hop_decay_factor <= 1.0):
             raise ValueError(f"hop_decay_factor must be in (0, 1], got {self.hop_decay_factor}")
+        if self.hh_discovery_mode is None:
+            self.hh_discovery_mode = 'union' if self.multi_hop_second_factor == 'raw' else 'per_genome'
+        if self.hh_discovery_mode not in ('union', 'per_genome'):
+            raise ValueError(
+                f"hh_discovery_mode must be 'union' or 'per_genome', got {self.hh_discovery_mode!r}"
+            )
+        if self.multi_hop_second_factor not in ('masked', 'raw'):
+            raise ValueError(
+                f"multi_hop_second_factor must be 'masked' or 'raw', got {self.multi_hop_second_factor!r}"
+            )
+        if self.hh_discovery_mode == 'per_genome' and self.multi_hop_second_factor == 'raw':
+            raise ValueError(
+                "multi_hop_second_factor 'raw' multiplies by the population union's weights and "
+                "cannot be combined with hh_discovery_mode 'per_genome'"
+            )
 
 
 @dataclass
@@ -2485,6 +3415,10 @@ class EMRRecurrenceMetrics:
 # Presets
 # ============================================================================
 
+# The recurrent presets discover direct connections only (iteration level 1) since 0.2.0. A pre-registered
+# study of the level (1,650 runs) found level 2 better in one (problem, preset) cell of 25 and worse in 11
+# of its 60 tests (Holm p < 0.05), and its rule moved the presets to level 1. Level 2 stays available: set
+# recurrence.iteration_level.
 RECURRENCE_PRESETS: Dict[str, EMRConfig] = {
     'feedforward': EMRConfig(
         enabled=False,
@@ -2500,7 +3434,7 @@ RECURRENCE_PRESETS: Dict[str, EMRConfig] = {
         allow_backward=False,
         allow_lateral=False,
         allow_self_loops=False,
-        iteration_level=2,
+        iteration_level=1,
     ),
     'with_backward': EMRConfig(
         enabled=True,
@@ -2508,7 +3442,7 @@ RECURRENCE_PRESETS: Dict[str, EMRConfig] = {
         allow_backward=True,
         allow_lateral=False,
         allow_self_loops=False,
-        iteration_level=2,
+        iteration_level=1,
     ),
     'with_lateral': EMRConfig(
         enabled=True,
@@ -2516,7 +3450,7 @@ RECURRENCE_PRESETS: Dict[str, EMRConfig] = {
         allow_backward=False,
         allow_lateral=True,
         allow_self_loops=False,
-        iteration_level=2,
+        iteration_level=1,
     ),
     'with_self': EMRConfig(
         enabled=True,
@@ -2524,7 +3458,7 @@ RECURRENCE_PRESETS: Dict[str, EMRConfig] = {
         allow_backward=False,
         allow_lateral=False,
         allow_self_loops=True,
-        iteration_level=2,
+        iteration_level=1,
     ),
     'full_recurrent': EMRConfig(
         enabled=True,
@@ -2532,7 +3466,7 @@ RECURRENCE_PRESETS: Dict[str, EMRConfig] = {
         allow_backward=True,
         allow_lateral=True,
         allow_self_loops=True,
-        iteration_level=2,
+        iteration_level=1,
         activate_time=20,
     ),
 }
@@ -2555,24 +3489,11 @@ def get_recurrence_preset(name: str) -> EMRConfig:
         valid = ', '.join(RECURRENCE_PRESETS.keys())
         raise ValueError(f"Unknown recurrence preset '{name}'. Valid presets: {valid}")
 
-    # Return a copy to prevent mutation
-    preset = RECURRENCE_PRESETS[name]
-    return EMRConfig(
-        enabled=preset.enabled,
-        allow_hidden_to_hidden=preset.allow_hidden_to_hidden,
-        allow_backward=preset.allow_backward,
-        allow_lateral=preset.allow_lateral,
-        allow_self_loops=preset.allow_self_loops,
-        iteration_level=preset.iteration_level,
-        activate_time=preset.activate_time,
-        max_connections=preset.max_connections,
-        max_sparse_conns=preset.max_sparse_conns,
-        multi_hop_algorithm=preset.multi_hop_algorithm,
-        hop_decay_factor=preset.hop_decay_factor,
-        hh_cache_enabled=preset.hh_cache_enabled,
-        hh_refresh_interval=preset.hh_refresh_interval,
-        hh_mask_change_threshold=preset.hh_mask_change_threshold,
-    )
+    # Return a copy to prevent mutation. dataclasses.replace copies every field and re-runs
+    # __post_init__. 0.1.0's hand-written constructor listed 14 fields and dropped the rest
+    # (use_dense_discovery, eval_chunk_size, multi_hop_chunk_size) from any preset that set them;
+    # it would also drop hh_discovery_mode and multi_hop_second_factor.
+    return dataclasses.replace(RECURRENCE_PRESETS[name])
 
 
 # ============================================================================
@@ -2720,38 +3641,10 @@ def batch_query_population_positions_multi_output(
     source_coord = jax.device_put(source_coord, device)
     target_positions = jax.device_put(target_positions, device)
 
-    num_positions = target_positions.shape[0]
-
-    # Build CPPN inputs
-    source_np = np.tile(np.asarray(source_coord)[None, :], (num_positions, 1))
-    bias_np = np.ones((num_positions, 1), dtype=np.float32)
-    target_np = np.asarray(target_positions)
-
-    if geometry_seeding_enabled:
-        # Geometry seeding: add delta (coordinate differences) as CPPN inputs (Risi & Stanley 2012)
-        # Delta values allow CPPNs to learn direction-specific patterns
-        # Gaussian activation on delta naturally biases toward local connections (peaks at delta=0)
-        if outgoing:
-            delta_x = target_np[:, 0:1] - source_np[:, 0:1]
-            delta_y = target_np[:, 1:2] - source_np[:, 1:2]
-            inputs_np = np.concatenate([source_np, target_np, delta_x, delta_y, bias_np], axis=1)
-        else:
-            delta_x = source_np[:, 0:1] - target_np[:, 0:1]
-            delta_y = source_np[:, 1:2] - target_np[:, 1:2]
-            inputs_np = np.concatenate([target_np, source_np, delta_x, delta_y, bias_np], axis=1)
-    else:
-        # Standard 5D input: [x1, y1, x2, y2, bias]
-        if outgoing:
-            inputs_np = np.concatenate([source_np, target_np, bias_np], axis=1)
-        else:
-            inputs_np = np.concatenate([target_np, source_np, bias_np], axis=1)
-
-    # Swarm mode: prepend agent team position to CPPN inputs
-    # Extends input from [x1, y1, x2, y2, bias] to [agent_x, agent_y, x1, y1, x2, y2, bias]
-    if agent_coord is not None:
-        agent_np = np.tile(np.asarray(agent_coord)[None, :], (num_positions, 1))
-        inputs_np = np.concatenate([agent_np, inputs_np], axis=1)
-
+    # Build CPPN inputs: the same rows as the single-output query (see cppn_query_rows).
+    inputs_np = cppn_query_rows(
+        source_coord, target_positions, outgoing, geometry_seeding_enabled, agent_coord
+    )
     inputs = jax.device_put(inputs_np, device)
 
     return query_cppn_multi_output(
@@ -3120,7 +4013,7 @@ def get_connection_constraint_mask_batched(
 # Multi-Hop Algorithm
 # ============================================================================
 
-@functools.partial(jax.jit, static_argnums=(2, 3, 4, 5))
+@functools.partial(jax.jit, static_argnums=(2, 3, 4, 5, 6))
 def compute_multi_hop_connections_matrix_power(
     adjacency_weights: jnp.ndarray,
     valid_mask: jnp.ndarray,
@@ -3128,64 +4021,68 @@ def compute_multi_hop_connections_matrix_power(
     iteration_level: int,
     hop_decay_factor: float,
     max_weight: float,
+    second_factor: str = 'masked',
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """Compute multi-hop connections via matrix power.
+    """Multi-hop h->h expansion by repeated matrix products.
 
-    For iteration_level k hops, computes:
-    A_total = A + decay*A^2 + decay^2*A^3 + ... + decay^(k-1)*A^k
+    Let ``A = where(valid_mask, adjacency_weights, 0)`` be the genome's direct connections. For
+    ``iteration_level`` k the function forms the hop terms ``decay^(h-1) A^h`` for h = 1..k and
+    keeps, per pair, the term of largest magnitude (a max merge, not a sum: a strong direct
+    connection is never replaced by a weaker indirect one). Each product is thresholded at
+    ``weight_threshold`` before the decay is applied; the result is clipped to ``max_weight`` and a
+    pair is valid where ``|A_total| > weight_threshold``.
 
-    This captures transitive connections: if A→B and B→C exist, we add A→C.
+    ``second_factor`` chooses the right operand of every product (a static argument):
 
-    IMPORTANT: This is JIT-compatible because iteration_level is a static argument,
-    which means the Python loop compiles away into a fixed computation graph.
+    - ``'masked'`` (default): ``A`` itself, so every hop is an existing direct connection, the
+      composite connections stay within the genome's own positions, and hop h carries
+      ``decay^(h-1)`` as stated above. The callers then intersect the result with the connection
+      class (a forward edge composed with a backward one may land lateral or on its own source).
+    - ``'raw'``: 0.1.0's code: the raw ``adjacency_weights`` (at the union call site these span
+      the population's union of active positions, so a genome's composite connections could end
+      on positions it did not have active, ignore its connection class and depend on the other
+      genomes), with the decayed product carried into the next hop (hop 3 carried ``decay^3``).
+      Kept bit for bit to reproduce recorded runs.
+
+    JIT-compatible because ``iteration_level`` and ``second_factor`` are static: the Python loop
+    compiles away into a fixed graph.
 
     Args:
-        adjacency_weights: Raw CPPN-derived weights - shape (num_active, num_active)
-        valid_mask: Boolean mask for direct connections - shape (num_active, num_active)
-        weight_threshold: Minimum weight magnitude to keep
-        iteration_level: Number of hops (static for JIT)
-        hop_decay_factor: Weight decay per hop (e.g., 0.8 means 2-hop weights are 0.8x)
-        max_weight: Maximum allowed weight magnitude
+        adjacency_weights: CPPN-derived weights, shape (num_active, num_active).
+        valid_mask: Boolean mask of the direct connections, same shape.
+        weight_threshold: Minimum magnitude a product must reach to count as a connection.
+        iteration_level: Number of hops k (static).
+        hop_decay_factor: Per-hop attenuation; hop h is scaled by decay^(h-1).
+        max_weight: Clip magnitude of the accumulated weights.
+        second_factor: ``'masked'`` or ``'raw'`` (static).
 
     Returns:
-        Tuple of:
-        - A_total: Multi-hop accumulated weights - shape (num_active, num_active)
-        - multi_hop_valid: Boolean mask for multi-hop connections - shape (num_active, num_active)
+        ``(A_total, multi_hop_valid)``, both of shape (num_active, num_active).
     """
-    # Initialize with direct connections (1-hop)
+    if second_factor not in ('masked', 'raw'):
+        raise ValueError(f"second_factor must be 'masked' or 'raw', got {second_factor!r}")
     A_current = jnp.where(valid_mask, adjacency_weights, 0.0)
-    A_total = A_current.copy()
+    second = A_current if second_factor == 'masked' else adjacency_weights
+    A_total = A_current
 
-    # Static unroll - compiles away with JIT because iteration_level is static
+    # Static unroll: compiles away because iteration_level is static.
     for hop in range(1, iteration_level):
-        # Compute A^(hop+1) via matrix multiplication
-        A_power = A_current @ adjacency_weights
-
-        # Apply weight threshold for sparsity (prune weak multi-hop paths)
+        A_power = A_current @ second
         A_power = jnp.where(jnp.abs(A_power) > weight_threshold, A_power, 0.0)
+        A_decayed = A_power * (hop_decay_factor ** hop)
+        A_total = jnp.where(jnp.abs(A_decayed) > jnp.abs(A_total), A_decayed, A_total)
+        A_current = A_power if second_factor == 'masked' else A_decayed
 
-        # Decay weights by hop distance (prevents exploding accumulated weights)
-        decay = hop_decay_factor ** hop
-        A_power = A_power * decay
-
-        # Accumulate (union of all hop distances)
-        # Use max to prefer stronger direct connections over weaker indirect ones
-        A_total = jnp.where(
-            jnp.abs(A_power) > jnp.abs(A_total),
-            A_power,
-            A_total
-        )
-        # Alternative: simple addition (allows multiple paths to reinforce)
-        # A_total = A_total + A_power
-
-        A_current = A_power
-
-    # Clip to max_weight
     A_total = jnp.clip(A_total, -max_weight, max_weight)
-
-    # Create validity mask for non-zero connections
     multi_hop_valid = jnp.abs(A_total) > weight_threshold
-
+    if second_factor == 'masked':
+        # The expansion never removes a direct connection. A caller's valid_mask can mark a direct
+        # connection with |w| <= weight_threshold (validity from a gate other than the weight band),
+        # and the rule above dropped it at level >= 2. Under the band gate, the only one this package
+        # applies, every direct cell has |w| > weight_threshold and |A_total| >= |w| (the merge only
+        # replaces by a larger magnitude, and |w| <= max_weight survives the clip), so this changes
+        # nothing there. 'raw' keeps 0.1.0's code.
+        multi_hop_valid = multi_hop_valid | valid_mask
     return A_total, multi_hop_valid
 
 
@@ -3196,45 +4093,38 @@ def compute_multi_hop_connections_fori_loop(
     iteration_level: int,
     hop_decay_factor: float,
     max_weight: float,
+    second_factor: str = 'masked',
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    """Compute multi-hop connections using lax.fori_loop.
+    """The computation of ``compute_multi_hop_connections_matrix_power`` with ``lax.fori_loop``.
 
-    Alternative to matrix_power that works with dynamic iteration_level.
-    Slightly more overhead due to fori_loop.
-
-    Args:
-        (same as compute_multi_hop_connections_matrix_power)
-
-    Returns:
-        (same as compute_multi_hop_connections_matrix_power)
+    Works with a dynamic ``iteration_level``. The decay is a traced float32 power here and a Python
+    float there, so the two implementations can differ in the last bit. ``second_factor`` as above.
     """
+    if second_factor not in ('masked', 'raw'):
+        raise ValueError(f"second_factor must be 'masked' or 'raw', got {second_factor!r}")
     A_init = jnp.where(valid_mask, adjacency_weights, 0.0)
+    second = A_init if second_factor == 'masked' else adjacency_weights
 
     def hop_step(hop_idx, carry):
         A_current, A_total = carry
-
-        # Compute next power
-        A_power = A_current @ adjacency_weights
+        A_power = A_current @ second
         A_power = jnp.where(jnp.abs(A_power) > weight_threshold, A_power, 0.0)
-
-        # Decay by hop distance
-        decay = hop_decay_factor ** (hop_idx + 1)
-        A_power = A_power * decay
-
-        # Accumulate (prefer stronger)
-        A_total = jnp.where(
-            jnp.abs(A_power) > jnp.abs(A_total),
-            A_power,
-            A_total
-        )
-
-        return (A_power, A_total)
+        A_decayed = A_power * (hop_decay_factor ** (hop_idx + 1))
+        A_total = jnp.where(jnp.abs(A_decayed) > jnp.abs(A_total), A_decayed, A_total)
+        return ((A_power if second_factor == 'masked' else A_decayed), A_total)
 
     _, A_total = lax.fori_loop(0, iteration_level - 1, hop_step, (A_init, A_init))
 
     A_total = jnp.clip(A_total, -max_weight, max_weight)
     multi_hop_valid = jnp.abs(A_total) > weight_threshold
-
+    if second_factor == 'masked':
+        # The expansion never removes a direct connection. A caller's valid_mask can mark a direct
+        # connection with |w| <= weight_threshold (validity from a gate other than the weight band),
+        # and the rule above dropped it at level >= 2. Under the band gate, the only one this package
+        # applies, every direct cell has |w| > weight_threshold and |A_total| >= |w| (the merge only
+        # replaces by a larger magnitude, and |w| <= max_weight survives the clip), so this changes
+        # nothing there. 'raw' keeps 0.1.0's code.
+        multi_hop_valid = multi_hop_valid | valid_mask
     return A_total, multi_hop_valid
 
 
@@ -3285,6 +4175,7 @@ def _discover_sparse_hh_multi_hop_single_chunk(
     device_id: int = 0,
     geometry_seeding_enabled: bool = False,
     num_cppn_outputs: int = 1,
+    stats_out: Optional[Dict[str, Any]] = None,
 ) -> SparseHiddenConnections:
     """Fully vectorized sparse h→h discovery WITH multi-hop expansion.
 
@@ -3334,6 +4225,14 @@ def _discover_sparse_hh_multi_hop_single_chunk(
     # Move state to target device
     state = jax.tree.map(lambda x: jax.device_put(x, device), state)
 
+    if getattr(config, 'hh_discovery_mode', 'union') == 'per_genome' and not config.use_dense_discovery:
+        return _discover_sparse_hh_per_genome(
+            state, cppns_transformed, h_grid, masks_A, band_threshold, max_weight, config,
+            cppn_forward, verbose=verbose, device_id=device_id,
+            geometry_seeding_enabled=geometry_seeding_enabled, num_cppn_outputs=num_cppn_outputs,
+            stats_out=stats_out,
+        )
+
     # Get union of active positions across population
     # Use global union if provided (for multi-GPU determinism), otherwise compute locally
     if global_union_active is not None:
@@ -3351,7 +4250,8 @@ def _discover_sparse_hh_multi_hop_single_chunk(
     if verbose or _debug_phase2:
         print(f"[H→H Discovery] iteration_level={config.iteration_level}, "
               f"multi_hop_algorithm={config.multi_hop_algorithm}, "
-              f"hop_decay_factor={config.hop_decay_factor}")
+              f"hop_decay_factor={config.hop_decay_factor}, "
+              f"multi_hop_second_factor={config.multi_hop_second_factor}")
         print(f"[H→H Discovery] allow_backward={config.allow_backward}, "
               f"allow_lateral={config.allow_lateral}, "
               f"allow_self_loops={config.allow_self_loops}")
@@ -3508,6 +4408,9 @@ def _discover_sparse_hh_multi_hop_single_chunk(
         direct_valid = combine_fn(source_valid, target_valid, weight_valid, constraint_mask)
 
     # DIAGNOSTIC: Direct connection stats
+    if stats_out is not None:
+        stats_out['direct_per_genome'] = jnp.sum(direct_valid, axis=(1, 2))
+
     if verbose:
         direct_count = int(jnp.sum(direct_valid))
         constraint_count = int(jnp.sum(constraint_mask))
@@ -3576,13 +4479,15 @@ def _discover_sparse_hh_multi_hop_single_chunk(
             def expand_single_genome(adjacency, valid):
                 return compute_multi_hop_connections_matrix_power(
                     adjacency, valid, band_threshold,
-                    config.iteration_level, config.hop_decay_factor, max_weight
+                    config.iteration_level, config.hop_decay_factor, max_weight,
+                    config.multi_hop_second_factor,
                 )
         else:  # fori_loop
             def expand_single_genome(adjacency, valid):
                 return compute_multi_hop_connections_fori_loop(
                     adjacency, valid, band_threshold,
-                    config.iteration_level, config.hop_decay_factor, max_weight
+                    config.iteration_level, config.hop_decay_factor, max_weight,
+                    config.multi_hop_second_factor,
                 )
 
         # CRITICAL: Ensure inputs are on correct device before multi-hop expansion
@@ -3639,6 +4544,21 @@ def _discover_sparse_hh_multi_hop_single_chunk(
         if verbose:
             print(f"[H→H Discovery] NO MULTI-HOP (iteration_level=1): using direct only")
 
+    if config.iteration_level > 1 and config.multi_hop_second_factor == 'masked':
+        # Composites keep the preset's connection class: a forward edge composed with a backward
+        # one lands lateral or on its own source, and those are dropped, so a with_backward network
+        # holds only forward and backward edges at every level. 'raw' keeps 0.1.0's behavior bit for
+        # bit.
+        multi_hop_valid = multi_hop_valid & constraint_mask
+        multi_hop_weights = jnp.where(multi_hop_valid, multi_hop_weights, 0.0)
+
+    if stats_out is not None:
+        # Direct pairs whose weight the max-magnitude merge swapped for a composite.
+        direct_weights = jnp.where(direct_valid, active_to_active_weights, 0.0)
+        stats_out['replaced_per_genome'] = jnp.sum(direct_valid & (multi_hop_weights != direct_weights), axis=(1, 2))
+        # Before the max_sparse_conns cap (the extraction keeps the first pairs in flat order).
+        stats_out['uncapped_per_genome'] = jnp.sum(multi_hop_valid, axis=(1, 2))
+
     # Step 5: Convert dense to sparse format using per-device cached vmap
     # The _get_extract_sparse_fn returns a device-specific traced vmap function
     # to avoid JAX trace caching issues across multi-GPU threads
@@ -3678,6 +4598,458 @@ def _discover_sparse_hh_multi_hop_single_chunk(
         num_valid=num_valid,
     )
 
+
+
+
+# Diagnostics of the last h->h discovery call on this process: per-genome direct and
+# total connection counts, direct pairs whose weight the multi-hop merge replaced, active positions,
+# the union size and the settings in force, and each genome's count before the max_sparse_conns cap
+# with how many connections the cap dropped. Filled by discover_sparse_hh_vectorized_multi_hop for
+# the union and per-genome paths (not the pmap pipeline); read by experiment runners for their
+# records and by the standard path's metrics (truncation only).
+_last_discovery_stats: Dict[str, Any] = {}
+# The cap warning is given once per process; the counts are in every discovery's record.
+_warned_sparse_cap = False
+
+
+def _record_discovery_stats(result: "SparseHiddenConnections", masks_A: jnp.ndarray, union_active: int,
+                            config: "EMRConfig", chunk_stats: List[Dict[str, Any]]) -> None:
+    """Store the last discovery's per-genome counts in ``_last_discovery_stats`` (numpy)."""
+    direct = replaced = None
+    if chunk_stats and all('direct_per_genome' in s for s in chunk_stats):
+        direct = np.concatenate([np.asarray(s['direct_per_genome']) for s in chunk_stats]).astype(np.int64)
+    if chunk_stats and all('replaced_per_genome' in s for s in chunk_stats):
+        replaced = np.concatenate([np.asarray(s['replaced_per_genome']) for s in chunk_stats]).astype(np.int64)
+    uncapped = truncated = None
+    if chunk_stats and all('uncapped_per_genome' in s for s in chunk_stats):
+        uncapped = np.concatenate(
+            [np.asarray(s['uncapped_per_genome']) for s in chunk_stats]).astype(np.int64)
+        truncated = np.maximum(uncapped - int(config.max_sparse_conns), 0)
+        global _warned_sparse_cap
+        if not _warned_sparse_cap and int(truncated.max(initial=0)) > 0:
+            _warned_sparse_cap = True
+            import warnings
+            warnings.warn(
+                f"max_sparse_conns={config.max_sparse_conns} truncated the h->h connections of "
+                f"{int(np.count_nonzero(truncated))} of {truncated.shape[0]} genomes in one "
+                f"discovery (largest set {int(uncapped.max())}); the cap keeps a genome's first "
+                "pairs in (source, target) position order, not its strongest. Raise "
+                "recurrence.max_sparse_conns to keep them all. Per-genome counts: "
+                "_last_discovery_stats['truncated_per_genome']; this warning is given once per "
+                "process.", UserWarning, stacklevel=2)
+    _last_discovery_stats.clear()
+    _last_discovery_stats.update({
+        'total_per_genome': np.asarray(result.num_valid).astype(np.int64),
+        'direct_per_genome': direct,
+        'replaced_per_genome': replaced,
+        'uncapped_per_genome': uncapped,
+        'truncated_per_genome': truncated,
+        'max_sparse_conns': int(config.max_sparse_conns),
+        'active_per_genome': np.asarray(jnp.sum(masks_A, axis=1)).astype(np.int64),
+        'active_masks': np.asarray(masks_A),
+        'union_active': int(union_active),
+        'iteration_level': int(config.iteration_level),
+        'hh_discovery_mode': getattr(config, 'hh_discovery_mode', 'union'),
+        'multi_hop_second_factor': getattr(config, 'multi_hop_second_factor', 'raw'),
+    })
+
+
+def _validated_hh_discovery_mode(value: Any) -> Optional[str]:
+    """Refuse an unknown h->h discovery mode instead of silently running the default.
+
+    None (the key absent) is passed through: EMRConfig resolves it to 'per_genome', or to 'union'
+    under multi_hop_second_factor 'raw'.
+    """
+    if value is None:
+        return None
+    if value not in ('union', 'per_genome'):
+        raise ValueError(
+            f"recurrence.hh_discovery_mode must be 'union' or 'per_genome', got {value!r}"
+        )
+    return value
+
+
+_per_genome_discovery_cache: Dict[Tuple, Any] = {}
+_per_genome_discovery_cache_lock = threading.Lock()
+# Ceiling on the m x S x S pair block of one per-genome core call. The bound that applies is the row
+# budget below (`_per_genome_rows_for`, at most 2^16 pairs per call); this ceiling only caps it. Counted
+# from the input rows alone, 2^24 pairs would be about 470 MB; XLA's own accounting puts one such call at
+# 6.7 to 10.9 GB (450 to 652 bytes per pair through the CPPN's 50-node intermediates), which is why it is
+# not the operative bound. Slicing never changes a value: every genome's block depends on that genome
+# alone.
+_PER_GENOME_PAIR_BUDGET = 1 << 24
+
+
+def _bucket_size_for(count: int) -> int:
+    """The smallest static bucket size (8, 16, 32, ...) that holds ``count`` positions."""
+    size = 8
+    while size < count:
+        size *= 2
+    return size
+
+
+_PER_GENOME_ROW_BUDGET = 1 << 16
+
+
+def _per_genome_rows_for(size: int) -> int:
+    """Static number of genomes per compiled call for a bucket size.
+
+    `max(1, min(slice, 2^16 // size^2))`, with `slice` the pair budget's ceiling for the size, so
+    every call of a bucket size has the same shape (rows, size, ...). A slice of whatever is left of
+    the bucket changes its member count almost every generation and recompiles every gather, the
+    core, the extract and every scatter: 150 to 275 executables per generation, 94-99% of the
+    per-genome discovery time on a CPU (XOR, depth 4, populations 100 and 1000). With fixed rows a
+    bucket size compiles once per run. The pad rows repeat a real
+    member and are scattered to an out-of-range index, so results are unchanged.
+    """
+    slice_len = max(1, _PER_GENOME_PAIR_BUDGET // (size * size))
+    return max(1, min(slice_len, _PER_GENOME_ROW_BUDGET // (size * size)))
+
+
+# Pairs per block of the per-genome core's CPPN query. Above it, the query of a slice runs over blocks of
+# source positions in sequence.
+_PER_GENOME_BLOCK_PAIRS = 1 << 18
+
+
+def _per_genome_block_for(size: int, rows: int) -> int:
+    """Source positions per block of the per-genome core's CPPN query, for ``rows`` genomes of a bucket size.
+
+    The core queries every (source, target) pair of its slice. From a bucket size of 1024 on a slice is one
+    genome and its ``size^2`` pairs, 4.2 million at 2048: 1.89 GB of XLA-CPU temporaries in one call, where
+    the union path queries one source position at a time (0.20 GB for 1000 genomes against 300 targets).
+    Above ``_PER_GENOME_BLOCK_PAIRS`` pairs per call the query runs over blocks of source positions in
+    sequence (``lax.map``), at most that many pairs each; at or below it, one block. Every pair's arithmetic
+    is unchanged, so the values are too. Bucket sizes are powers of two, so the block divides the size.
+    """
+    if rows * size * size <= _PER_GENOME_BLOCK_PAIRS:
+        return size
+    block = size
+    while block > 1 and rows * block * size > _PER_GENOME_BLOCK_PAIRS:
+        block //= 2
+    return block
+
+
+def hh_pair_weights(outputs: jnp.ndarray, max_weight: float,
+                    band_threshold: float) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """A hidden-to-hidden pair's weight and whether it passes the band: per-genome discovery's criterion.
+
+    ``weight = tanh(cppn) * max_weight`` on the CPPN's weight output (channel 0, taken after the CPPN's own output
+    transform, so the weights are bounded by ``tanh(1) * max_weight`` when that transform is a tanh, as it is by
+    default); a pair is a candidate connection when ``|weight| > band_threshold``. The generation loop's per-genome
+    core and the public substrate API both call this function, so an explorer shows the criterion the loop applied.
+
+    Args:
+        outputs: CPPN outputs at the pairs, ``(..., num_cppn_outputs)``.
+        max_weight: Weight scale.
+        band_threshold: Band threshold.
+
+    Returns:
+        ``(weights, passes)``, both of shape ``outputs.shape[:-1]``.
+    """
+    weights = jnp.tanh(outputs[..., 0]) * max_weight
+    return weights, jnp.abs(weights) > band_threshold
+
+
+def per_genome_pair_connections(
+    out: jnp.ndarray,
+    coords: jnp.ndarray,
+    valid: jnp.ndarray,
+    band_threshold: float,
+    max_weight: float,
+    allow_backward: bool,
+    allow_lateral: bool,
+    allow_self_loops: bool,
+    iteration_level: int,
+    hop_decay_factor: float,
+    use_fori: bool,
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """A bucket's hidden-to-hidden connections from the CPPN outputs at its genomes' position pairs.
+
+    The arithmetic half of the per-genome discovery core (the other half is its CPPN query,
+    :func:`_per_genome_pair_outputs`): the weight and band (:func:`hh_pair_weights`), the connection classes of the
+    configuration (by y: backward ``y_source > y_target``, lateral equal, self-loops the same position), the pairs'
+    validity, and the multi-hop expansion of the genome's own direct connections (masked second factor) whose
+    composites keep the classes. The public substrate API runs this same function on the same shapes, so its
+    connections are the loop's.
+
+    Args:
+        out: (m, size, size, outputs) CPPN outputs at (source, target) pairs.
+        coords: (m, size, 2) the genomes' active positions; padding carries a real position's coordinates.
+        valid: (m, size) False on padding.
+        band_threshold, max_weight: As for :func:`hh_pair_weights`.
+        allow_backward, allow_lateral, allow_self_loops: The configuration's connection classes.
+        iteration_level: Hops composed (1: direct connections only).
+        hop_decay_factor: Decay per hop.
+        use_fori: The fori_loop expansion rather than the matrix power.
+
+    Returns:
+        ``(weights, valid, direct_valid, direct_weights)``, each (m, size, size): the connections after the
+        expansion, and the direct ones (``direct_weights`` is zero off ``direct_valid``).
+    """
+    m, size = coords.shape[0], coords.shape[1]
+    weights, weight_valid = hh_pair_weights(out, max_weight, band_threshold)
+
+    y = coords[..., 1]
+    y_valid = jnp.ones((m, size, size), dtype=bool)
+    if not allow_backward:
+        y_valid = y_valid & (y[:, :, None] <= y[:, None, :])
+    if not allow_lateral:
+        y_valid = y_valid & (y[:, :, None] != y[:, None, :])
+    coord_match = jnp.all(coords[:, :, None, :] == coords[:, None, :, :], axis=-1)
+    if allow_self_loops:
+        y_valid = y_valid | coord_match
+        self_mask = jnp.ones((m, size, size), dtype=bool)
+    else:
+        self_mask = ~coord_match
+    pair_valid = valid[:, :, None] & valid[:, None, :]
+    direct_valid = weight_valid & y_valid & self_mask & pair_valid
+    direct_weights = jnp.where(direct_valid, weights, 0.0)
+
+    if iteration_level > 1:
+        expand = (compute_multi_hop_connections_fori_loop if use_fori
+                  else compute_multi_hop_connections_matrix_power)
+
+        def expand_one(w, v):
+            return expand(w, v, band_threshold, iteration_level, hop_decay_factor,
+                          max_weight, 'masked')
+
+        # Always the masked second factor: the union path does the same under
+        # multi_hop_second_factor 'masked' (the default), and 'raw' is refused with
+        # per_genome in EMRConfig.__post_init__, which is why the compile-cache key of
+        # the discovery core does not carry the value.
+        mh_weights, mh_valid = jax.vmap(expand_one)(direct_weights, direct_valid)
+        # Composites keep the preset's connection class, as in the union path.
+        mh_valid = mh_valid & y_valid & self_mask
+        mh_weights = jnp.where(mh_valid, mh_weights, 0.0)
+    else:
+        mh_weights = direct_weights
+        mh_valid = direct_valid
+    return mh_weights, mh_valid, direct_valid, direct_weights
+
+
+def _per_genome_pair_outputs(
+    state: Any,
+    nodes: jnp.ndarray,
+    conns: jnp.ndarray,
+    conn_attrs: jnp.ndarray,
+    node_attrs: jnp.ndarray,
+    coords: jnp.ndarray,
+    cppn_forward: Any,
+    geometry_seeding_enabled: bool,
+) -> jnp.ndarray:
+    """The per-genome core's CPPN query: every genome's CPPN at every (source, target) pair of its positions.
+
+    Rows ``(source, target, optional deltas, 1)``, the layout of ``cppn_query_rows``. From a bucket size of 1024 on
+    the query runs over blocks of source positions in sequence (:func:`_per_genome_block_for`); every pair's
+    arithmetic is unchanged.
+
+    Args:
+        state: TensorNEAT state.
+        nodes, conns, conn_attrs, node_attrs: The m genomes' transformed CPPNs.
+        coords: (m, size, 2) the genomes' positions.
+        cppn_forward: ``cppn_forward(state, cppn_tuple, row)``.
+        geometry_seeding_enabled: 7-D rows with the signed deltas.
+
+    Returns:
+        (m, size, size, outputs).
+    """
+    m, size = coords.shape[0], coords.shape[1]
+
+    def one_genome(cppn_tuple, rows_g):
+        return jax.vmap(lambda x: cppn_forward(state, cppn_tuple, x))(rows_g)
+
+    def query(sources):
+        # CPPN outputs of the pairs (source in `sources`, any target): (m, b, size, outputs)
+        b = sources.shape[1]
+        src = jnp.broadcast_to(sources[:, :, None, :], (m, b, size, 2))
+        tgt = jnp.broadcast_to(coords[:, None, :, :], (m, b, size, 2))
+        parts = [src, tgt]
+        if geometry_seeding_enabled:
+            parts.append(tgt[..., 0:1] - src[..., 0:1])
+            parts.append(tgt[..., 1:2] - src[..., 1:2])
+        parts.append(jnp.ones((m, b, size, 1), dtype=coords.dtype))
+        rows = jnp.concatenate(parts, axis=-1).reshape(m, b * size, -1)
+        out = jax.vmap(one_genome, in_axes=((0, 0, 0, 0), 0))(
+            (nodes, conns, conn_attrs, node_attrs), rows
+        )
+        return out.reshape(m, b, size, -1)
+
+    block = _per_genome_block_for(size, m)
+    if block >= size:
+        return query(coords)
+    # Blocks of source positions in sequence, so one block's intermediates are live at a
+    # time; the blocks are stacked back in source order.
+    blocks = coords.reshape(m, size // block, block, 2).transpose(1, 0, 2, 3)
+    out = lax.map(query, blocks)
+    return out.transpose(1, 0, 2, 3, 4).reshape(m, size, size, -1)
+
+
+def _get_per_genome_discovery_fn(
+    device_id: int,
+    cppn_forward: Any,
+    size: int,
+    band_threshold: float,
+    max_weight: float,
+    config: EMRConfig,
+    geometry_seeding_enabled: bool,
+    num_cppn_outputs: int,
+):
+    """Get or create the compiled per-bucket discovery core for one bucket size.
+
+    The core computes, for a bucket of genomes that each own at most ``size`` active positions,
+    the multi-hop h->h weights and validity over the genome's own position pairs. Its arithmetic
+    is the union pipeline's, applied to the genome's own coordinates: the same
+    ``cppn_forward(state, cppn_tuple, row)`` per pair with the row layout of ``cppn_query_rows``
+    (source, target, optional deltas, bias one), tanh and ``max_weight``, the connection-class
+    constraints of ``_get_constraint_mask_fn``, the band threshold, and the multi-hop expansion
+    over the genome's existing direct connections. Pairs whose endpoints are padding are never valid.
+    """
+    key = (device_id, id(cppn_forward), size, float(band_threshold), float(max_weight),
+           bool(config.allow_backward), bool(config.allow_lateral), bool(config.allow_self_loops),
+           int(config.iteration_level), config.multi_hop_algorithm, float(config.hop_decay_factor),
+           bool(geometry_seeding_enabled), int(num_cppn_outputs))
+    with _per_genome_discovery_cache_lock:
+        if key in _per_genome_discovery_cache:
+            return _per_genome_discovery_cache[key]
+        devices = jax.devices()
+        device = devices[device_id] if device_id < len(devices) else devices[0]
+        allow_backward = bool(config.allow_backward)
+        allow_lateral = bool(config.allow_lateral)
+        allow_self_loops = bool(config.allow_self_loops)
+        iteration_level = int(config.iteration_level)
+        hop_decay_factor = float(config.hop_decay_factor)
+        use_fori = config.multi_hop_algorithm != "matrix_power"
+
+        with jax.default_device(device):
+            def core(state, nodes, conns, conn_attrs, node_attrs, coords, valid):
+                # coords: (m, size, 2) float32, padded entries carry a real position's coordinates
+                # valid:  (m, size) bool, False on padding
+                out = _per_genome_pair_outputs(state, nodes, conns, conn_attrs, node_attrs, coords,
+                                               cppn_forward, geometry_seeding_enabled)
+                mh_weights, mh_valid, direct_valid, direct_weights = per_genome_pair_connections(
+                    out, coords, valid, band_threshold, max_weight, allow_backward, allow_lateral,
+                    allow_self_loops, iteration_level, hop_decay_factor, use_fori,
+                )
+                replaced = jnp.sum(direct_valid & (mh_weights != direct_weights), axis=(1, 2))
+                return mh_weights, mh_valid, jnp.sum(direct_valid, axis=(1, 2)), replaced
+
+            compiled = jax.jit(core, device=device)
+        _per_genome_discovery_cache[key] = compiled
+        return compiled
+
+
+def _discover_sparse_hh_per_genome(
+    state: Any,
+    cppns_transformed: Tuple,
+    h_grid: HierarchicalGridStructure,
+    masks_A: jnp.ndarray,
+    band_threshold: float,
+    max_weight: float,
+    config: EMRConfig,
+    cppn_forward: Any,
+    verbose: bool = False,
+    device_id: int = 0,
+    geometry_seeding_enabled: bool = False,
+    num_cppn_outputs: int = 1,
+    stats_out: Optional[Dict[str, Any]] = None,
+) -> SparseHiddenConnections:
+    """Sparse h->h discovery over each genome's own active positions (``hh_discovery_mode: per_genome``).
+
+    The union pipeline queries every genome over the population's union of active positions
+    (``pop x U x U`` pairs) and only then restricts each genome to its own positions. Here genomes
+    are bucketed by their active count into static sizes 8, 16, 32, ...; each bucket is queried
+    over its genomes' own positions (``m x S x S``), so the pair count follows the genomes' own
+    active sets. The connections and weights are the union pipeline's for every genome, listed in
+    the same order (ascending source position, then ascending target position), including the
+    ``max_sparse_conns`` truncation rule: bit for bit at ``iteration_level`` 1, within a few float32
+    ulps at level >= 2 (the products run over different array shapes) under the default
+    ``multi_hop_second_factor: masked``, where both paths compose the genome's existing direct
+    connections. ``raw`` (0.1.0's algebra, union path only) multiplied by the raw weights
+    over the whole population union and made a genome's composites depend on the other genomes; it
+    is refused together with this mode. Not used under ``use_dense_discovery``. Each bucket size is
+    processed in slices of a fixed number of genomes (``_per_genome_rows_for``), padded with a
+    repeated member whose rows are dropped at the scatter, so a size compiles once per run. From a
+    bucket size of 1024 on, a slice's CPPN query runs over blocks of source positions in sequence
+    (``_per_genome_block_for``, at most 2^18 pairs per block), so a call's temporaries stay near 120 MB
+    whatever the bucket size (XLA-CPU accounting; 1.89 GB at size 2048 in one block).
+    """
+    pop_size = int(masks_A.shape[0])
+    max_sparse_conns = config.max_sparse_conns
+    devices = jax.devices()
+    device = devices[device_id] if device_id < len(devices) else devices[0]
+    all_positions = jax.device_put(h_grid.all_positions, device)
+    masks_A = jax.device_put(masks_A, device)
+    cppns_transformed = tuple(jax.device_put(arr, device) for arr in cppns_transformed)
+    state = jax.tree.map(lambda x: jax.device_put(x, device), state)
+
+    counts = np.asarray(jnp.sum(masks_A, axis=1))
+    from_all = jnp.full((pop_size, max_sparse_conns), -1, dtype=jnp.int32)
+    to_all = jnp.full((pop_size, max_sparse_conns), -1, dtype=jnp.int32)
+    w_all = jnp.zeros((pop_size, max_sparse_conns), dtype=jnp.float32)
+    direct_all = jnp.zeros((pop_size,), dtype=jnp.int32)
+    replaced_all = jnp.zeros((pop_size,), dtype=jnp.int32)
+    uncapped_all = jnp.zeros((pop_size,), dtype=jnp.int32)
+    if pop_size == 0 or int(counts.max()) == 0:
+        if stats_out is not None:
+            stats_out['direct_per_genome'] = direct_all
+            stats_out['replaced_per_genome'] = replaced_all
+            stats_out['uncapped_per_genome'] = uncapped_all
+        valid_mask = from_all >= 0
+        return SparseHiddenConnections(from_all, to_all, w_all, valid_mask, jnp.sum(valid_mask, axis=1))
+
+    sizes = np.array([_bucket_size_for(int(c)) for c in counts])
+    if verbose or os.environ.get('DEBUG_PHASE2', '0') == '1':
+        hist = {int(s): int(np.sum(sizes == s)) for s in np.unique(sizes)}
+        print(f"[H->H Discovery] per-genome mode: active per genome mean={counts.mean():.1f} "
+              f"max={int(counts.max())}, buckets {hist}")
+
+    for size in sorted(set(int(s) for s in sizes)):
+        bucket_members = np.nonzero(sizes == size)[0]
+        core = _get_per_genome_discovery_fn(
+            device_id, cppn_forward, size, band_threshold, max_weight, config,
+            geometry_seeding_enabled, num_cppn_outputs,
+        )
+        extract_sparse_vmap = _get_extract_sparse_fn(device_id, size, max_sparse_conns)
+        rows = _per_genome_rows_for(size)
+        for start in range(0, bucket_members.shape[0], rows):
+            real = bucket_members[start:start + rows]
+            # Every slice of a bucket size has the static shape (rows, size, ...): the gather index
+            # repeats the slice's first member into the pad rows and the scatter index sends them to
+            # pop_size, out of range, which `mode='drop'` discards. m is a batch dimension only in
+            # the core (every reduction is per genome), so the pad rows change no result.
+            pad = rows - real.shape[0]
+            gather = jnp.asarray(np.concatenate([real, np.full(pad, real[0])]), dtype=jnp.int32)
+            scatter = jnp.asarray(np.concatenate([real, np.full(pad, pop_size)]), dtype=jnp.int32)
+            with jax.default_device(device):
+                idx = jax.vmap(lambda row: jnp.nonzero(row, size=size, fill_value=-1)[0])(masks_A[gather])
+                valid = idx >= 0
+                idx_safe = jnp.where(valid, idx, 0)
+                coords = all_positions[idx_safe]  # (rows, size, 2)
+                slice_cppns = tuple(arr[gather] for arr in cppns_transformed)
+                mh_weights, mh_valid, direct_b, replaced_b = core(
+                    state, slice_cppns[0], slice_cppns[1], slice_cppns[2], slice_cppns[3], coords, valid
+                )
+                from_b, to_b, w_b = extract_sparse_vmap(mh_valid, mh_weights, idx_safe)
+                from_all = from_all.at[scatter].set(from_b.astype(jnp.int32), mode='drop')
+                to_all = to_all.at[scatter].set(to_b.astype(jnp.int32), mode='drop')
+                w_all = w_all.at[scatter].set(w_b, mode='drop')
+                direct_all = direct_all.at[scatter].set(direct_b.astype(jnp.int32), mode='drop')
+                replaced_all = replaced_all.at[scatter].set(replaced_b.astype(jnp.int32), mode='drop')
+                uncapped_all = uncapped_all.at[scatter].set(
+                    jnp.sum(mh_valid, axis=(1, 2)).astype(jnp.int32), mode='drop')
+
+    valid_mask = from_all >= 0
+    num_valid = jnp.sum(valid_mask, axis=1)
+    if stats_out is not None:
+        stats_out['direct_per_genome'] = direct_all
+        stats_out['replaced_per_genome'] = replaced_all
+        stats_out['uncapped_per_genome'] = uncapped_all
+    if verbose or os.environ.get('DEBUG_PHASE2', '0') == '1':
+        print(f"[H->H Discovery] COMPLETE (per-genome): total_h2h_conns={int(jnp.sum(num_valid))}, "
+              f"mean_per_genome={float(jnp.mean(num_valid)):.1f}")
+    return SparseHiddenConnections(
+        from_indices=from_all, to_indices=to_all, weights=w_all, valid_mask=valid_mask, num_valid=num_valid,
+    )
 
 
 def discover_sparse_hh_vectorized_multi_hop(
@@ -3731,25 +5103,38 @@ def discover_sparse_hh_vectorized_multi_hop(
         chunk = discovery_population_chunk(pop_size, num_active)
     else:
         chunk = max(1, min(int(discovery_population_chunk_size), pop_size))
+    if getattr(config, 'hh_discovery_mode', 'union') == 'per_genome' and not config.use_dense_discovery:
+        # The per-genome route bounds its memory by the rows per bucket size, not by the union, so
+        # the union-sized population split only multiplied its padded calls and changed the shapes
+        # its eager steps see (bursts of recompiles in both modes on two RTX 2080 Ti: 36.6 s over
+        # generations 2-29 at depth 5, population 1000). Whole population, one call; per-genome
+        # results do not depend on how the population is sliced.
+        chunk = pop_size
 
     if chunk >= pop_size:
-        return _discover_sparse_hh_multi_hop_single_chunk(
+        stats: Dict[str, Any] = {}
+        result = _discover_sparse_hh_multi_hop_single_chunk(
             state, cppns_transformed, h_grid, masks_A,
             band_threshold, max_weight, config, cppn_forward,
             pop_chunk_size=pop_chunk_size, verbose=verbose,
             global_union_active=global_union_active, device_id=device_id,
             geometry_seeding_enabled=geometry_seeding_enabled,
             num_cppn_outputs=num_cppn_outputs,
+            stats_out=stats,
         )
+        _record_discovery_stats(result, masks_A, num_active, config, [stats])
+        return result
 
     if verbose:
         print(f"[H→H Discovery] population-chunked: pop={pop_size}, "
               f"chunk={chunk}, A={num_active}")
 
     parts = []
+    chunk_stats: List[Dict[str, Any]] = []
     for start in range(0, pop_size, chunk):
         end = min(start + chunk, pop_size)
         chunk_cppns = tuple(arr[start:end] for arr in cppns_transformed)
+        chunk_stats.append({})
         parts.append(_discover_sparse_hh_multi_hop_single_chunk(
             state, chunk_cppns, h_grid, masks_A[start:end],
             band_threshold, max_weight, config, cppn_forward,
@@ -3757,15 +5142,18 @@ def discover_sparse_hh_vectorized_multi_hop(
             global_union_active=global_union_active, device_id=device_id,
             geometry_seeding_enabled=geometry_seeding_enabled,
             num_cppn_outputs=num_cppn_outputs,
+            stats_out=chunk_stats[-1],
         ))
 
-    return SparseHiddenConnections(
+    result = SparseHiddenConnections(
         from_indices=jnp.concatenate([p.from_indices for p in parts], axis=0),
         to_indices=jnp.concatenate([p.to_indices for p in parts], axis=0),
         weights=jnp.concatenate([p.weights for p in parts], axis=0),
         valid_mask=jnp.concatenate([p.valid_mask for p in parts], axis=0),
         num_valid=jnp.concatenate([p.num_valid for p in parts], axis=0),
     )
+    _record_discovery_stats(result, masks_A, num_active, config, chunk_stats)
+    return result
 
 
 # ============================================================================
@@ -3776,12 +5164,102 @@ class ForwardPassMode(Enum):
     """Forward pass execution modes."""
     DENSE_ONLY = "dense_only"       # Feedforward: W1 → tanh → W2 (no h→h)
     HYBRID_SPARSE_HH = "hybrid"     # Dense W1/W2 + sparse h→h
-    # Not "all sparse": forward_unified_extended routes it to the hybrid
-    # implementation, and every h→h gate in the generation loop tests
-    # `== HYBRID_SPARSE_HH`, so this mode yields NO sparse h→h at all. It is
-    # strictly weaker than HYBRID_SPARSE_HH, not stronger. Kept for the enum's
-    # stability; unreachable from config. Real full sparsity needs sparse W1/W2.
+    # Not implemented: all-sparse would need sparse W1/W2. 0.1.0 accepted it and ran it with
+    # no sparse h→h at all (every h→h gate in the generation loop tests
+    # `== HYBRID_SPARSE_HH`), i.e. as DENSE_ONLY under a recurrent name. set_forward_mode and
+    # forward_unified_extended refuse it; the member stays so the enum's values do not change.
+    # Unreachable from config.
     FULL_SPARSE = "full_sparse"
+
+
+def _explicit_activate_time(key: str, value: Any) -> int:
+    """An explicit settling-step count where hidden-to-hidden connections are on: an integer of at least 1.
+
+    One rule and one message for the configuration (``substrate.activate_time``, ``recurrence.activate_time``,
+    `EMRHyperNEAT.set_recurrence_config`) and for `emr_hyperneat.substrate.SubstrateConfig`. A bool is refused,
+    although Python counts it an int, and so is a float, whole or not.
+
+    Args:
+        key: The value's name in the message.
+        value: The configured count.
+
+    Returns:
+        The count as a Python int.
+
+    Raises:
+        ValueError: A bool, a value that is not an integer, or a count below 1.
+    """
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)) or value < 1:
+        raise ValueError(f"{key} must be an integer of at least 1 when hidden-to-hidden connections are on, "
+                         f"got {value!r}")
+    return int(value)
+
+
+def check_recurrence_switch(enabled: Any, allow_hidden_to_hidden: Any) -> None:
+    """Refuse ``enabled: false`` with ``allow_hidden_to_hidden: true``.
+
+    The forward mode follows ``allow_hidden_to_hidden`` (`resolve_recurrence`), so such a block
+    switches recurrence off and runs recurrent all the same. `EMRHyperNEAT._parse_extended_config`
+    applies it to a recurrence block without a preset (a preset sets both fields consistently) and
+    `EMRHyperNEAT.set_recurrence_config` to its config.
+
+    Args:
+        enabled: The recurrence switch.
+        allow_hidden_to_hidden: Whether hidden-to-hidden connections are discovered.
+
+    Raises:
+        ValueError: ``enabled`` false while ``allow_hidden_to_hidden`` is true.
+    """
+    if allow_hidden_to_hidden and not enabled:
+        raise ValueError(
+            "recurrence enabled: false with allow_hidden_to_hidden: true is contradictory: the "
+            "block switches recurrence off but turns hidden-to-hidden connections on, and the run "
+            "would follow allow_hidden_to_hidden. Set enabled: true (or leave it out) for a "
+            "recurrent run, or allow_hidden_to_hidden: false for a feed-forward one.")
+
+
+def resolve_recurrence(config: Any, max_depth: Optional[int],
+                       explicit: Dict[str, Any]) -> Tuple[ForwardPassMode, int, Optional[Any]]:
+    """The forward mode, iteration level and settling steps of a recurrence configuration.
+
+    The one rule of `EMRHyperNEAT._parse_extended_config` and `EMRHyperNEAT.set_recurrence_config`. Hidden-to-hidden
+    connections on (``allow_hidden_to_hidden``) give the recurrent forward mode. Their settling steps are an
+    explicit count (``explicit``, every value an integer of at least 1, all equal), else the configuration's own
+    count (a preset's: ``full_recurrent`` carries 20), else ``2 (2**max_depth + 1)``. Without them nothing settles:
+    any value is accepted, a count the configuration carries is kept as the attribute (as in 0.1.0), and none is
+    used. Only ``allow_hidden_to_hidden``, ``iteration_level`` and ``activate_time`` are read, so another dataclass
+    with these fields serves (the timing harness passes HMR's UnifiedExtendedConfig).
+
+    Args:
+        config: The recurrence configuration, or None for feed-forward.
+        max_depth: The grid depth; None before `create_config`, when no count is derived.
+        explicit: The counts set by name, None where a name is not set; their names are the messages' names.
+
+    Returns:
+        ``(forward_mode, iteration_level, activate_time)``; ``activate_time`` None leaves the current value.
+
+    Raises:
+        ValueError: With hidden-to-hidden connections on, an explicit count that is not an integer of at least 1,
+            or two explicit counts that differ.
+    """
+    if config is None:
+        return ForwardPassMode.DENSE_ONLY, 0, None
+    level = config.iteration_level
+    if not config.allow_hidden_to_hidden:
+        return ForwardPassMode.DENSE_ONLY, level, config.activate_time
+    given = {key: _explicit_activate_time(key, value) for key, value in explicit.items() if value is not None}
+    if len(set(given.values())) > 1:
+        raise ValueError(" and ".join(f"{key}={explicit[key]!r}" for key in given)
+                         + " disagree: both set the settling steps, so give them the same value or set only one")
+    if given:
+        steps = next(iter(given.values()))
+    elif config.activate_time is not None:
+        steps = int(config.activate_time)
+    elif max_depth is not None:
+        steps = 2 * (2 ** max_depth + 1)
+    else:
+        steps = None
+    return ForwardPassMode.HYBRID_SPARSE_HH, level, steps
 
 
 def forward_unified_extended(
@@ -3818,10 +5296,9 @@ def forward_unified_extended(
         )
 
     elif mode == ForwardPassMode.FULL_SPARSE:
-        # same as hybrid (full sparse would need sparse W1/W2)
-        return _forward_hybrid_sparse_hh(
-            inputs, W1, W2, sparse_hh, activate_time, num_positions
-        )
+        raise NotImplementedError(
+            "ForwardPassMode.FULL_SPARSE is not implemented (all-sparse needs sparse W1/W2); "
+            "use HYBRID_SPARSE_HH")
 
     else:
         raise ValueError(f"Unknown forward pass mode: {mode}")
@@ -3894,7 +5371,8 @@ def forward_hybrid_vmapped(
 ) -> jnp.ndarray:
     """Vmap-friendly hybrid forward pass (takes individual arrays, not dataclass).
 
-    This version is designed for use with jax.vmap over population.
+    The plain configuration of :func:`settle_hidden`: sum input drive, tanh hidden nodes,
+    sigmoid outputs.
 
     Args:
         inputs: (n_samples, num_inputs)
@@ -3909,30 +5387,27 @@ def forward_hybrid_vmapped(
     Returns:
         (n_samples, num_outputs)
     """
-    num_positions = W1.shape[1]
-
-    # Input contribution (constant across iterations, raw, no tanh)
-    input_contrib = inputs @ W1
-
-    # Sparse h→h recurrent iterations
-    hidden = jnp.zeros((inputs.shape[0], num_positions))
-    safe_from = jnp.clip(from_indices, 0, num_positions - 1)
-    safe_to = jnp.clip(to_indices, 0, num_positions - 1)
-    effective_weights = jnp.where(valid_mask, hh_weights, 0.0)
-    # Precompute the sparse h->h weight matrix once (Whh[i,j] = sum of weights i->j)
-    # so each settling step is a BLAS matmul instead of a per-step scatter-add (the
-    # CPU bottleneck that made recurrent topologies appear infeasible). Mathematically
-    # identical to the scatter-add (max abs diff ~5e-7); for feedforward (no h->h)
-    # Whh is all-zero, so hidden stays tanh(input_contrib) exactly as before.
-    Whh = jnp.zeros((num_positions, num_positions)).at[safe_from, safe_to].add(effective_weights)
-
-    def hh_step(hidden, _):
-        h_delta = hidden @ Whh
-        return jnp.tanh(input_contrib + h_delta), None
-
-    hidden, _ = lax.scan(hh_step, hidden, None, length=activate_time)
-
+    hidden = settle_hidden(inputs @ W1, from_indices, to_indices, hh_weights, valid_mask,
+                           activate_time, jnp.tanh)
     return jax.nn.sigmoid(hidden @ W2)
+
+
+def _auto_eval_chunk_size(eval_length: int, pop_size: int) -> Optional[int]:
+    """The evaluation's genome chunk under ``eval_chunk_size: -1``, from the length the evaluation compiles for.
+
+    The length includes compaction padding: the chunking is part of the compiled shape, so counts that share a padded
+    length must share it. Keyed to the real count, the 1024 bucket (961 to 1,024 real positions) would switch to
+    chunks at 1,000 and compile the chunked path at a length already seen.
+    """
+    if eval_length < 1000:        # depth <= 3
+        return None
+    if eval_length < 6000:        # depth 4-5
+        return min(500, pop_size)
+    if eval_length < 50000:       # depth 6 "anomaly zone"
+        return min(50, pop_size)
+    if eval_length < 200000:      # depth 7
+        return min(200, pop_size)
+    return min(50, pop_size)      # depth 8+
 
 
 def chunked_vmap_eval(eval_fn, chunk: int, *arrays: jnp.ndarray) -> jnp.ndarray:
@@ -4052,15 +5527,21 @@ def forward_hybrid_vmapped_dynamic(
     output_act_fn: Optional[Callable] = None,
     num_activations: int = 4,
     palette: Optional[jnp.ndarray] = None,
-    hh_activation_mode: str = 'initial_only',
+    hh_activation_mode: str = 'every_iteration',
     hh_agg_indices: Optional[jnp.ndarray] = None,
     hh_aggregation_mode: str = 'sum',
     num_hh_aggregations: int = 4,
+    ih_agg_indices: Optional[jnp.ndarray] = None,
+    ih_global_agg_fn: Optional[Callable] = None,
+    ih_per_node_aggregation: bool = False,
+    ih_true_aggregation: bool = True,
+    num_ih_aggregations: int = 4,
 ) -> jnp.ndarray:
-    """Vmap-friendly hybrid forward pass with dynamic activation functions.
+    """Vmap-friendly hybrid forward pass with dynamic activation and aggregation.
 
-    This extends forward_hybrid_vmapped to support per-node activation functions
-    and per-node H→H aggregation.
+    :func:`settle_hidden` with the input drive of :func:`input_drive` and the node function of
+    :func:`node_activation`: without hidden-to-hidden connections this is
+    :func:`dense_substrate_forward` with the same arguments.
 
     Args:
         inputs: (n_samples, num_inputs)
@@ -4070,81 +5551,35 @@ def forward_hybrid_vmapped_dynamic(
         to_indices: (max_sparse_conns,) target indices
         hh_weights: (max_sparse_conns,) weights
         valid_mask: (max_sparse_conns,) validity mask
-        activate_time: Number of iterations
+        activate_time: Number of settling steps
         act_indices: Optional (num_positions,) per-node activation indices.
-            If None, uses hidden_act_fn for all nodes.
-        hidden_act_fn: Optional activation function for 'disabled'/'global' modes.
-            Used when act_indices is None.
+        hidden_act_fn: The one hidden activation when there are no indices ('global'
+            mode); tanh when None.
         output_act_fn: Output activation function. Defaults to sigmoid.
         num_activations: Number of activation functions for grouped forward.
         palette: Optional custom activation palette indices.
-        hh_activation_mode: 'initial_only' or 'every_iteration'
+        hh_activation_mode: 'every_iteration' (the configured activation at every step) or
+            'tanh' (tanh at every step, whatever is configured).
         hh_agg_indices: Optional (num_positions,) per-node H→H aggregation indices.
-            If None or hh_aggregation_mode='sum', uses scatter_add (sum).
         hh_aggregation_mode: 'sum' (default) or 'dynamic' for per-node aggregation.
         num_hh_aggregations: Number of aggregation functions for dynamic H→H.
+        ih_agg_indices: Optional (num_positions,) per-node input-to-hidden aggregation.
+        ih_global_agg_fn: One input-to-hidden aggregation for every node.
+        ih_per_node_aggregation: Use ``ih_agg_indices``.
+        ih_true_aggregation: Exact per-node aggregation rather than the approximation.
+        num_ih_aggregations: Number of input-to-hidden aggregation functions.
 
     Returns:
         (n_samples, num_outputs)
     """
-    num_positions = W1.shape[1]
+    drive = input_drive(inputs, W1, ih_agg_indices, ih_global_agg_fn, ih_per_node_aggregation,
+                        ih_true_aggregation, num_ih_aggregations)
+    node_fn = node_activation(hh_activation_mode, act_indices, hidden_act_fn, palette,
+                              num_activations)
+    hidden = settle_hidden(drive, from_indices, to_indices, hh_weights, valid_mask,
+                           activate_time, node_fn, hh_agg_indices, hh_aggregation_mode,
+                           num_hh_aggregations)
     output_fn = output_act_fn if output_act_fn is not None else jax.nn.sigmoid
-
-    # Step 1: Input contribution (constant across iterations, raw, no activation)
-    input_contrib = inputs @ W1  # (n_samples, num_positions)
-
-    # Step 2: Recurrent iterations with sparse h→h
-    hidden = jnp.zeros((inputs.shape[0], num_positions))
-    safe_from = jnp.clip(from_indices, 0, num_positions - 1)
-    safe_to = jnp.clip(to_indices, 0, num_positions - 1)
-    effective_weights = jnp.where(valid_mask, hh_weights, 0.0)
-
-    # Choose aggregation method for H→H contributions
-    use_dynamic_hh_agg = (hh_aggregation_mode == 'dynamic' and hh_agg_indices is not None)
-
-    # Precompute the sparse h->h weight matrix once for the default sum aggregation,
-    # so each settling step is a BLAS matmul (hidden @ Whh) instead of a per-step
-    # scatter-add (the CPU bottleneck). Identical to scatter-add (max abs diff ~5e-7);
-    # all-zero for feedforward. The dynamic per-node aggregation path is unchanged.
-    Whh = jnp.zeros((num_positions, num_positions)).at[safe_from, safe_to].add(effective_weights)
-
-    def compute_h_delta(hidden, contributions):
-        """Compute H→H delta with appropriate aggregation."""
-        if use_dynamic_hh_agg:
-            return scatter_aggregate_by_target(
-                contributions, safe_to, num_positions,
-                hh_agg_indices, valid_mask, num_hh_aggregations
-            )
-        else:
-            # Default sum aggregation via the precomputed matmul: hidden @ Whh equals
-            # scatter_add of (hidden[:, safe_from] * effective_weights) into safe_to.
-            return hidden @ Whh
-
-    if hh_activation_mode == 'every_iteration' and act_indices is not None:
-        # Apply per-node activations on every H→H iteration
-        if palette is not None:
-            def hh_step(hidden, _):
-                source_vals = hidden[:, safe_from]
-                contributions = source_vals * effective_weights
-                h_delta = compute_h_delta(hidden, contributions)
-                return grouped_activation_forward_with_palette(input_contrib + h_delta, act_indices, palette), None
-        else:
-            def hh_step(hidden, _):
-                source_vals = hidden[:, safe_from]
-                contributions = source_vals * effective_weights
-                h_delta = compute_h_delta(hidden, contributions)
-                return grouped_activation_forward(input_contrib + h_delta, act_indices, num_activations), None
-    else:
-        # Default: use tanh for H→H iterations (initial_only mode)
-        def hh_step(hidden, _):
-            source_vals = hidden[:, safe_from]
-            contributions = source_vals * effective_weights
-            h_delta = compute_h_delta(hidden, contributions)
-            return jnp.tanh(input_contrib + h_delta), None
-
-    hidden, _ = lax.scan(hh_step, hidden, None, length=activate_time)
-
-    # Step 3: Dense hidden→output with output activation
     return output_fn(hidden @ W2)
 
 
@@ -4169,16 +5604,24 @@ def forward_hybrid_vmapped_neuromodulated(
     output_act_fn: Optional[Callable] = None,
     num_activations: int = 4,
     palette: Optional[jnp.ndarray] = None,
-    hh_activation_mode: str = 'initial_only',
+    hh_activation_mode: str = 'every_iteration',
     hh_agg_indices: Optional[jnp.ndarray] = None,
     hh_aggregation_mode: str = 'sum',
     num_hh_aggregations: int = 4,
+    ih_agg_indices: Optional[jnp.ndarray] = None,
+    ih_global_agg_fn: Optional[Callable] = None,
+    ih_per_node_aggregation: bool = False,
+    ih_true_aggregation: bool = True,
+    num_ih_aggregations: int = 4,
+    node_rule: str = 'paper',
 ) -> jnp.ndarray:
     """Vmap-friendly hybrid forward pass with TRUE neuromodulation.
 
-    Neuromodulation is applied to BOTH:
-    1. Input→Hidden stage
-    2. H→H iterations (per user requirement)
+    :func:`settle_hidden` whose node function is the neuromodulated node of the feed-forward
+    evaluation (:func:`true_neuromodulation_node_fn`, under ``node_rule``): gain inside the
+    activation and gate after
+    it, at every settling step. Without hidden-to-hidden connections this is the feed-forward
+    neuromodulated substrate exactly.
 
     Args:
         inputs: (n_samples, num_inputs)
@@ -4188,7 +5631,7 @@ def forward_hybrid_vmapped_neuromodulated(
         to_indices: (max_sparse_conns,) target indices
         hh_weights: (max_sparse_conns,) weights
         valid_mask: (max_sparse_conns,) validity mask
-        activate_time: Number of iterations
+        activate_time: Number of settling steps
         receptor_densities: (num_positions, num_nt) per-node receptor densities
         base_gains: (num_positions,) per-node base gains
         neurotransmitter: (num_nt,) NT vector for task
@@ -4197,114 +5640,33 @@ def forward_hybrid_vmapped_neuromodulated(
         use_output_inversion: Whether NT4 controls output inversion
         num_nt: Number of neurotransmitter types
         act_indices: Optional (num_positions,) per-node activation indices.
-        hidden_act_fn: Optional activation function for 'disabled'/'global' modes.
+        hidden_act_fn: The one hidden activation when there are no indices; tanh when None.
         output_act_fn: Output activation function. Defaults to sigmoid.
         num_activations: Number of activation functions for grouped forward.
         palette: Optional custom activation palette indices.
-        hh_activation_mode: 'initial_only' or 'every_iteration'
+        hh_activation_mode: 'every_iteration' or 'tanh'.
         hh_agg_indices: Optional (num_positions,) per-node H→H aggregation indices.
         hh_aggregation_mode: 'sum' (default) or 'dynamic' for per-node aggregation.
         num_hh_aggregations: Number of aggregation functions for dynamic H→H.
+        ih_agg_indices, ih_global_agg_fn, ih_per_node_aggregation, ih_true_aggregation,
+            num_ih_aggregations: input-to-hidden aggregation, as in :func:`input_drive`.
 
     Returns:
         (n_samples, num_outputs)
     """
-    num_positions = W1.shape[1]
+    act_fn = node_activation(hh_activation_mode, act_indices, hidden_act_fn, palette,
+                             num_activations)
+    drive = input_drive(inputs, W1, ih_agg_indices, ih_global_agg_fn, ih_per_node_aggregation,
+                        ih_true_aggregation, num_ih_aggregations)
+    hidden = settle_hidden(
+        drive, from_indices, to_indices, hh_weights, valid_mask, activate_time,
+        true_neuromodulation_node_fn(act_fn, receptor_densities, base_gains, neurotransmitter,
+                                     mod_strength, num_nt, modulation_mode, node_rule),
+        hh_agg_indices, hh_aggregation_mode, num_hh_aggregations,
+    )
     output_fn = output_act_fn if output_act_fn is not None else jax.nn.sigmoid
-
-    # Compute modulation from receptors × NT (once, reused for all iterations)
-    nt_mod = neurotransmitter[:min(3, num_nt)]
-    modulation = receptor_densities[:, :min(3, num_nt)] @ nt_mod  # (num_positions,)
-    effective_gains = base_gains + mod_strength * modulation
-    gates = jax.nn.sigmoid(modulation * 5.0)
-
-    # Step 1: Input contribution (constant across iterations, raw, no activation)
-    input_contrib = inputs @ W1  # (n_samples, num_positions)
-
-    # Step 2: Recurrent iterations with sparse h→h (NEUROMODULATED)
-    hidden = jnp.zeros((inputs.shape[0], num_positions))
-    safe_from = jnp.clip(from_indices, 0, num_positions - 1)
-    safe_to = jnp.clip(to_indices, 0, num_positions - 1)
-    effective_weights = jnp.where(valid_mask, hh_weights, 0.0)
-
-    use_dynamic_hh_agg = (hh_aggregation_mode == 'dynamic' and hh_agg_indices is not None)
-
-    def compute_h_delta(hidden, contributions):
-        """Compute H→H delta with appropriate aggregation."""
-        if use_dynamic_hh_agg:
-            return scatter_aggregate_by_target(
-                contributions, safe_to, num_positions,
-                hh_agg_indices, valid_mask, num_hh_aggregations
-            )
-        else:
-            h_delta = jnp.zeros_like(hidden)
-            return h_delta.at[:, safe_to].add(contributions)
-
-    if hh_activation_mode == 'every_iteration' and act_indices is not None:
-        # Apply per-node activations + neuromodulation on every H→H iteration
-        if palette is not None:
-            def hh_step(hidden, _):
-                source_vals = hidden[:, safe_from]
-                contributions = source_vals * effective_weights
-                h_delta = compute_h_delta(hidden, contributions)
-                # Apply gain modulation to H→H
-                if modulation_mode == 'gain_bias_only' or modulation_mode == 'full':
-                    h_updated = grouped_activation_forward_with_palette(
-                        effective_gains * (input_contrib + h_delta), act_indices, palette
-                    )
-                else:
-                    h_updated = grouped_activation_forward_with_palette(
-                        input_contrib + h_delta, act_indices, palette
-                    )
-                # Apply gates
-                if modulation_mode == 'gating_only' or modulation_mode == 'full':
-                    h_updated = h_updated * gates
-                return h_updated, None
-        else:
-            def hh_step(hidden, _):
-                source_vals = hidden[:, safe_from]
-                contributions = source_vals * effective_weights
-                h_delta = compute_h_delta(hidden, contributions)
-                # Apply gain modulation to H→H
-                if modulation_mode == 'gain_bias_only' or modulation_mode == 'full':
-                    h_updated = grouped_activation_forward(
-                        effective_gains * (input_contrib + h_delta), act_indices, num_activations
-                    )
-                else:
-                    h_updated = grouped_activation_forward(
-                        input_contrib + h_delta, act_indices, num_activations
-                    )
-                # Apply gates
-                if modulation_mode == 'gating_only' or modulation_mode == 'full':
-                    h_updated = h_updated * gates
-                return h_updated, None
-    else:
-        # Default: use tanh for H→H iterations but still apply gates
-        def hh_step(hidden, _):
-            source_vals = hidden[:, safe_from]
-            contributions = source_vals * effective_weights
-            h_delta = compute_h_delta(hidden, contributions)
-            # Apply gain modulation if full mode
-            if modulation_mode == 'gain_bias_only' or modulation_mode == 'full':
-                h_updated = jnp.tanh(effective_gains * (input_contrib + h_delta))
-            else:
-                h_updated = jnp.tanh(input_contrib + h_delta)
-            # Apply gates
-            if modulation_mode == 'gating_only' or modulation_mode == 'full':
-                h_updated = h_updated * gates
-            return h_updated, None
-
-    hidden, _ = lax.scan(hh_step, hidden, None, length=activate_time)
-
-    # Step 3: Dense hidden→output with output activation
-    outputs = output_fn(hidden @ W2)
-
-    # NT4 output inversion control
-    if use_output_inversion and num_nt >= 4:
-        invert = neurotransmitter[3]
-        outputs = invert * outputs + (1 - invert) * (1 - outputs)
-
-    return outputs
+    return invert_outputs(output_fn(hidden @ W2), neurotransmitter, use_output_inversion, num_nt,
+                          node_rule)
 
 
 def eval_single_network_hybrid_neuromodulated(
@@ -4329,18 +5691,15 @@ def eval_single_network_hybrid_neuromodulated(
     output_act_fn: Optional[Callable] = None,
     num_activations: int = 4,
     palette: Optional[jnp.ndarray] = None,
-    hh_activation_mode: str = 'initial_only',
+    hh_activation_mode: str = 'every_iteration',
     hh_agg_indices: Optional[jnp.ndarray] = None,
     hh_aggregation_mode: str = 'sum',
     num_hh_aggregations: int = 4,
+    fitness_mode: str = 'mse',
+    node_rule: str = 'paper',
 ) -> float:
-    """Evaluate single network with TRUE neuromodulation.
-
-    Neuromodulation is applied to BOTH Input→Hidden AND H→H iterations.
-
-    Returns:
-        Fitness score (1.0 - MSE)
-    """
+    """Fitness of one network under true neuromodulation (see
+    :func:`forward_hybrid_vmapped_neuromodulated`)."""
     outputs = forward_hybrid_vmapped_neuromodulated(
         inputs, W1, W2,
         from_indices, to_indices, hh_weights, valid_mask,
@@ -4356,9 +5715,9 @@ def eval_single_network_hybrid_neuromodulated(
         hh_agg_indices=hh_agg_indices,
         hh_aggregation_mode=hh_aggregation_mode,
         num_hh_aggregations=num_hh_aggregations,
+        node_rule=node_rule,
     )
-    errors = jnp.mean((outputs - targets) ** 2, axis=1)
-    return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
+    return _eval_single_fitness(outputs, targets, fitness_mode)
 
 
 def eval_single_network_hybrid_dynamic(
@@ -4376,33 +5735,14 @@ def eval_single_network_hybrid_dynamic(
     output_act_fn: Optional[Callable] = None,
     num_activations: int = 4,
     palette: Optional[jnp.ndarray] = None,
-    hh_activation_mode: str = 'initial_only',
+    hh_activation_mode: str = 'every_iteration',
     hh_agg_indices: Optional[jnp.ndarray] = None,
     hh_aggregation_mode: str = 'sum',
     num_hh_aggregations: int = 4,
+    fitness_mode: str = 'mse',
 ) -> float:
-    """Evaluate single network with dynamic activation functions.
-
-    Args:
-        W1: (num_inputs, num_positions)
-        W2: (num_positions, num_outputs)
-        from_indices, to_indices, hh_weights, valid_mask: sparse h→h
-        inputs: (n_samples, num_inputs)
-        targets: (n_samples, num_outputs)
-        activate_time: Forward iterations
-        act_indices: Optional per-node activation indices
-        hidden_act_fn: Optional activation function for 'disabled'/'global' modes
-        output_act_fn: Output activation function
-        num_activations: Number of activation functions
-        palette: Optional custom activation palette
-        hh_activation_mode: 'initial_only' or 'every_iteration'
-        hh_agg_indices: Optional per-node H→H aggregation indices
-        hh_aggregation_mode: 'sum' or 'dynamic' for H→H aggregation
-        num_hh_aggregations: Number of H→H aggregation functions
-
-    Returns:
-        Fitness score (1.0 - MSE)
-    """
+    """Fitness of one network with dynamic functions (see
+    :func:`forward_hybrid_vmapped_dynamic`)."""
     outputs = forward_hybrid_vmapped_dynamic(
         inputs, W1, W2,
         from_indices, to_indices, hh_weights, valid_mask,
@@ -4417,8 +5757,7 @@ def eval_single_network_hybrid_dynamic(
         hh_aggregation_mode=hh_aggregation_mode,
         num_hh_aggregations=num_hh_aggregations,
     )
-    errors = jnp.mean((outputs - targets) ** 2, axis=1)
-    return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
+    return _eval_single_fitness(outputs, targets, fitness_mode)
 
 
 # ============================================================================
@@ -4524,6 +5863,30 @@ class HHCacheManager:
 # Main Class: EMRHyperNEAT
 # ============================================================================
 
+#: What a strategy name means to EMRHyperNEAT, through the constructor and the configuration key
+#: multi_gpu_strategy alike: the five primary strategies, then the aliases. In 0.1.0 the constructor
+#: used the base class's normalization instead, which sent FULL_PIPELINE_PARALLEL, MULTI_GPU and
+#: DATA_PARALLEL to PIPELINE_CHUNKED and CPPN_CHUNKED to POSITION_SHARDING_CHUNKED and kept the other
+#: aliases, all strategies this class has no route for, so such a run took the one-device loop under
+#: the requested name.
+STRATEGY_NAME_MAP: Dict[str, MultiGPUStrategy] = {
+    'SINGLE_GPU': MultiGPUStrategy.SINGLE_GPU,
+    'FULL_PIPELINE_PARALLEL': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
+    'STREAMING': MultiGPUStrategy.STREAMING,
+    'EVAL_ONLY_PARALLEL': MultiGPUStrategy.EVAL_ONLY_PARALLEL,
+    'POPULATION_PARALLEL_PROCESS': MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
+    'BASELINE': MultiGPUStrategy.SINGLE_GPU,
+    'MULTI_GPU': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
+    'DATA_PARALLEL': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
+    'PMAP_PARALLEL': MultiGPUStrategy.EVAL_ONLY_PARALLEL,
+    'PIPELINE_CHUNKED': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
+    'CPPN_CHUNKED': MultiGPUStrategy.STREAMING,
+    'POSITION_SHARDING_CHUNKED': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
+    'POPULATION_PARALLEL_SEQUENTIAL': MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
+    'PERSISTENT_PARALLEL': MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
+}
+
+
 class EMRHyperNEAT(EMRHyperNEATMultiGPU):
     """Unified Extended EMR-HyperNEAT with Dynamic Functions + Neuromodulation.
 
@@ -4564,8 +5927,12 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
           hidden_activation: 'tanh'  # For global mode
           output_activation: 'sigmoid'
           num_activations: 4         # For cppn_output mode
+          random_scope: 'genome'     # random modes: genome (per slot, per run) or shared (0.1.0's
+                                     # draw: one assignment for every genome and run)
+          index_decode: 'tanh'       # tanh (0.1.0's; a palette of 9+ never reaches its end entries)
+                                     # or uniform (every entry, equal bins); aggregation has its own
           palette: 'sin_only'        # Optional: use specific activation subset
-          hh_activation_mode: 'initial_only'  # initial_only or every_iteration
+          hh_activation_mode: 'every_iteration'  # every_iteration or tanh (tanh on h→h)
 
           # CPPN output configuration (for cppn_output mode):
           num_cppn_outputs: 1        # Number of CPPN outputs (1=derive from weights, 2+=dedicated outputs)
@@ -4660,6 +6027,86 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         'random_generation',
         'modular',
     })
+    #: Keys of the neuromodulation block EMR reads (_parse_neuromodulation_config). Any other key
+    #: raises; 0.1.0 ignored it. `enabled` is read only to refuse a contradiction with the mode.
+    NEUROMODULATION_KEYS = frozenset({
+        'mode', 'preset', 'enabled', 'gate_threshold', 'gate_scaling', 'gate_hardness', 'context_dim',
+        'context_influence', 'context_source', 'mod_neuron_ratio', 'mod_connection_type', 'mod_decay',
+        'num_nt_types', 'modulation_strength', 'receptor_from_weight', 'receptor_derivation',
+        'modulation_mode', 'use_output_inversion', 'branch_gating', 'use_self_connection_query',
+        'node_rule',
+    })
+    #: The neuromodulation modes the evaluation dispatches, one level each (context gating carries
+    #: its base gates, XdG-style).
+    NEUROMODULATION_MODES = ('disabled', 'static_gating', 'context_gating', 'modulatory_neurons',
+                             'true_neuromodulation')
+    #: Keys of the multitask block (MultiTaskConfig). Any other key raises; 0.1.0 ignored it. Eight
+    #: of these are accepted only at their default value, because nothing in EMR applies them.
+    MULTITASK_KEYS = frozenset({
+        'enabled', 'num_tasks', 'task_names', 'nt_per_task', 'fitness_aggregation', 'task_weights',
+        'joint_evolution', 'orthogonality_bonus', 'specialization_bonus', 'hidden_activation',
+        'per_task_activation', 'fitness_mode', 'modulation_mode', 'modulation_strength_override',
+        'two_module_mode', 'generalist_bonus_type', 'generalist_bonus_weight', 'generalist_threshold',
+        'softmin_temperature', 'modulation_penalty', 'specialization_bonus_weight',
+        'confusion_eval_frequency', 'orthogonality_bonus_weight', 'orthogonality_metric',
+        'branch_gating_mode',
+    })
+    #: Keys of the emr_hyperneat block EMR reads (the base class, this class and
+    #: parse_execution_config). Any other key raises; 0.1.0 ignored it (the tests alone set three
+    #: that nothing read: `extended`, so two "recurrence" tests ran feed-forward; `strategy`;
+    #: `pop_size`).
+    EMR_HYPERNEAT_KEYS = frozenset({
+        # emrhyperneat_base.py
+        'band_threshold', 'division_threshold', 'extra_randkey_split', 'fitness_mode',
+        'fuse_w1_computation', 'initial_depth', 'iteration_level', 'max_depth', 'max_weight',
+        'population_chunk_size', 'skip_unused_masks', 'sparse_forward_threshold', 'variance_rule',
+        'variance_threshold', 'verbose',
+        # this class
+        'aggregation', 'dynamic_functions', 'fitness_rescale_variance', 'geometry_seeding',
+        'locality_radius', 'multi_gpu_strategy', 'multitask', 'neuromodulation', 'recurrence',
+        'streaming_verbose',
+        # execution.parse_execution_config
+        'execution', 'enable_streaming',
+    })
+    #: Keys of the recurrence block EMR reads (_parse_extended_config). Any other key raises, except
+    #: `use_vectorized_discovery`, retired: it was stored and never consulted, so ignoring it changes
+    #: no result, and older configurations still carry it (TestRetiredKnobs).
+    RECURRENCE_KEYS = frozenset({
+        'preset', 'enabled', 'allow_hidden_to_hidden', 'allow_backward', 'allow_lateral',
+        'allow_self_loops', 'iteration_level', 'activate_time', 'max_connections', 'max_sparse_conns',
+        'multi_hop_algorithm', 'hop_decay_factor', 'multi_hop_second_factor', 'hh_cache_enabled',
+        'hh_refresh_interval', 'hh_mask_change_threshold', 'use_dense_discovery', 'hh_discovery_mode',
+        'eval_chunk_size', 'use_vectorized_discovery',
+    })
+    #: Keys of the dynamic_functions block EMR reads (_parse_dynamic_functions_config). Any other key
+    #: raises; 0.1.0 ignored it, and a run then lacked what its configuration asked for (HMR's
+    #: aggregation runners nest `aggregation` here; others set `activation_palette`).
+    #: `palette_evolution` is accepted only as {'enabled': False}, which the per-node paper's
+    #: runners carry: palette evolution is not part of EMR.
+    DYNAMIC_FUNCTIONS_KEYS = frozenset({
+        'mode', 'random_seed', 'random_scope', 'hidden_activation', 'output_activation',
+        'num_activations', 'hh_activation_mode', 'palette', 'interpretation', 'sparsity',
+        'critical_periods', 'modular', 'cppn_output_indices', 'num_cppn_outputs', 'palette_evolution',
+        'index_decode',
+    })
+    #: Keys of the blocks nested in dynamic_functions.
+    CPPN_OUTPUT_INDICES_KEYS = frozenset({'weight', 'activation', 'aggregation'})
+    SPARSITY_KEYS = frozenset({'level_0', 'level_1', 'level_2_plus', 'wta_k_percent'})
+    CRITICAL_PERIODS_KEYS = frozenset({'enabled', 'phase1_end', 'phase2_end', 'min_plasticity'})
+    MODULAR_KEYS = frozenset({'activation_method', 'sparsity_method', 'scaling_method',
+                              'aggregation_method', 'sparsity'})
+    #: Keys of the aggregation block EMR reads; any other key raises (0.1.0 ignored it).
+    AGGREGATION_KEYS = frozenset({
+        'mode', 'random_seed', 'random_scope', 'global_function', 'num_aggregations', 'interpretation',
+        'use_true_aggregation', 'hh_aggregation_mode', 'index_decode',
+    })
+    #: Accepted values for `aggregation.mode`; anything else raises (0.1.0 ran sum).
+    AGGREGATION_MODES = frozenset({
+        'disabled', 'global', 'cppn_output', 'weight_interpretation', 'random_fixed', 'random_generation',
+        'modular',
+    })
+    #: Keys of the geometry_seeding block EMR reads; any other key raises (0.1.0 ignored it).
+    GEOMETRY_SEEDING_KEYS = frozenset({'enabled', 'seed_weight'})
 
     def __init__(
         self,
@@ -4676,24 +6123,48 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         Args:
             name: Algorithm name
             implementation: Implementation identifier
-            strategy: GPU execution strategy
-            position_config: Position sharding configuration
-            island_config: Island model configuration (legacy)
-            hybrid_config: Hybrid sharding configuration (legacy)
-            pmap_config: Population pmap configuration (legacy)
+            strategy: GPU execution strategy, a name of STRATEGY_NAME_MAP or SINGLE_GPU_PYTHON_LOOP
+            position_config: Refused when given (a base-class strategy this class has no route for).
+            island_config: Refused when given, as position_config.
+            hybrid_config: Refused when given, as position_config.
+            pmap_config: Refused when given, as position_config.
+
+        Raises:
+            ValueError: A strategy name without a route, or any of the four sharding configurations.
         """
+        # The configuration key's meaning (STRATEGY_NAME_MAP); the Python-loop name keeps the
+        # one-device loop. The base class is set up for one device, as when the configuration key
+        # chooses the strategy.
+        if strategy == MultiGPUStrategy.SINGLE_GPU_PYTHON_LOOP:
+            routed = strategy
+        elif strategy.name in STRATEGY_NAME_MAP:
+            routed = STRATEGY_NAME_MAP[strategy.name]
+        else:
+            raise ValueError(
+                f"strategy {strategy.name} has no route in EMRHyperNEAT; the names are "
+                f"{sorted(STRATEGY_NAME_MAP)} (and SINGLE_GPU_PYTHON_LOOP)")
+        # The four sharding configurations configure base-class strategies this class has no route
+        # for; with a routed strategy 0.1.0 kept them and never read them.
+        given = [key for key, value in (('position_config', position_config),
+                                        ('island_config', island_config),
+                                        ('hybrid_config', hybrid_config),
+                                        ('pmap_config', pmap_config))
+                 if value is not None]
+        if given:
+            raise ValueError(f"{', '.join(given)} configure base-class strategies EMRHyperNEAT has no "
+                             f"route for; {routed.name} reads none of them")
         super().__init__(
             name=name,
             implementation=implementation,
-            strategy=strategy,
-            position_config=position_config,
-            island_config=island_config,
-            hybrid_config=hybrid_config,
-            pmap_config=pmap_config,
+            strategy=MultiGPUStrategy.SINGLE_GPU,
         )
+        self.strategy = routed
 
         # Extended configuration
         self.extended_config: Optional[EMRConfig] = None
+        # An explicit substrate.activate_time from the last create_config (None: the key was absent), which the
+        # settling steps honor there and in a later set_recurrence_config (resolve_recurrence)
+        self._substrate_activate_time: Any = None
 
         # Cache manager
         self._hh_cache: Optional[HHCacheManager] = None
@@ -4723,7 +6194,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         self.df_palette: Optional[jnp.ndarray] = None  # Custom palette indices
         self.df_palette_name: Optional[str] = None  # Named palette
         self.df_interpretation: str = 'magnitude_bio'  # For weight_interpretation mode
-        self.hh_activation_mode: str = 'initial_only'  # initial_only or every_iteration
+        self.hh_activation_mode: str = 'every_iteration'  # every_iteration or tanh
 
         # Aggregation function settings
         self.agg_mode: str = 'disabled'  # disabled, global, cppn_output, weight_interpretation
@@ -4731,6 +6202,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         self.agg_num_aggregations: int = 4
         self.agg_use_true_aggregation: bool = True  # True = accurate, False = approximation
         self.agg_interpretation: str = 'magnitude_bio'
+        # How channels and weight-interpretation signals become indices (INDEX_DECODES)
+        self.df_index_decode: str = 'tanh'
+        self.agg_index_decode: str = 'tanh'
         # hh_aggregation_mode controls H→H aggregation behavior:
         # - 'sum': Fast scatter_add (default, best performance)
         # - 'dynamic': Per-node aggregation using segment operations
@@ -4760,6 +6234,8 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         }
         # Cache for multi-output CPPN queries (future use)
         self._cached_cppn_outputs: Optional[jnp.ndarray] = None
+        # The last generation's champion as evaluated, for evaluate_on_data.
+        self._last_eval: Optional[Dict[str, Any]] = None
 
         # Random mode state
         self._random_mode_seed: Optional[int] = None
@@ -4890,6 +6366,12 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         hmr_config = algo_params.get('emr_hyperneat', {})
         # A missing block is warned about once, in the base create_config that
         # `super()` reaches below; warning here too would double it.
+        _refuse_unknown_keys('emr_hyperneat', hmr_config, self.EMR_HYPERNEAT_KEYS)
+        if hmr_config.get('iteration_level', 1) != 1:
+            raise ValueError(
+                "emr_hyperneat.iteration_level is not read (the multi-hop level is "
+                "recurrence.iteration_level); 0.1.0 ignored a value other than 1, with a "
+                "deprecation warning")
 
         # Opt-in reproduction flag (default False -> EMR's existing behavior is UNCHANGED).
         # When True, EMR performs HMR's extra per-generation pre-ask jax.random.split.
@@ -4901,6 +6383,8 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
 
         # Check if geometry seeding is enabled - need to set CPPN num_inputs to 7
         geo_config = hmr_config.get('geometry_seeding', {})
+        _refuse_unknown_keys('geometry_seeding', geo_config, self.GEOMETRY_SEEDING_KEYS)
+        _refuse_unknown_keys('execution', hmr_config.get('execution') or {}, EXECUTION_KEYS)
         geo_seeding_enabled = geo_config.get('enabled', False)
 
         # Auto-compute required CPPN outputs from dynamic_functions + aggregation config
@@ -4955,6 +6439,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
 
         # Parse fitness rescaling (converts 1-MSE fitness to R² for compressed landscapes)
         rescale_var = hmr_config.get('fitness_rescale_variance', None)
+        if rescale_var is not None and not rescale_var > 0:
+            # 0.1.0 ignored a variance that is not positive, so the run scored 1-MSE
+            raise ValueError(f"emr_hyperneat.fitness_rescale_variance must be a positive variance, got "
+                             f"{rescale_var!r}")
         if rescale_var is not None and rescale_var > 0:
             self._fitness_rescale_variance = float(rescale_var)
             if self.verbose:
@@ -4964,6 +6452,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
 
         # Now call parent to set up base configuration
         config = super().create_config(params)
+        if self.fitness_mode not in FITNESS_MODES:
+            raise ValueError(f"emr_hyperneat.fitness_mode must be one of {FITNESS_MODES}, got "
+                             f"{self.fitness_mode!r}; 0.1.0 scored an unknown name as MSE")
         recurrence_section = hmr_config.get('recurrence', {})
 
         # Parse multi_gpu_strategy from config (string -> enum)
@@ -4984,31 +6475,20 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             #
             # POPULATION_PARALLEL_PROCESS: For very large populations with h→h
             # ============================================================================
-            strategy_map = {
-                # Primary 5 strategies
-                'SINGLE_GPU': MultiGPUStrategy.SINGLE_GPU,
-                'FULL_PIPELINE_PARALLEL': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
-                'STREAMING': MultiGPUStrategy.STREAMING,
-                'EVAL_ONLY_PARALLEL': MultiGPUStrategy.EVAL_ONLY_PARALLEL,
-                'POPULATION_PARALLEL_PROCESS': MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
-                # Legacy aliases (map to primary strategies for backward compatibility)
-                'BASELINE': MultiGPUStrategy.SINGLE_GPU,
-                'MULTI_GPU': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
-                'DATA_PARALLEL': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
-                'PMAP_PARALLEL': MultiGPUStrategy.EVAL_ONLY_PARALLEL,
-                'PIPELINE_CHUNKED': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
-                'CPPN_CHUNKED': MultiGPUStrategy.STREAMING,
-                'POSITION_SHARDING_CHUNKED': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
-                'POPULATION_PARALLEL_SEQUENTIAL': MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
-                'PERSISTENT_PARALLEL': MultiGPUStrategy.POPULATION_PARALLEL_PROCESS,
-            }
+            strategy_map = STRATEGY_NAME_MAP
             if strategy_str_upper in strategy_map:
                 self.strategy = strategy_map[strategy_str_upper]
                 if self.verbose:
                     print(f"[EMR-HyperNEAT] Strategy from config: {strategy_str} → {self.strategy}")
             else:
-                print(f"Warning: Unknown multi_gpu_strategy '{strategy_str}', keeping default: {self.strategy}")
+                # 0.1.0 printed a warning and ran the default strategy.
+                raise ValueError(
+                    f"Unknown multi_gpu_strategy {strategy_str!r}; the names are "
+                    f"{sorted(strategy_map)}")
 
+        # The base class read substrate.activate_time into activate_time; whether it was set decides the settling
+        # steps of a recurrent configuration, here and in a later set_recurrence_config
+        self._substrate_activate_time = algo_params.get('substrate', {}).get('activate_time')
         self._parse_extended_config(recurrence_section)
 
         # Parse dynamic functions configuration
@@ -5037,23 +6517,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             self.execution_config.resolve(self.max_depth) is ExecutionMode.STREAMING
         )
         self._streaming_verbose = hmr_config.get('streaming_verbose', False)
-        _resolved_mode = self.execution_config.resolve(self.max_depth)
-        if self._legacy_level0_variance and _resolved_mode is not ExecutionMode.STANDARD:
-            # `legacy` names the old level-0 rule on the standard path. Streaming and
-            # depth_offload compute variance through compute_single_level_variance* in
-            # execution/offload.py, which take no rule flag, so the pin cannot apply
-            # there. Correct by definition, and silent until now: a reproduction run
-            # that also raises max_depth past the auto threshold drops the pin while
-            # still writing into the same results tree.
-            import warnings
-            warnings.warn(
-                f"variance_rule='legacy' has no effect in execution mode "
-                f"{_resolved_mode.value!r}; the legacy level-0 rule exists only on the "
-                "standard path. Results will use the canonical rule. Set "
-                "execution.mode='standard' to reproduce published standard-path numbers.",
-                UserWarning,
-                stacklevel=2,
-            )
+        # variance_rule applies on every execution mode: streaming and depth_offload take the
+        # legacy level-0 rule through legacy_level0_variance. 0.1.0 ignored it there, warning only
+        # when the mode was configured, not when it changed at run time.
 
 
         # Parse locality radius for geometry seeding (distance-based weight penalty)
@@ -5083,7 +6549,160 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         if self.extended_config is not None:
             self._hh_cache = HHCacheManager(self.extended_config)
 
+        self._check_feature_combinations()
         return config
+
+    def _check_feature_combinations(self) -> None:
+        """Refuse configurations one evaluation path would silently drop part of.
+
+        Raises:
+            ValueError: multi-task evaluation with dynamic functions or aggregation (it applies
+                one activation per task and sum aggregation), multi-task two-module
+                evaluation with recurrence (it is feed-forward), or the depth-offload execution
+                mode or the EVAL_ONLY_PARALLEL strategy with dynamic functions, aggregation or
+                neuromodulation (both evaluate tanh nodes with sum aggregation and no
+                modulation).
+        """
+        recurrent = (self.extended_config is not None
+                     and self.extended_config.allow_hidden_to_hidden)
+        dropped = self._features_a_tanh_sum_path_drops()
+        per_node = [feature for feature in dropped if feature != "neuromodulation"]
+        multitask = (self.multitask_config is not None
+                     and getattr(self.multitask_config, 'enabled', False))
+        # The configured hidden activation applies in mode 'global' only, and the output activation
+        # everywhere except the plain evaluation (no per-node function, aggregation or
+        # neuromodulation) and the multi-task one, which apply tanh and sigmoid. 0.1.0 dropped both
+        # there without a word.
+        if self.dynamic_functions_mode != 'global' and self.df_hidden_activation != 'tanh':
+            raise ValueError(
+                f"hidden_activation {self.df_hidden_activation!r} (dynamic_functions or substrate) "
+                f"applies in dynamic_functions.mode 'global' only; mode "
+                f"{self.dynamic_functions_mode!r} would ignore it. Set mode 'global', or drop the key.")
+        modulated = self.neuromod_config is not None and self.neuromod_config.mode != 'disabled'
+        plain = (self.dynamic_functions_mode in ('disabled', 'modular')
+                 and self.agg_mode in ('disabled', 'modular') and not modulated)
+        if (plain or multitask) and self.df_output_activation != 'sigmoid':
+            raise ValueError(
+                f"output_activation {self.df_output_activation!r} (dynamic_functions or substrate) "
+                f"would be ignored: the {'multi-task' if multitask else 'plain'} evaluation applies "
+                f"a sigmoid output. Set dynamic_functions.mode 'global' with hidden_activation "
+                f"'tanh' to use another output activation.")
+        if multitask and per_node:
+            raise ValueError(
+                "run_generation_multitask evaluates every task with one hidden activation "
+                "(multitask.per_task_activation or multitask.hidden_activation) and sum "
+                "aggregation, so it would ignore " + ", ".join(per_node) + ". Configure the "
+                "activation through the multitask section instead."
+            )
+        if (multitask and recurrent
+                and getattr(self.multitask_config, 'two_module_mode', 'none') != 'none'):
+            raise ValueError(
+                "multitask.two_module_mode evaluates feed-forward only and would ignore the "
+                "hidden-to-hidden connections this configuration discovers"
+            )
+        if self.neuromod_config is not None:
+            rule = self.neuromod_config.node_rule
+            if rule not in NEUROMODULATION_NODE_RULES:
+                raise ValueError(f"neuromodulation.node_rule must be one of "
+                                 f"{NEUROMODULATION_NODE_RULES}, got {rule!r}")
+            if (rule == 'hmr_full' and self.multitask_config is not None
+                    and getattr(self.multitask_config, 'two_module_mode', 'none') != 'none'):
+                raise ValueError("neuromodulation.node_rule 'hmr_full' is not applied by "
+                                 "multitask.two_module_mode, whose modules compute the paper's rule")
+        if self.execution_config.resolve(self.max_depth) is ExecutionMode.DEPTH_OFFLOAD:
+            self.refuse_depth_offload()
+        if self.strategy == MultiGPUStrategy.EVAL_ONLY_PARALLEL:
+            dropped = dropped + self._features_offload_drops()
+            if dropped:
+                raise ValueError(
+                    "multi_gpu_strategy EVAL_ONLY_PARALLEL evaluates tanh hidden nodes with sum "
+                    "aggregation, no neuromodulation and 1-MSE on weights it builds itself, so it "
+                    "would ignore " + ", ".join(dropped)
+                )
+
+    def _refuse_pmap_pipeline_gaps(self, strategy_name: str) -> None:
+        """Refuse what the pmap pipelines cannot compute, at the moment one is entered.
+
+        The FULL_PIPELINE_PARALLEL cores (`_full_pipeline_with_hh_core`,
+        `_single_genome_pipeline_with_hh`) discover hidden-to-hidden connections inline at
+        iteration level 1 only: they have no multi-hop expansion, so in 0.1.0 a level-2 preset
+        ran there as level 1 while the record named level 2 (the level-2 fitness vector of the
+        pmap route equals the standard path's level-1 vector, XOR depth 3 population 8 and
+        30). They also evaluate tanh hidden nodes with sum aggregation and no
+        neuromodulation, like EVAL_ONLY_PARALLEL. This runs at dispatch, not at configuration
+        time, because the same configuration falls back to the standard path on one device or
+        on a small dataset, where level 2 is computed.
+
+        Raises:
+            ValueError: `allow_hidden_to_hidden` with `iteration_level` above 1, or a dropped
+                feature.
+        """
+        recurrent = (self.extended_config is not None
+                     and self.extended_config.allow_hidden_to_hidden)
+        level = self.extended_config.iteration_level if self.extended_config else 0
+        if recurrent and level > 1:
+            raise ValueError(
+                f"multi_gpu_strategy {strategy_name} discovers hidden-to-hidden connections at "
+                f"iteration level 1 only (no multi-hop expansion) and would run iteration_level "
+                f"{level} as level 1. Set recurrence.iteration_level: 1, or use SINGLE_GPU or "
+                f"EVAL_ONLY_PARALLEL, which run the standard discovery."
+            )
+        dropped = self._features_a_tanh_sum_path_drops() + self._features_offload_drops()
+        if dropped:
+            raise ValueError(
+                f"multi_gpu_strategy {strategy_name} evaluates tanh hidden nodes with sum "
+                "aggregation, no neuromodulation and 1-MSE on weights it builds itself, so it "
+                "would ignore " + ", ".join(dropped)
+            )
+
+    def _features_a_tanh_sum_path_drops(self) -> List[str]:
+        """The configured features an evaluation with tanh nodes, sum and no modulation drops."""
+        dropped = []
+        if self.dynamic_functions_mode != 'disabled':
+            dropped.append(f"dynamic_functions.mode={self.dynamic_functions_mode!r}")
+        if self.agg_mode != 'disabled':
+            dropped.append(f"aggregation.mode={self.agg_mode!r}")
+        if self.neuromod_config is not None and self.neuromod_config.mode != 'disabled':
+            dropped.append("neuromodulation")
+        return dropped
+
+    def _features_offload_drops(self) -> List[str]:
+        """Configured features the evaluations that build their own weights and score 1-MSE drop.
+
+        Depth offload, POPULATION_PARALLEL_PROCESS's workers, EVAL_ONLY_PARALLEL and the
+        FULL_PIPELINE_PARALLEL pipelines score 1-MSE without the fitness rescaling and build their
+        weight matrices without the locality penalty. 0.1.0 dropped these settings there without a
+        word.
+        """
+        dropped = []
+        if getattr(self, 'fitness_mode', 'mse') != 'mse':
+            dropped.append(f"fitness_mode={self.fitness_mode!r}")
+        if getattr(self, 'locality_radius', None) is not None:
+            dropped.append(f"locality_radius={self.locality_radius!r}")
+        if getattr(self, '_fitness_rescale_variance', None) is not None:
+            dropped.append(f"fitness_rescale_variance={self._fitness_rescale_variance!r}")
+        return dropped
+
+    def refuse_depth_offload(self) -> None:
+        """Raise if the depth-offload path would ignore part of this configuration.
+
+        Called by ``create_config`` for a configured or depth-selected ``depth_offload``, and by
+        the offload generation itself, because on a GPU ``auto`` can also select it at run time
+        from the population size and device memory.
+
+        Raises:
+            ValueError: Dynamic functions, aggregation, neuromodulation, a fitness mode other than
+                mse, a locality radius or a fitness rescaling are configured.
+        """
+        dropped = self._features_a_tanh_sum_path_drops() + self._features_offload_drops()
+        if dropped:
+            raise ValueError(
+                "execution mode 'depth_offload' evaluates tanh hidden nodes with sum "
+                "aggregation, no neuromodulation and 1-MSE, without a locality penalty or a "
+                "fitness rescaling, so it would ignore "
+                + ", ".join(dropped)
+                + ". Use execution.mode 'standard' or 'streaming' for these features."
+            )
 
     def initialize(self, config: Any, problem: Any, seed: int = 42) -> Any:
         """Initialize with per-device JIT functions for multi-GPU support.
@@ -5101,6 +6720,14 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         Returns:
             Initialized algorithm state
         """
+        # A run's fixed random draws are its own: an object reused for the next seed draws them
+        # again (0.1.0's shared draw was the same in every run, so keeping it changed nothing).
+        self._random_fixed_indices = None
+        self._random_fixed_agg_indices = None
+        # The generation count is the run's too: random_generation keys on it, and in 0.1.0 a
+        # reused object continued it.
+        self._current_generation = 0
+
         # Call parent initialize first
         state = super().initialize(config, problem, seed)
 
@@ -5157,6 +6784,161 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Mark problem cache as refreshed if it supports this interface
         if hasattr(problem, 'mark_cache_refreshed'):
             problem.mark_cache_refreshed()
+
+    def substrate_config(self) -> Any:
+        """The substrate configuration this model's generation loop uses.
+
+        Read from the parsed configuration, so defaults and the loop's own choices
+        (e.g. the plain tanh/sigmoid evaluation when neither per-node mode is on)
+        are the ones EMR applies. See `emr_hyperneat.substrate`.
+
+        Returns:
+            An `emr_hyperneat.substrate.SubstrateConfig`.
+
+        Raises:
+            RuntimeError: create_config has not been called.
+            ValueError: the configuration evaluates something the substrate API does not
+                describe (neuromodulation, multi-task, swarm mode, the weight-interpretation or
+                random function modes, a non-standard execution mode, or hidden-to-hidden
+                connections other than per-genome discovery without the h->h cache).
+        """
+        # Lazy import: emr_hyperneat.substrate imports this module.
+        from emr_hyperneat.substrate import SubstrateConfig
+
+        if self.max_depth is None or not hasattr(self, 'dynamic_functions_mode'):
+            raise RuntimeError("call create_config before substrate_config")
+
+        refusals = []
+        if self.dynamic_functions_mode not in ('disabled', 'global', 'cppn_output'):
+            refusals.append(f"dynamic_functions.mode={self.dynamic_functions_mode!r}")
+        if self.agg_mode not in ('disabled', 'global', 'cppn_output'):
+            refusals.append(f"aggregation.mode={self.agg_mode!r}")
+        recurrent = self.extended_config is not None and self.extended_config.allow_hidden_to_hidden
+        if recurrent:
+            # The API builds hidden-to-hidden connections as per-genome discovery does; what it
+            # cannot reproduce is refused.
+            ec = self.extended_config
+            if ec.hh_discovery_mode != 'per_genome':
+                refusals.append(f"hh_discovery_mode {ec.hh_discovery_mode!r} (the API builds per_genome discovery)")
+            if ec.use_dense_discovery:
+                refusals.append("use_dense_discovery")
+            if ec.hh_cache_enabled:
+                refusals.append("the h->h cache (it reuses connections discovered for other genomes)")
+            if self.hh_aggregation_mode == 'dynamic' and not (
+                    self.agg_mode == 'cppn_output' and self.num_cppn_outputs > 1):
+                refusals.append("hh_aggregation_mode 'dynamic' without the aggregation channel "
+                                "(the weight-interpretation decode)")
+        if self.neuromod_config is not None and self.neuromod_config.mode != 'disabled':
+            refusals.append(f"neuromodulation mode {self.neuromod_config.mode!r}")
+        if self.multitask_config is not None and getattr(self.multitask_config, 'enabled', False):
+            refusals.append("multi-task evaluation")
+        if self.swarm_mode:
+            refusals.append("swarm mode")
+        resolved = self.execution_config.resolve(self.max_depth)
+        if resolved is not ExecutionMode.STANDARD:
+            refusals.append(f"execution mode {resolved.value!r} (set execution.mode: standard)")
+        if refusals:
+            raise ValueError(
+                "substrate_config describes the substrate of the standard "
+                "execution path; this configuration also uses " + ", ".join(refusals)
+            )
+
+        # The generation loop's plain branch runs when neither per-node mode is on, and
+        # it applies tanh and sigmoid whatever output_activation says.
+        if self.dynamic_functions_mode == 'disabled' and self.agg_mode == 'disabled':
+            hidden, output = 'tanh', 'sigmoid'
+        else:
+            name = self.df_hidden_activation if self.dynamic_functions_mode == 'global' else 'tanh'
+            hidden = name if name in ACTIVATION_FUNCTIONS else 'tanh'
+            output = (self.df_output_activation
+                      if self.df_output_activation in ACTIVATION_FUNCTIONS else 'sigmoid')
+        global_agg = (self.agg_global_function
+                      if self.agg_global_function in AGGREGATION_FUNCTIONS else 'sum')
+
+        return SubstrateConfig(
+            input_coords=tuple(tuple(float(c) for c in xy) for xy in self.substrate_input_coords),
+            output_coords=tuple(tuple(float(c) for c in xy) for xy in self.substrate_output_coords),
+            max_depth=int(self.max_depth),
+            variance_threshold=float(self.variance_threshold),
+            initial_depth=int(self.initial_depth),
+            variance_rule=self.variance_rule,
+            max_weight=float(self.max_weight),
+            weight_threshold=WEIGHT_THRESHOLD,
+            locality_radius=self.locality_radius,
+            geometry_seeding=bool(self.geometry_seeding_enabled),
+            num_cppn_outputs=int(self.num_cppn_outputs),
+            activation_mode=self.dynamic_functions_mode,
+            activation_channel=int(self._cppn_output_indices['activation']),
+            num_activations=int(self.df_num_activations),
+            palette=(tuple(int(i) for i in np.asarray(self.df_palette))
+                     if self.df_palette is not None else None),
+            hidden_activation=hidden,
+            output_activation=output,
+            aggregation_mode=self.agg_mode,
+            aggregation_channel=int(self._cppn_output_indices['aggregation']),
+            num_aggregations=int(self.agg_num_aggregations),
+            global_aggregation=global_agg,
+            true_aggregation=bool(self.agg_use_true_aggregation),
+            **self._substrate_recurrence_fields(recurrent),
+            activation_index_decode=self.df_index_decode,
+            aggregation_index_decode=self.agg_index_decode,
+        ).validate()
+
+    def _substrate_recurrence_fields(self, recurrent: bool) -> Dict[str, Any]:
+        """The SubstrateConfig recurrence fields of this configuration (none when feed-forward)."""
+        if not recurrent:
+            return {}
+        ec = self.extended_config
+        return dict(
+            hidden_to_hidden=True,
+            allow_backward=bool(ec.allow_backward),
+            allow_lateral=bool(ec.allow_lateral),
+            allow_self_loops=bool(ec.allow_self_loops),
+            band_threshold=float(self.band_threshold),
+            iteration_level=int(ec.iteration_level),
+            hop_decay_factor=float(ec.hop_decay_factor),
+            multi_hop_algorithm=ec.multi_hop_algorithm,
+            max_sparse_conns=int(ec.max_sparse_conns),
+            activate_time=int(self.activate_time),
+            settling_rule='emr',
+            hh_activation_mode=self.hh_activation_mode,
+            hh_aggregation_mode=self.hh_aggregation_mode,
+        )
+
+    def population_substrates(self, state: Any, device_id: int = 0) -> Any:
+        """The substrates of the population in ``state``, as the next generation builds them.
+
+        With recurrence the hidden-to-hidden query keeps every genome's pair outputs until the connections are
+        built: ``count**2 * num_cppn_outputs`` float32 values per genome for ``count`` active positions (8 MB per
+        genome at 1,000 positions and two outputs), where the generation loop holds one bucket slice at a time.
+
+        Args:
+            state: Algorithm state from initialize or run_generation.
+            device_id: Device for the feed-forward query; the hidden-to-hidden query runs on the default device.
+
+        Returns:
+            An `emr_hyperneat.substrate.Substrate` with one entry per genome.
+        """
+        from emr_hyperneat.substrate import (
+            build_recurrent_substrate,
+            build_substrate,
+            query_recurrent_substrate,
+            query_substrate,
+        )
+
+        config = self.substrate_config()
+        population = self._compiled_ask(state)
+        transformed = self._compiled_transform_batch(state, population)
+        substrate = build_substrate(
+            *query_substrate(self._jitted_cppn_forward, state, transformed, config,
+                             device_id=device_id),
+            config,
+        )
+        if config.hidden_to_hidden:
+            # The public two-step build, with this model's CPPNs as the evaluator
+            substrate = build_recurrent_substrate(
+                substrate, query_recurrent_substrate(self._jitted_cppn_forward, state, transformed, substrate))
+        return substrate
 
     def _setup_pmap_evaluation(self) -> None:
         """One-time setup for pmap-based multi-GPU evaluation.
@@ -5217,16 +6999,37 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             print(f"[EVAL_ONLY_PARALLEL] Dataset sharded: {self._pmap_inputs_sharded.shape}")
             print(f"[EVAL_ONLY_PARALLEL] Devices: {[str(d) for d in self._pmap_devices]}")
 
+    def _hh_class_flags(self) -> Tuple[bool, bool, bool]:
+        """(allow_backward, allow_lateral, allow_self_loops) for the pmap pipelines' inline discovery.
+
+        Every class and no self loops when no recurrence config is set, which is what these pipelines
+        did for every preset in 0.1.0.
+        """
+        cfg = self.extended_config
+        if cfg is None:
+            return (True, True, False)
+        return (bool(cfg.allow_backward), bool(cfg.allow_lateral), bool(cfg.allow_self_loops))
+
     def _parse_extended_config(self, recurrence_section: Dict[str, Any]) -> None:
         """Parse recurrence section into extended config.
 
         Args:
             recurrence_section: The 'recurrence' subsection of emr_hyperneat config
         """
+        _refuse_unknown_keys('recurrence', recurrence_section, self.RECURRENCE_KEYS)
         # Check for preset first
         preset_name = recurrence_section.get('preset', None)
         if preset_name:
             base_config = get_recurrence_preset(preset_name)
+            # A preset decides whether recurrence is on; a block key that says otherwise was
+            # ignored in 0.1.0, so the run silently disagreed with its configuration
+            for key in ('enabled', 'allow_hidden_to_hidden'):
+                if key in recurrence_section and (bool(recurrence_section[key])
+                                                  != bool(getattr(base_config, key))):
+                    raise ValueError(
+                        f"recurrence.{key}={recurrence_section[key]!r} contradicts preset "
+                        f"{preset_name!r} ({key}={getattr(base_config, key)!r}): the preset "
+                        f"decides it. Remove the key, or choose a preset that agrees with it.")
             if self.verbose:
                 print(f"[EMR-HyperNEAT] Using preset '{preset_name}'")
 
@@ -5238,11 +7041,19 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 'hh_cache_enabled', 'hh_refresh_interval', 'hh_mask_change_threshold',
                 'allow_backward', 'allow_lateral', 'allow_self_loops',
                 'activate_time', 'max_connections', 'max_sparse_conns', 'use_dense_discovery',
+                'hh_discovery_mode', 'multi_hop_second_factor',
                 'eval_chunk_size',  # For OOM prevention on large configs
             ]
             for field in configurable_fields:
                 if field in recurrence_section:
                     override_fields[field] = recurrence_section[field]
+            if 'hh_discovery_mode' in override_fields:
+                override_fields['hh_discovery_mode'] = _validated_hh_discovery_mode(
+                    override_fields['hh_discovery_mode'])
+            elif 'multi_hop_second_factor' in override_fields:
+                # The preset resolved its discovery mode for the masked factor at construction; a
+                # factor override re-resolves it (the raw factor exists only on the union path).
+                override_fields['hh_discovery_mode'] = None
 
             # Create new config with overrides
             if override_fields:
@@ -5252,7 +7063,17 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                     print(f"[EMR-HyperNEAT] Applied overrides: {override_fields}")
             else:
                 self.extended_config = base_config
+            if not base_config.allow_hidden_to_hidden:
+                allowed = [key for key in ('allow_backward', 'allow_lateral', 'allow_self_loops')
+                           if recurrence_section.get(key)]
+                if allowed:
+                    raise ValueError(
+                        f"recurrence.{allowed[0]} is set but preset {preset_name!r} has no "
+                        f"hidden-to-hidden connections, so the run would be feed-forward; choose a "
+                        f"recurrent preset")
         elif recurrence_section.get('enabled', False) or recurrence_section.get('allow_hidden_to_hidden', False):
+            check_recurrence_switch(recurrence_section.get('enabled', True),
+                                    recurrence_section.get('allow_hidden_to_hidden', True))
             # Build config from individual settings
             self.extended_config = EMRConfig(
                 enabled=recurrence_section.get('enabled', True),
@@ -5260,18 +7081,28 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 allow_backward=recurrence_section.get('allow_backward', False),
                 allow_lateral=recurrence_section.get('allow_lateral', False),
                 allow_self_loops=recurrence_section.get('allow_self_loops', False),
-                iteration_level=recurrence_section.get('iteration_level', 2),
+                iteration_level=recurrence_section.get('iteration_level', 1),
                 activate_time=recurrence_section.get('activate_time', None),
                 max_connections=recurrence_section.get('max_connections', 10000),
                 max_sparse_conns=recurrence_section.get('max_sparse_conns', 10000),
                 multi_hop_algorithm=recurrence_section.get('multi_hop_algorithm', 'matrix_power'),
                 hop_decay_factor=recurrence_section.get('hop_decay_factor', 0.8),
-                hh_cache_enabled=recurrence_section.get('hh_cache_enabled', True),
+                multi_hop_second_factor=recurrence_section.get('multi_hop_second_factor', 'masked'),
+                hh_cache_enabled=recurrence_section.get('hh_cache_enabled', False),
                 hh_refresh_interval=recurrence_section.get('hh_refresh_interval', 5),
                 hh_mask_change_threshold=recurrence_section.get('hh_mask_change_threshold', 0.1),
                 use_dense_discovery=recurrence_section.get('use_dense_discovery', False),
+                hh_discovery_mode=_validated_hh_discovery_mode(
+                    recurrence_section.get('hh_discovery_mode')),
                 eval_chunk_size=recurrence_section.get('eval_chunk_size', None),
             )
+        elif any(recurrence_section.get(key) for key in ('allow_backward', 'allow_lateral', 'allow_self_loops')):
+            allowed = [key for key in ('allow_backward', 'allow_lateral', 'allow_self_loops')
+                       if recurrence_section.get(key)]
+            raise ValueError(
+                f"recurrence.{allowed[0]} is set but hidden-to-hidden connections are off (no preset, "
+                f"enabled or allow_hidden_to_hidden), so the run would be feed-forward; set a preset or "
+                f"allow_hidden_to_hidden: true")
         elif recurrence_section.get('eval_chunk_size') is not None:
             # Feedforward mode but with eval_chunk_size specified for OOM prevention
             self.extended_config = EMRConfig(
@@ -5283,40 +7114,28 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             # Feedforward mode without chunking
             self.extended_config = None
 
-        # Set mode flags and update parent attributes
-        if self.extended_config is not None:
-            self._forward_mode = (
-                ForwardPassMode.HYBRID_SPARSE_HH
-                if self.extended_config.allow_hidden_to_hidden
-                else ForwardPassMode.DENSE_ONLY
-            )
+        # Forward mode, iteration level and settling steps, by the rule set_recurrence_config also applies. Either
+        # block sets the steps (in 0.1.0 a recurrent configuration overwrote substrate.activate_time without a
+        # word); unset, a preset's own count or 2 (2**max_depth + 1)
+        self._forward_mode, self.iteration_level, steps = resolve_recurrence(
+            self.extended_config, self.max_depth,
+            {'recurrence.activate_time': recurrence_section.get('activate_time'),
+             'substrate.activate_time': self._substrate_activate_time})
+        if steps is not None:
+            self.activate_time = steps
 
-            # Update parent iteration_level
-            self.iteration_level = self.extended_config.iteration_level
-
-            # Update activate_time
-            if self.extended_config.activate_time is not None:
-                self.activate_time = self.extended_config.activate_time
-            elif self.extended_config.allow_hidden_to_hidden:
-                # Auto-compute: more iterations for h→h
-                default = (2 ** self.max_depth) + 1
-                self.activate_time = default * 2
-
-            # Log configuration
-            if self.verbose:
-                mode = self._forward_mode.value
-                print(f"[EMR-HyperNEAT] Mode: {mode}")
-                if self.extended_config.allow_hidden_to_hidden:
-                    print(f"  - iteration_level: {self.extended_config.iteration_level}")
-                    print(f"  - multi_hop_algorithm: {self.extended_config.multi_hop_algorithm}")
-                    print(f"  - hop_decay_factor: {self.extended_config.hop_decay_factor}")
-                    print(f"  - allow_backward: {self.extended_config.allow_backward}")
-                    print(f"  - allow_lateral: {self.extended_config.allow_lateral}")
-                    print(f"  - allow_self_loops: {self.extended_config.allow_self_loops}")
-                    print(f"  - activate_time: {self.activate_time}")
-        else:
-            self._forward_mode = ForwardPassMode.DENSE_ONLY
-            self.iteration_level = 0
+        # Log configuration
+        if self.extended_config is not None and self.verbose:
+            mode = self._forward_mode.value
+            print(f"[EMR-HyperNEAT] Mode: {mode}")
+            if self.extended_config.allow_hidden_to_hidden:
+                print(f"  - iteration_level: {self.extended_config.iteration_level}")
+                print(f"  - multi_hop_algorithm: {self.extended_config.multi_hop_algorithm}")
+                print(f"  - hop_decay_factor: {self.extended_config.hop_decay_factor}")
+                print(f"  - allow_backward: {self.extended_config.allow_backward}")
+                print(f"  - allow_lateral: {self.extended_config.allow_lateral}")
+                print(f"  - allow_self_loops: {self.extended_config.allow_self_loops}")
+                print(f"  - activate_time: {self.activate_time}")
 
     def _parse_dynamic_functions_config(self, hmr_config: Dict[str, Any]) -> None:
         """Parse dynamic functions and aggregation configuration.
@@ -5325,6 +7144,26 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             hmr_config: The 'emr_hyperneat' section of config
         """
         dynamic_funcs = hmr_config.get('dynamic_functions', {})
+        _refuse_unknown_keys('dynamic_functions', dynamic_funcs, self.DYNAMIC_FUNCTIONS_KEYS)
+        aggregation_section = hmr_config.get('aggregation', {})
+        _refuse_unknown_keys('aggregation', aggregation_section, self.AGGREGATION_KEYS)
+        for name, block, known in (
+                ('dynamic_functions.cppn_output_indices', dynamic_funcs.get('cppn_output_indices'),
+                 self.CPPN_OUTPUT_INDICES_KEYS),
+                ('dynamic_functions.sparsity', dynamic_funcs.get('sparsity'), self.SPARSITY_KEYS),
+                ('dynamic_functions.critical_periods', dynamic_funcs.get('critical_periods'),
+                 self.CRITICAL_PERIODS_KEYS),
+                ('dynamic_functions.modular', dynamic_funcs.get('modular'), self.MODULAR_KEYS),
+                ('dynamic_functions.modular.sparsity',
+                 (dynamic_funcs.get('modular') or {}).get('sparsity'), self.SPARSITY_KEYS)):
+            _refuse_unknown_keys(name, block, known)
+        if 'palette_evolution' in dynamic_funcs and dynamic_funcs['palette_evolution'] != {'enabled': False}:
+            raise ValueError(
+                f"dynamic_functions.palette_evolution is not part of EMR (HMR's dynamic-functions "
+                f"variant mutated a palette mask; the palette paper's strategies are in "
+                f"papers/emr-dynamic-functions-bio-inspired/scripts/palette_strategies/); only "
+                f"{{'enabled': False}} is accepted, got {dynamic_funcs['palette_evolution']!r}. Set "
+                f"algo.df_palette from the runner instead.")
 
         # Mode selection:
         # - 'disabled': Original hardcoded tanh/sigmoid (baseline)
@@ -5360,12 +7199,44 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 stacklevel=2,
             )
 
-        # For random modes: store seed for reproducibility
-        self._random_mode_seed = dynamic_funcs.get('random_seed', None)
+        # Two blocks nothing in EMR reads: 0.1.0 parsed them and only printed them
+        if 'sparsity' in dynamic_funcs:
+            raise ValueError(
+                "dynamic_functions.sparsity is not implemented in EMR (0.1.0 parsed it and nothing read "
+                "it); mode 'modular', which EMR does not implement either, takes "
+                "dynamic_functions.modular.sparsity")
+        if 'modular' in dynamic_funcs and self.dynamic_functions_mode != 'modular':
+            raise ValueError(
+                f"dynamic_functions.modular configures mode 'modular' only; with mode "
+                f"{self.dynamic_functions_mode!r} 0.1.0 ignored it")
 
-        # For 'global' mode: which activation to use
-        self.df_hidden_activation = dynamic_funcs.get('hidden_activation', 'tanh')
-        self.df_output_activation = dynamic_funcs.get('output_activation', 'sigmoid')
+        # For random modes: the seed and the scope of the draw (random_function_indices)
+        self._random_mode_seed = dynamic_funcs.get('random_seed', None)
+        self._random_scope = dynamic_funcs.get('random_scope', 'genome')
+        if self._random_scope not in RANDOM_SCOPES:
+            raise ValueError(f"dynamic_functions.random_scope must be one of {RANDOM_SCOPES}, got "
+                             f"{self._random_scope!r}")
+        # How a channel or a weight-interpretation signal becomes an index (INDEX_DECODES)
+        self.df_index_decode = dynamic_funcs.get('index_decode', 'tanh')
+        if self.df_index_decode not in INDEX_DECODES:
+            raise ValueError(f"dynamic_functions.index_decode must be one of {INDEX_DECODES}, got "
+                             f"{self.df_index_decode!r}")
+
+        # For 'global' mode: which activation to use. Absent here, both come from the substrate
+        # section, as in HMR's dynamic-functions variant (0.1.0 read substrate.hidden_activation and
+        # substrate.output_activation nowhere). An unknown name raises: 0.1.0 ran tanh (hidden) or
+        # sigmoid (output) for it.
+        self.df_hidden_activation = dynamic_funcs.get(
+            'hidden_activation', getattr(self, 'hidden_activation', 'tanh'))
+        self.df_output_activation = dynamic_funcs.get(
+            'output_activation', getattr(self, 'output_activation', 'sigmoid'))
+        for key, name in (('hidden_activation', self.df_hidden_activation),
+                          ('output_activation', self.df_output_activation)):
+            if name not in ACTIVATION_FUNCTIONS:
+                raise ValueError(
+                    f"{key} {name!r} (dynamic_functions.{key}, or substrate.{key} when that is "
+                    f"absent) is not an activation function; the names are "
+                    f"{sorted(ACTIVATION_FUNCTIONS)}")
 
         # For 'cppn_output' mode: number of activation functions available
         self.df_num_activations = dynamic_funcs.get('num_activations', 4)
@@ -5378,13 +7249,33 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             'num_cppn_outputs', getattr(self, '_auto_num_cppn_outputs', 1)
         )
 
-        # cppn_output_indices: Which CPPN output index to use for each purpose
-        # Default: all use index 0 (single-output CPPN compatibility)
+        # cppn_output_indices: Which CPPN output index to use for each purpose.
+        # Channel 0 is the weight; the generation loop always reads it there.
+        #
+        # Aggregation defaults to the first channel nothing else reads. Before 0.2.0 a
+        # two-output CPPN with aggregation (but not activation) in cppn_output mode
+        # defaulted to channel 0, so aggregation was decoded from the weight and the
+        # evolved second output was never read. Runs made that way are reproduced by
+        # setting cppn_output_indices: {aggregation: 0}. With both modes on and an
+        # explicit num_cppn_outputs of 2, channel 1 is the activation's and aggregation
+        # still shares channel 0, as before.
         cppn_indices = dynamic_funcs.get('cppn_output_indices', {})
+        if cppn_indices.get('weight', 0) != 0:
+            raise ValueError(
+                "dynamic_functions.cppn_output_indices.weight must be 0: the weight is read "
+                "from CPPN output 0 on every path, and another value was accepted and ignored "
+                "in 0.1.0"
+            )
+        if self.num_cppn_outputs <= 1:
+            default_agg_channel = 0
+        elif self.num_cppn_outputs == 2:
+            default_agg_channel = 0 if self.dynamic_functions_mode == 'cppn_output' else 1
+        else:
+            default_agg_channel = 2
         self._cppn_output_indices = {
             'weight': cppn_indices.get('weight', 0),
             'activation': cppn_indices.get('activation', 0 if self.num_cppn_outputs == 1 else 1),
-            'aggregation': cppn_indices.get('aggregation', 0 if self.num_cppn_outputs <= 2 else 2),
+            'aggregation': cppn_indices.get('aggregation', default_agg_channel),
         }
 
         # Validate CPPN output indices
@@ -5395,10 +7286,34 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                     f"Increase num_cppn_outputs or fix cppn_output_indices."
                 )
 
-        # H→H activation mode: controls how activations are applied during H→H iterations
-        # - 'initial_only': Apply dynamic activations on input→hidden, use fixed tanh for H→H
-        # - 'every_iteration': Apply per-node dynamic activations on EVERY H→H iteration
-        self.hh_activation_mode = dynamic_funcs.get('hh_activation_mode', 'initial_only')
+        # H→H activation mode: how the settling steps of the recurrent path (forward mode
+        # HYBRID_SPARSE_HH) activate hidden nodes; the feed-forward path is unaffected.
+        # - 'every_iteration' (default): the configured activation, per-node indices or the
+        #   one 'global' function, at every step.
+        # - 'tanh': tanh at every step, whatever is configured.
+        # 'initial_only' is rejected. In 0.1.0 it applied no configured activation on the
+        # recurrent path at all (the forward pass took no initial activated step, the one step
+        # its name describes), and a name that says the opposite of what runs is not kept.
+        self.hh_activation_mode = dynamic_funcs.get('hh_activation_mode', 'every_iteration')
+        if self.hh_activation_mode == 'initial_only':
+            raise ValueError(
+                "dynamic_functions.hh_activation_mode='initial_only' is no longer accepted. "
+                "In emr-hyperneat 0.1.0 it applied no configured activation on the "
+                "recurrent path: every settling step was tanh and per-node or global "
+                "activations were computed and never used. Use 'every_iteration' (the "
+                "default: the configured activation at every step) or 'tanh' (tanh at every "
+                "step, which settles as 0.1.0 did when no input aggregation is configured)."
+            )
+        if self.hh_activation_mode not in HH_ACTIVATION_MODES:
+            raise ValueError(
+                f"dynamic_functions.hh_activation_mode must be one of {HH_ACTIVATION_MODES}, "
+                f"got {self.hh_activation_mode!r}"
+            )
+        if 'global_activation' in dynamic_funcs:
+            raise ValueError(
+                "dynamic_functions.global_activation is not a setting; the one hidden "
+                "activation of mode 'global' is dynamic_functions.hidden_activation"
+            )
 
         # Palette configuration
         palette_config = dynamic_funcs.get('palette', None)
@@ -5414,12 +7329,32 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 raise ValueError(f"Unknown palette preset: {palette_config}. "
                                f"Available: {list(PALETTE_CONFIGS.keys())}")
         else:
-            # Explicit list of indices
-            self.df_palette = jnp.array(palette_config, dtype=jnp.int32)
+            # Explicit list of ACTIVATION_LIST indices or names. 0.1.0 accepted an index outside
+            # ACTIVATION_LIST, and evaluation dispatches by index.
+            if not (isinstance(palette_config, (list, tuple)) and palette_config):
+                raise ValueError(
+                    "dynamic_functions.palette must be a preset name or a non-empty list of "
+                    f"ACTIVATION_LIST indices or names, got {palette_config!r}")
+            indices = []
+            for entry in palette_config:
+                if isinstance(entry, str) and entry in ACTIVATION_LIST:
+                    indices.append(ACTIVATION_LIST.index(entry))
+                elif (isinstance(entry, (int, np.integer)) and not isinstance(entry, bool)
+                      and 0 <= int(entry) < len(ACTIVATION_LIST)):
+                    indices.append(int(entry))
+                else:
+                    raise ValueError(
+                        f"dynamic_functions.palette entry {entry!r} is neither an ACTIVATION_LIST "
+                        f"index (0 to {len(ACTIVATION_LIST) - 1}) nor one of its names {ACTIVATION_LIST}")
+            self.df_palette = jnp.array(indices, dtype=jnp.int32)
             self.df_palette_name = 'custom'
 
         # For 'weight_interpretation' mode: interpretation method
         self.df_interpretation = dynamic_funcs.get('interpretation', 'magnitude_bio')
+        if self.df_interpretation not in ACTIVATION_INTERPRETATIONS:
+            raise ValueError(
+                f"dynamic_functions.interpretation must be one of {ACTIVATION_INTERPRETATIONS}, got "
+                f"{self.df_interpretation!r}; 0.1.0 ran magnitude_bio for another name")
 
         # Sparsity configuration for biologically-inspired mechanisms
         sparsity_config = dynamic_funcs.get('sparsity', {})
@@ -5433,6 +7368,12 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Critical Periods configuration
         critical_periods = dynamic_funcs.get('critical_periods', {})
         self.df_critical_periods_enabled = critical_periods.get('enabled', False)
+        if self.df_critical_periods_enabled:
+            raise ValueError(
+                "dynamic_functions.critical_periods is not implemented in EMR (nothing changes a "
+                "mutation rate); 0.1.0 accepted it and ran without it. The critical periods of the "
+                "palette paper are part of its strategies "
+                "(papers/emr-dynamic-functions-bio-inspired/scripts/palette_strategies/)")
         self.df_critical_periods_config = {
             'phase1_end': critical_periods.get('phase1_end', 0.2),
             'phase2_end': critical_periods.get('phase2_end', 0.5),
@@ -5460,19 +7401,52 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Note: aggregation is a sibling of dynamic_functions in the config,
         # so we read it from hmr_config, not from dynamic_funcs
         aggregation_config = hmr_config.get('aggregation', {})
+        if 'global_aggregation' in aggregation_config:
+            raise ValueError(
+                "aggregation.global_aggregation is not a setting; the function of aggregation "
+                "mode 'global' is aggregation.global_function (the misspelled key used to be "
+                "ignored, so such a configuration ran 'sum')"
+            )
         self.agg_mode = aggregation_config.get('mode', 'disabled')
+        if self.agg_mode not in self.AGGREGATION_MODES:
+            raise ValueError(
+                f"aggregation.mode must be one of {sorted(self.AGGREGATION_MODES)}, got "
+                f"{self.agg_mode!r}; 0.1.0 ran sum aggregation for an unknown mode")
+        if self.agg_mode == 'modular':
+            import warnings
+            warnings.warn(
+                "aggregation.mode='modular' is parsed but not implemented on the EMR path: "
+                "evaluation uses sum aggregation. It is implemented only in the frozen HMR "
+                "aggregation variant.",
+                UserWarning, stacklevel=2)
 
-        # For random modes: store seed for reproducibility
+        # For random modes: the seed and the scope of the draw (random_function_indices)
         self._random_agg_seed = aggregation_config.get('random_seed', None)
+        self._random_agg_scope = aggregation_config.get('random_scope', 'genome')
+        if self._random_agg_scope not in RANDOM_SCOPES:
+            raise ValueError(f"aggregation.random_scope must be one of {RANDOM_SCOPES}, got "
+                             f"{self._random_agg_scope!r}")
+        self.agg_index_decode = aggregation_config.get('index_decode', 'tanh')
+        if self.agg_index_decode not in INDEX_DECODES:
+            raise ValueError(f"aggregation.index_decode must be one of {INDEX_DECODES}, got "
+                             f"{self.agg_index_decode!r}")
 
-        # For 'global' mode: which aggregation to use
+        # For 'global' mode: which aggregation to use (0.1.0 ran sum for an unknown name)
         self.agg_global_function = aggregation_config.get('global_function', 'sum')
+        if self.agg_global_function not in AGGREGATION_FUNCTIONS:
+            raise ValueError(
+                f"aggregation.global_function must be one of {sorted(AGGREGATION_FUNCTIONS)}, got "
+                f"{self.agg_global_function!r}")
 
         # For 'cppn_output' mode: number of aggregation functions available
         self.agg_num_aggregations = aggregation_config.get('num_aggregations', 4)
 
         # For 'weight_interpretation' mode: interpretation method
         self.agg_interpretation = aggregation_config.get('interpretation', 'magnitude_bio')
+        if self.agg_interpretation not in AGGREGATION_INTERPRETATIONS:
+            raise ValueError(
+                f"aggregation.interpretation must be one of {AGGREGATION_INTERPRETATIONS}, got "
+                f"{self.agg_interpretation!r}; 0.1.0 ran magnitude_bio for another name")
 
         # Whether to use true per-node aggregation or approximation
         self.agg_use_true_aggregation = aggregation_config.get('use_true_aggregation', True)
@@ -5481,6 +7455,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # - 'sum': Standard scatter-add (current behavior, efficient)
         # - 'dynamic': Per-node aggregation using segment operations (more complex)
         self.hh_aggregation_mode = aggregation_config.get('hh_aggregation_mode', 'sum')
+        if self.hh_aggregation_mode not in ('sum', 'dynamic'):
+            raise ValueError(f"aggregation.hh_aggregation_mode must be 'sum' or 'dynamic', got "
+                             f"{self.hh_aggregation_mode!r}")
 
         # Extend modular config to include aggregation method
         self.df_modular_config['aggregation_method'] = modular_config.get('aggregation_method', 'none')
@@ -5539,17 +7516,58 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             hmr_config: The 'emr_hyperneat' section of config
         """
         neuromod_config = hmr_config.get('neuromodulation', {})
+        _refuse_unknown_keys('neuromodulation', neuromod_config, self.NEUROMODULATION_KEYS)
 
-        # Mode selection (default: disabled = original behavior)
+        # Mode selection (default: disabled = original behavior). An unknown mode built a configuration
+        # whose dispatch raised at the first generation in 0.1.0.
         mode = neuromod_config.get('mode', 'disabled')
+        if mode not in self.NEUROMODULATION_MODES:
+            raise ValueError(
+                f"neuromodulation.mode must be one of {self.NEUROMODULATION_MODES}, got {mode!r}; HMR's "
+                f"neuromodulation variant used preset names as modes (e.g. "
+                f"'true_neuromodulation_4nt_option_a_tanh', 'xdg_style', 'full', 'custom'); EMR's "
+                f"presets are neuromodulation.preset")
+        if neuromod_config.get('branch_gating', False):
+            raise ValueError("neuromodulation.branch_gating is not implemented (no evaluation applies "
+                             "it); 0.1.0 accepted and ignored it")
 
         # Check for preset
         preset = neuromod_config.get('preset', None)
-        if preset and preset in NEUROMODULATION_PRESETS:
+        if preset is not None and preset not in NEUROMODULATION_PRESETS:
+            raise ValueError(f"neuromodulation.preset must be one of {sorted(NEUROMODULATION_PRESETS)}, "
+                             f"got {preset!r}; 0.1.0 ignored an unknown preset")
+        levels_named = (preset not in (None, 'disabled')) or mode != 'disabled'
+        if neuromod_config.get('enabled', False) and not levels_named:
+            raise ValueError("neuromodulation.enabled is true but no mode or preset is set, so "
+                             "modulation would be off")
+        if 'enabled' in neuromod_config and not neuromod_config['enabled'] and levels_named:
+            raise ValueError("neuromodulation.enabled is false but a mode or preset is set; 0.1.0 ran "
+                             "the mode whatever enabled said. Set mode 'disabled' or drop enabled")
+        if preset:
             base = get_neuromodulation_config(preset)
+            # The preset's level, as the mode the evaluation dispatches on. The presets set level
+            # flags and no mode, so in 0.1.0 a preset left the mode 'disabled' and the run had no
+            # modulation.
+            levels = tuple(name for name in ('static_gating', 'context_gating', 'modulatory_neurons',
+                                             'true_neuromodulation') if getattr(base, name))
+            preset_mode = {(): 'disabled', ('static_gating',): 'static_gating',
+                           ('static_gating', 'context_gating'): 'context_gating',
+                           ('modulatory_neurons',): 'modulatory_neurons',
+                           ('true_neuromodulation',): 'true_neuromodulation'}.get(levels)
+            if preset_mode is None:
+                raise ValueError(f"neuromodulation.preset {preset!r} combines the levels {levels}; EMR "
+                                 f"evaluates one level")
+            if 'mode' in neuromod_config and mode != preset_mode:
+                raise ValueError(f"neuromodulation.mode {mode!r} contradicts preset {preset!r} (level "
+                                 f"{preset_mode!r})")
             # Override with explicit settings
             self.neuromod_config = NeuromodulationConfig(
-                mode=neuromod_config.get('mode', base.mode),
+                enabled=preset_mode != 'disabled',
+                static_gating=base.static_gating,
+                context_gating=base.context_gating,
+                modulatory_neurons=base.modulatory_neurons,
+                true_neuromodulation=base.true_neuromodulation,
+                mode=preset_mode,
                 # Static gating
                 gate_threshold=neuromod_config.get('gate_threshold', base.gate_threshold),
                 gate_scaling=neuromod_config.get('gate_scaling', base.gate_scaling),
@@ -5569,9 +7587,14 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 receptor_derivation=neuromod_config.get('receptor_derivation', base.receptor_derivation),
                 modulation_mode=neuromod_config.get('modulation_mode', base.modulation_mode),
                 use_output_inversion=neuromod_config.get('use_output_inversion', base.use_output_inversion),
+                node_rule=neuromod_config.get('node_rule', base.node_rule),
                 # Branch-specific gating
                 branch_gating=neuromod_config.get('branch_gating', base.branch_gating),
+                # 0.1.0 dropped it on the preset path
+                use_self_connection_query=neuromod_config.get('use_self_connection_query', False),
             )
+            if preset_mode == 'disabled':
+                self.neuromod_config = None
         elif mode != 'disabled':
             # Build config from individual settings
             # Set mode-specific flags based on the mode string
@@ -5602,6 +7625,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 receptor_derivation=neuromod_config.get('receptor_derivation', 'tanh'),
                 modulation_mode=neuromod_config.get('modulation_mode', 'full'),
                 use_output_inversion=neuromod_config.get('use_output_inversion', True),
+                node_rule=neuromod_config.get('node_rule', 'paper'),
                 # Branch-specific gating
                 branch_gating=neuromod_config.get('branch_gating', False),
                 # R7: opt-in self-connection-query decode (reproduces the HMR/paper
@@ -5626,7 +7650,50 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # MULTI-TASK CONFIGURATION
         # =====================================================================
         multitask_config = hmr_config.get('multitask', {})
+        _refuse_unknown_keys('multitask', multitask_config, self.MULTITASK_KEYS)
+        # Settings nothing in EMR applies, or that cannot rank genomes, raise unless left at their
+        # default. The two constant bonuses add one value to every genome (orthogonality_bonus from the
+        # tasks' NT vectors, specialization_bonus from the population's mean fitness variance): it never
+        # changes a rank within a generation, only the reported fitness (and with it stagnation and a
+        # threshold stop). 0.1.0 ignored the other six.
+        for key, inert, why in (
+                ('orthogonality_bonus', 0.0, "adds one constant to every genome (computed from the "
+                                             "tasks' NT vectors), so it never changes a rank within a "
+                                             "generation"),
+                ('specialization_bonus', 0.0, "adds one constant to every genome (computed from the "
+                                              "population's mean fitness variance), so it never "
+                                              "changes a rank within a generation"),
+                ('orthogonality_bonus_weight', 0.0, "adds one constant to every genome (computed from "
+                                                    "the tasks' NT vectors), so it never changes a rank "
+                                                    "within a generation"),
+                ('specialization_bonus_weight', 0.0, "is never read"),
+                ('modulation_penalty', 0.0, "is never read"),
+                ('confusion_eval_frequency', 0, "is never read"),
+                ('branch_gating_mode', 'none', "is never read (branch gating is not implemented)"),
+                ('orthogonality_metric', 'cosine_mean', "applies only with an orthogonality bonus")):
+            if multitask_config.get(key, inert) != inert:
+                raise ValueError(f"multitask.{key}={multitask_config[key]!r} {why}")
+        if multitask_config and not multitask_config.get('enabled', False) and any(
+                key != 'enabled' for key in multitask_config):
+            raise ValueError("multitask settings are given but multitask.enabled is not true, so they "
+                             "would be ignored")
         if multitask_config.get('enabled', False):
+            for key, value, names in (
+                    ('fitness_mode', multitask_config.get('fitness_mode', 'mse'), MULTITASK_FITNESS_MODES),
+                    ('fitness_aggregation', multitask_config.get('fitness_aggregation', 'mean'),
+                     MULTITASK_AGGREGATIONS),
+                    ('generalist_bonus_type', multitask_config.get('generalist_bonus_type', 'none'),
+                     GENERALIST_BONUS_TYPES),
+                    ('two_module_mode', multitask_config.get('two_module_mode', 'none'), TWO_MODULE_MODES),
+                    ('modulation_mode', multitask_config.get('modulation_mode', 'full'), MODULATION_MODES)):
+                if value not in names:
+                    raise ValueError(f"multitask.{key} must be one of {names}, got {value!r}")
+            # The hidden activations the multi-task evaluation runs (0.1.0 ran tanh for an unknown name)
+            per_task = multitask_config.get('per_task_activation') or {}
+            for name in [multitask_config.get('hidden_activation', 'tanh'), *per_task.values()]:
+                if name not in ACTIVATION_FUNCTIONS:
+                    raise ValueError(f"unknown multi-task activation {name!r}; the names are "
+                                     f"{sorted(ACTIVATION_FUNCTIONS)}")
             self.multitask_config = MultiTaskConfig(
                 enabled=True,
                 num_tasks=multitask_config.get('num_tasks', 2),
@@ -5640,6 +7707,16 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 # Dynamic activation support for per-task activation functions
                 hidden_activation=multitask_config.get('hidden_activation', 'tanh'),
                 per_task_activation=multitask_config.get('per_task_activation', None),
+                # Read by the multi-task evaluation; 0.1.0 dropped these keys, so a runner could set
+                # them only on the MultiTaskConfig object
+                fitness_mode=multitask_config.get('fitness_mode', 'mse'),
+                modulation_mode=multitask_config.get('modulation_mode', 'full'),
+                modulation_strength_override=multitask_config.get('modulation_strength_override', None),
+                two_module_mode=multitask_config.get('two_module_mode', 'none'),
+                generalist_bonus_type=multitask_config.get('generalist_bonus_type', 'none'),
+                generalist_bonus_weight=multitask_config.get('generalist_bonus_weight', 0.0),
+                generalist_threshold=multitask_config.get('generalist_threshold', 0.9),
+                softmin_temperature=multitask_config.get('softmin_temperature', 0.1),
             )
 
             # Initialize NT vectors if true_neuromodulation is enabled
@@ -5731,90 +7808,63 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         return self._extended_metrics
 
     def get_best_activation_indices(self) -> Dict[str, Any]:
-        """Extract per-node activation and aggregation function indices for the best individual.
+        """Function histograms over the hidden nodes of the last generation's champion.
 
-        Must be called after run_generation_verbose() while cached state is valid.
-        Returns dict with activation_histogram and aggregation_histogram (Counter-like dicts).
+        The champion is the one :meth:`evaluate_on_data` scores, and the histograms count the
+        same nodes as its ``activation_counts``: a position the mask drops computes nothing.
+        In 0.1.0 they counted every position of the argmax genome, a dropped one at
+        the function a raw CPPN output of 0 decodes to (the palette's middle entry), and named
+        a palette entry by its rank in the palette rather than its ``ACTIVATION_LIST`` position.
+
+        Returns:
+            An empty dict before the first generation and after the paths that record no
+            champion (depth offload, multi-task generations, the multi-GPU strategies).
+            Otherwise 'num_positions' (positions on the evaluation axis) and
+            'num_hidden_nodes', plus 'activation_histogram' and 'aggregation_histogram'
+            (function name -> number of hidden nodes) where functions are assigned per node.
         """
-        result = {}
-        if self._cached_fitnesses is None:
-            return result
+        record = self._last_eval
+        if record is None:
+            return {}
+        mask = np.asarray(record['mask_eval'], dtype=bool)
+        result = {'num_positions': int(mask.shape[0]), 'num_hidden_nodes': int(mask.sum())}
 
-        best_idx = int(jnp.argmax(self._cached_fitnesses))
+        def histogram(indices, names):
+            values, numbers = np.unique(np.asarray(indices)[mask], return_counts=True)
+            return {names[int(v)]: int(n) for v, n in zip(values, numbers)}
 
-        if self._cached_act_indices is not None:
-            act_idx = np.array(self._cached_act_indices[best_idx])
-            num_act = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
-            names = ACTIVATION_LIST[:num_act]
-            hist = {}
-            for idx in act_idx:
-                name = names[int(idx)] if int(idx) < len(names) else f'unknown_{idx}'
-                hist[name] = hist.get(name, 0) + 1
-            result['activation_histogram'] = hist
-            result['num_positions'] = len(act_idx)
-
-        if self._cached_ih_agg_indices is not None:
-            agg_idx = np.array(self._cached_ih_agg_indices[best_idx])
-            names = AGGREGATION_LIST[:self.agg_num_aggregations]
-            hist = {}
-            for idx in agg_idx:
-                name = names[int(idx)] if int(idx) < len(names) else f'unknown_{idx}'
-                hist[name] = hist.get(name, 0) + 1
-            result['aggregation_histogram'] = hist
-
+        if record['act_indices'] is not None:
+            result['activation_histogram'] = histogram(record['act_indices'], ACTIVATION_LIST)
+        if record['agg_indices'] is not None:
+            result['aggregation_histogram'] = histogram(record['agg_indices'], AGGREGATION_LIST)
         return result
 
     def evaluate_best_all_modes(self) -> Optional[Dict[str, float]]:
-        """Compute all 6 fitness metrics for the best individual using cached state.
+        """All six fitness metrics of the last generation's champion on the training data.
 
-        Re-runs the forward pass for a single individual (cheap) and evaluates with
-        each fitness mode. Must be called after run_generation_verbose().
+        The champion's outputs come from the forward it was evaluated with (see
+        :meth:`evaluate_on_data`), so every metric describes the evolved network. Must be
+        called after a generation.
         """
-        if self._cached_fitnesses is None or self._cached_W1 is None:
+        record = self._last_eval
+        if record is None:
             return None
-
-        best_idx = int(jnp.argmax(self._cached_fitnesses))
-        W1_i = self._cached_W1[best_idx]
-        W2_i = self._cached_W2[best_idx]
         inputs = self._cached_inputs
         targets = self._cached_targets
+        forward_one = record['forward_one']
+        modes = ('mse', 'accuracy', 'hybrid', 'bce', 'soft_accuracy')
 
-        # I→H: handle per-node aggregation or standard matmul
-        if self._cached_ih_agg_indices is not None and self.agg_use_true_aggregation:
-            agg_idx = self._cached_ih_agg_indices[best_idx]
-            weighted = inputs[:, :, None] * W1_i[None, :, :]
-            pre_h = grouped_aggregation_forward(weighted, agg_idx, self.agg_num_aggregations)
-        else:
-            pre_h = inputs @ W1_i
+        def all_modes(*args):
+            outputs = forward_one(inputs, *args)
+            return [_eval_single_fitness(outputs, targets, mode) for mode in modes]
 
-        # Hidden activation
-        if self._cached_act_indices is not None:
-            act_idx = self._cached_act_indices[best_idx]
-            if self.df_palette is not None:
-                h = grouped_activation_forward_with_palette(
-                    pre_h[None], act_idx, self.df_palette
-                )[0]
-            else:
-                h = grouped_activation_forward(pre_h[None], act_idx, self.df_num_activations)[0]
-        elif self._hidden_act_fn is not None:
-            h = self._hidden_act_fn(pre_h)
-        else:
-            h = jnp.tanh(pre_h)
-
-        outputs = jax.nn.sigmoid(h @ W2_i)
-
-        # Compute all 6 fitness modes using _eval_single_fitness (handles multiclass)
-        modes = ['mse', 'accuracy', 'acc_mse', 'hybrid', 'bce', 'soft_accuracy']
-        result = {}
-        for mode in modes:
-            if mode == 'acc_mse':
-                # acc_mse not in _eval_single_fitness, compute manually
-                acc = float(_eval_single_fitness(outputs, targets, 'accuracy'))
-                mse_fit = float(_eval_single_fitness(outputs, targets, 'mse'))
-                result[mode] = acc + 0.01 * mse_fit
-            else:
-                result[mode] = float(_eval_single_fitness(outputs, targets, mode))
-        return result
+        # Inside the vmap over the champion's two copies, as the generation scored it
+        values = jax.vmap(all_modes)(*record['champion_args'])
+        scored = {mode: float(value[0]) for mode, value in zip(modes, values)}
+        # acc_mse is not an _eval_single_fitness mode: accuracy plus a small MSE tiebreak
+        scored['acc_mse'] = scored['accuracy'] + 0.01 * scored['mse']
+        return {mode: scored[mode]
+                for mode in ('mse', 'accuracy', 'acc_mse', 'hybrid', 'bce', 'soft_accuracy')}
 
     # ========================================================================
     # Execution mode: streaming and depth offload
@@ -5834,21 +7884,42 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         return self.extended_config
 
     def set_recurrence_config(self, config: 'EMRConfig') -> None:
-        """Enable recurrence imperatively, and set the matching forward mode.
+        """Enable recurrence imperatively, with the forward mode, iteration level and settling steps the
+        configuration would give (`resolve_recurrence`).
 
         Kept because benchmark scripts drive recurrence this way. It now writes
         `extended_config`, the same field `create_config` writes, rather than a
         parallel one -- previously the two did not meet, so a run that configured
-        recurrence through YAML never engaged it.
+        recurrence through YAML never engaged it. In 0.1.0 it also left
+        `activate_time` and `iteration_level` at their old values, so a generation
+        settled the old count, and it chose the forward mode by ``enabled and
+        iteration_level > 0`` where the configuration uses ``allow_hidden_to_hidden``.
+        Called before `create_config`, it is replaced by the configuration's own
+        recurrence settings, as before.
 
         Args:
-            config: Recurrence settings.
+            config: Recurrence settings; only ``allow_hidden_to_hidden``, ``iteration_level``
+                and ``activate_time`` decide the mode, level and steps. A None ``activate_time``
+                takes an explicit ``substrate.activate_time`` from the configuration, else
+                ``2 (2**max_depth + 1)``; before `create_config`, when the depth is unknown,
+                it derives nothing.
+
+        Raises:
+            ValueError: With hidden-to-hidden connections on, a count that is not an integer of
+                at least 1, or one that differs from the configuration's
+                ``substrate.activate_time``; ``enabled`` false with ``allow_hidden_to_hidden``
+                true (`check_recurrence_switch`; an object without ``enabled`` counts as enabled).
         """
+        check_recurrence_switch(getattr(config, 'enabled', True), config.allow_hidden_to_hidden)
+        mode, level, steps = resolve_recurrence(
+            config, self.max_depth,
+            {"set_recurrence_config's activate_time": config.activate_time,
+             'substrate.activate_time': self._substrate_activate_time})
         self.extended_config = config
-        if config.enabled and config.iteration_level > 0:
-            self._forward_mode = ForwardPassMode.HYBRID_SPARSE_HH
-        else:
-            self._forward_mode = ForwardPassMode.DENSE_ONLY
+        self._forward_mode = mode
+        self.iteration_level = level
+        if steps is not None:
+            self.activate_time = steps
 
     def get_forward_mode(self) -> ForwardPassMode:
         """Current forward-pass mode."""
@@ -5859,10 +7930,14 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
 
         Args:
             mode: DENSE_ONLY for feedforward, HYBRID_SPARSE_HH for recurrent.
-                FULL_SPARSE is accepted but yields no sparse h→h: the h→h gates in
-                the generation loop test for HYBRID_SPARSE_HH, so it behaves as
-                DENSE_ONLY with the sparse machinery built and unused.
+
+        Raises:
+            NotImplementedError: For FULL_SPARSE, which 0.1.0 accepted and ran as DENSE_ONLY.
         """
+        if mode is ForwardPassMode.FULL_SPARSE:
+            raise NotImplementedError(
+                "ForwardPassMode.FULL_SPARSE is not implemented: 0.1.0 accepted it and ran it "
+                "with no h->h connections (as DENSE_ONLY). Use HYBRID_SPARSE_HH for recurrence.")
         self._forward_mode = mode
 
     def _apply_execution_config(self) -> None:
@@ -6003,6 +8078,19 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             device_bytes=device_bytes,
         )
 
+    def generation_execution_mode(self) -> str:
+        """The execution mode a generation of `run_generation` runs: 'depth_offload' when the
+        resolution (memory-aware on a GPU) says so, otherwise 'streaming' or 'standard' by the
+        build step the generation loop selects (`enable_streaming`). `run_until_threshold`
+        reports its route's own mode in its result.
+
+        Returns:
+            'standard', 'streaming' or 'depth_offload'.
+        """
+        if self.resolve_execution_mode() is ExecutionMode.DEPTH_OFFLOAD:
+            return 'depth_offload'
+        return 'streaming' if self.enable_streaming else 'standard'
+
     def should_use_offloading(self) -> bool:
         """Whether this generation will take the depth-offload path."""
         return self.resolve_execution_mode() is ExecutionMode.DEPTH_OFFLOAD
@@ -6114,6 +8202,249 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         else:
             # Single-task mode: use standard implementation
             return self.run_generation_verbose(state, problem, skip_metrics)
+
+    def _build_forward(
+        self,
+        W1: jnp.ndarray,
+        W2: jnp.ndarray,
+        sparse_hh: Optional['SparseHiddenConnections'],
+        neuromod_data: Optional[Dict[str, Any]],
+        act_indices: Optional[jnp.ndarray],
+        hh_agg_indices: Optional[jnp.ndarray],
+        ih_agg_indices: Optional[jnp.ndarray],
+        ih_global_agg_fn: Optional[Callable],
+        use_dynamic_eval: bool,
+        use_ih_aggregation: bool,
+        pop_size: int,
+        total_positions: int,
+    ) -> Tuple[Callable, Tuple, bool]:
+        """This generation's per-genome forward and the population arrays it runs on.
+
+        One function per configuration serves the population's fitness and
+        :meth:`evaluate_on_data`, so a held-out score describes the network that was evolved.
+        Feed-forward and recurrent evaluation share every per-node transformation (input
+        drive, activation, neuromodulation); the recurrent one settles it with
+        :func:`settle_hidden`, so without hidden-to-hidden connections the two compute the
+        same arithmetic (bit for bit on CPU but for the exception :func:`settle_hidden` names).
+
+        Args:
+            W1, W2: Population weight matrices as evaluated (compacted on the recurrent path).
+            sparse_hh: Hidden-to-hidden connections, or None for feed-forward evaluation.
+            neuromod_data: The generation's neuromodulation arrays, or None.
+            act_indices: Per-node activation indices, or None.
+            hh_agg_indices: Per-node hidden-to-hidden aggregation indices, or None.
+            ih_agg_indices: Per-node input-to-hidden aggregation indices, or None.
+            ih_global_agg_fn: One input-to-hidden aggregation for every node, or None.
+            use_dynamic_eval: A dynamic-functions mode is on.
+            use_ih_aggregation: An input-to-hidden aggregation mode is on.
+            pop_size: Genomes evaluated.
+            total_positions: Positions evaluated.
+
+        Returns:
+            ``(forward_one, genome_args, chunk_by_scan)``. ``forward_one(inputs, *args)`` is
+            one genome's outputs; ``genome_args`` are the population arrays (population axis
+            first, None where unused); ``chunk_by_scan`` selects the scan-based chunked
+            evaluation, which the plain recurrent path has always used.
+        """
+        recurrent = sparse_hh is not None
+        palette = self.df_palette
+        num_activations = self.df_num_activations
+        hidden_fn = self._hidden_act_fn if self._hidden_act_fn is not None else jnp.tanh
+        output_fn = self._output_act_fn if self._output_act_fn is not None else jax.nn.sigmoid
+        activate_time = self.activate_time
+        hh_mode = self.hh_activation_mode
+        hh_agg_mode = self.hh_aggregation_mode
+        num_hh_agg = self.agg_num_aggregations
+        per_node_agg = ih_agg_indices is not None
+        agg_args = (ih_agg_indices if per_node_agg
+                    else jnp.zeros((pop_size, total_positions), dtype=jnp.int32))
+        drive_kwargs = dict(
+            global_agg_fn=ih_global_agg_fn,
+            per_node_aggregation=per_node_agg,
+            true_aggregation=self.agg_use_true_aggregation,
+            num_aggregations=self.agg_num_aggregations,
+        )
+        hh_args: Tuple = ()
+        if recurrent:
+            hh_args = (sparse_hh.from_indices, sparse_hh.to_indices, sparse_hh.weights,
+                       sparse_hh.valid_mask, hh_agg_indices)
+
+        def activation(act_idx):
+            # A settling step applies hh_activation_mode's activation; a dense pass the
+            # configured one.
+            if recurrent:
+                return node_activation(hh_mode, act_idx, hidden_fn, palette, num_activations)
+            return functools.partial(hidden_activation, act_indices=act_idx,
+                                     hidden_act_fn=hidden_fn, palette=palette,
+                                     num_activations=num_activations)
+
+        def hidden_state(inputs, W1_i, agg_idx, node_fn, hh):
+            drive = input_drive(inputs, W1_i, agg_idx, **drive_kwargs)
+            if not recurrent:
+                return node_fn(drive)
+            from_idx, to_idx, hh_w, valid, hh_agg_idx = hh
+            return settle_hidden(drive, from_idx, to_idx, hh_w, valid, activate_time, node_fn,
+                                 hh_agg_idx, hh_agg_mode, num_hh_agg)
+
+        if neuromod_data is not None:
+            mode = neuromod_data['mode']
+            if mode == 'static_gating':
+                def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, gates, *hh):
+                    act = activation(act_idx)
+                    h = hidden_state(inputs, W1_i, agg_idx, lambda p: act(p) * gates, hh)
+                    return output_fn(h @ W2_i)
+                return forward_one, (W1, W2, act_indices, agg_args,
+                                     neuromod_data['static_gates']) + hh_args, False
+
+            if mode == 'context_gating':
+                context_influence = neuromod_data['context_influence']
+                context_idx = self._multitask_state.get('current_task_idx', 0)
+
+                def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, base_g, ctx_mod, *hh):
+                    act = activation(act_idx)
+                    gates = jax.nn.sigmoid(base_g + context_influence * ctx_mod[context_idx])
+                    h = hidden_state(inputs, W1_i, agg_idx, lambda p: act(p) * gates, hh)
+                    return output_fn(h @ W2_i)
+                return forward_one, (W1, W2, act_indices, agg_args,
+                                     neuromod_data['base_gates'],
+                                     neuromod_data['context_modulation']) + hh_args, False
+
+            if mode == 'modulatory_neurons':
+                mod_type = neuromod_data['mod_connection_type']
+                mod_decay = neuromod_data['mod_decay']
+
+                def modulated(pre, act, mod_w, mask):
+                    h = act(pre)
+                    # The mean activity of this genome's own modulatory neurons
+                    mod_activity = (jnp.sum(h * mask, axis=1, keepdims=True)
+                                    / jnp.maximum(jnp.sum(mask), 1))
+                    mod_signal = jnp.tanh(mod_activity) * mod_decay
+                    if mod_type == 'multiplicative':
+                        return h * (1.0 + mod_signal * mod_w)
+                    if mod_type == 'additive':
+                        return h + mod_signal * mod_w
+                    return h * jax.nn.sigmoid(mod_signal * mod_w)
+
+                def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, mod_w, mask, *hh):
+                    act = activation(act_idx)
+                    h = hidden_state(inputs, W1_i, agg_idx,
+                                     lambda p: modulated(p, act, mod_w, mask), hh)
+                    return output_fn(h @ W2_i)
+                return forward_one, (W1, W2, act_indices, agg_args,
+                                     neuromod_data['mod_connection_weights'],
+                                     neuromod_data['mod_mask']) + hh_args, False
+
+            if mode == 'true_neuromodulation':
+                neurotransmitter = neuromod_data['neurotransmitter']
+                mod_strength = neuromod_data['mod_strength']
+                modulation_mode = neuromod_data['modulation_mode']
+                use_output_inversion = neuromod_data['use_output_inversion']
+                num_nt = neuromod_data['num_nt']
+                node_rule = neuromod_data['node_rule']
+
+                def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, receptors, base_g, *hh):
+                    act = activation(act_idx)
+                    node = true_neuromodulation_node_fn(act, receptors, base_g, neurotransmitter,
+                                                        mod_strength, num_nt, modulation_mode,
+                                                        node_rule)
+                    h = hidden_state(inputs, W1_i, agg_idx, node, hh)
+                    return invert_outputs(output_fn(h @ W2_i), neurotransmitter,
+                                          use_output_inversion, num_nt, node_rule)
+                return forward_one, (W1, W2, act_indices, agg_args,
+                                     neuromod_data['receptor_densities'],
+                                     neuromod_data['base_gains']) + hh_args, False
+
+            raise ValueError(f"Unknown neuromodulation mode: {mode}")
+
+        dynamic = ((use_dynamic_eval and (act_indices is not None
+                                          or self._hidden_act_fn is not None))
+                   or use_ih_aggregation or (recurrent and hh_agg_indices is not None))
+        if dynamic and not recurrent:
+            def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx):
+                return dense_substrate_forward(
+                    inputs, W1_i, W2_i, act_idx, agg_idx,
+                    hidden_act_fn=hidden_fn, output_act_fn=output_fn, palette=palette,
+                    num_activations=num_activations, **drive_kwargs,
+                )
+            return forward_one, (W1, W2, act_indices, agg_args), False
+        if dynamic:
+            def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, *hh):
+                h = hidden_state(inputs, W1_i, agg_idx, activation(act_idx), hh)
+                return output_fn(h @ W2_i)
+            return forward_one, (W1, W2, act_indices, agg_args) + hh_args, False
+        if not recurrent:
+            def forward_one(inputs, W1_i, W2_i):
+                # Fixed tanh hidden and sigmoid output, whatever output_activation says
+                return dense_substrate_forward(inputs, W1_i, W2_i,
+                                               hidden_act_fn=jnp.tanh,
+                                               output_act_fn=jax.nn.sigmoid)
+            return forward_one, (W1, W2), False
+
+        def forward_one(inputs, W1_i, W2_i, from_idx, to_idx, hh_w, valid):
+            return forward_hybrid_vmapped(inputs, W1_i, W2_i, from_idx, to_idx, hh_w, valid,
+                                          activate_time)
+        return forward_one, (W1, W2) + hh_args[:4], True
+
+    def _record_evaluation(
+        self,
+        forward_one: Callable,
+        genome_args: Tuple,
+        fitnesses: jnp.ndarray,
+        cppn_population: Tuple,
+        masks_full: jnp.ndarray,
+        masks_eval: jnp.ndarray,
+        eval_positions: Optional[jnp.ndarray],
+        act_indices: Optional[jnp.ndarray],
+        ih_agg_indices: Optional[jnp.ndarray],
+        next_state: Any,
+    ) -> None:
+        """Keep what :meth:`evaluate_on_data` needs to re-run this generation's champion.
+
+        The champion is the genome ``next_state`` carries first: TensorNEAT places the best
+        genome of a generation, unmutated, first in the next population. Under a tie for the
+        best fitness its sorts keep the highest index of the top species, not the first
+        index ``argmax`` returns, so a tie is resolved by comparing genomes.
+
+        Only the champion's slices are kept, twice (a leading axis of two): XLA lowers a
+        batch of one genome to other reduction kernels, which moved the fitness by one
+        float32 ulp, while two copies lower like the population batch. On CPU the
+        training-data score then reproduces the champion's fitness bit for bit.
+        """
+        best = np.asarray(fitnesses)
+        tied = np.flatnonzero(best == best.max())
+        champion = int(tied[0])
+        if tied.size > 1:
+            kept = self._compiled_ask(next_state)
+            same = np.ones(tied.size, dtype=bool)
+            for part, kept_part in zip(cppn_population[:2], kept[:2]):
+                rows = np.asarray(part)[tied]
+                one = np.asarray(kept_part[0])
+                equal = (rows == one) | (np.isnan(rows) & np.isnan(one))
+                same &= equal.reshape(tied.size, -1).all(axis=1)
+            if same.any():
+                champion = int(tied[np.argmax(same)])
+        pair = jnp.array([champion, champion])
+        # With a padded compact axis the per-position arrays run past the real positions; the
+        # record describes the substrate, so it keeps the real ones (the champion's evaluation
+        # arguments keep the padded shapes the evaluation used).
+        n_real = None if eval_positions is None else len(eval_positions)
+        self._last_eval = {
+            'forward_one': forward_one,
+            'champion_args': tuple(None if a is None else a[pair] for a in genome_args),
+            'champion_index': champion,
+            'champion_fitness': float(fitnesses[champion]),
+            'generation': self._current_generation,
+            'champion_genome': tuple(np.asarray(part[champion]) for part in cppn_population[:2]),
+            'mask_full': np.asarray(masks_full[champion]),
+            'mask_eval': np.asarray(masks_eval[champion])[:n_real],
+            'eval_positions': None if eval_positions is None else np.asarray(eval_positions),
+            'act_indices': (None if act_indices is None
+                            else np.asarray(act_indices[champion])[:n_real]),
+            'agg_indices': (None if ih_agg_indices is None
+                            else np.asarray(ih_agg_indices[champion])[:n_real]),
+            'W1_full': self._cached_W1[champion],
+            'W2_full': self._cached_W2[champion],
+        }
 
     def run_generation_verbose(
         self,
@@ -6239,10 +8570,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             start = time.perf_counter()
             # Use input[0]→all_positions as variance source (2D: pop_size, total_positions)
             all_weights_for_variance = input_all_weights[:, 0, :]  # (pop_size, total_positions)
-            level_variances = compute_hierarchical_variances_batch(all_weights_for_variance, h_grid, legacy_level0_variance=self._legacy_level0_variance)
-            masks_A = compute_subdivision_masks_batch(
-                level_variances, self.variance_threshold, h_grid, return_all_masks=False,
+            masks_A = substrate_masks(
+                all_weights_for_variance, h_grid, self.variance_threshold,
                 initial_depth=self.initial_depth,
+                legacy_level0_variance=self._legacy_level0_variance,
             )
             # Observable for substrate depth, mirroring the offload path: without
             # it there is no way to see which levels a mode actually reached.
@@ -6259,56 +8590,18 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
 
             # === STEP 4: Build W1/W2 Matrices ===
             start = time.perf_counter()
-            weight_thresh = 0.1  # Local constant (same as parent)
-            max_weight = self.max_weight
-
-            # Broadcast mask: (pop_size, 1, total_positions) for weight masking
-            active_mask_broadcast = masks_A[:, None, :]
-
-            # -----------------------------------------------------------------
-            # Weight Processing: standard threshold-based sparsification
-            # -----------------------------------------------------------------
-            # Standard mode: simple threshold-based sparsification
-            # Apply tanh + max_weight scaling, then mask
-            W1_raw = jnp.tanh(input_all_weights) * max_weight
-
-            # Apply locality penalty for geometry seeding (if configured)
-            # W1: input_coords → all_positions, so source=input, target=hidden
-            if self.locality_radius is not None:
-                W1_raw = apply_locality_penalty_to_weights(
-                    W1_raw, input_coords, all_positions, self.locality_radius
-                )
-                if self.verbose:
-                    print(f"[Locality] Applied penalty (r={self.locality_radius}) to W1")
-
-            W1 = jnp.where(
-                active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh),
-                W1_raw,
-                0.0
+            # tanh scaling, optional locality penalty, then mask and threshold.
+            # W1: (pop, num_inputs, total_positions); W2: (pop, total_positions, num_outputs)
+            W1, W2 = substrate_weight_matrices(
+                input_all_weights, output_all_weights, masks_A, self.max_weight,
+                weight_threshold=WEIGHT_THRESHOLD,
+                locality_radius=self.locality_radius,
+                input_coords=input_coords,
+                output_coords=output_coords,
+                positions=all_positions,
             )
-            # W1 shape: (pop, num_inputs, total_positions) - correct for matmul with transposed later
-
-            W2_raw = jnp.tanh(output_all_weights) * max_weight
-
-            # Apply locality penalty for W2: all_positions → output_coords
-            # Note: W2_raw is (pop, num_outputs, total_positions) before transpose
-            # So source=outputs, target=hidden - we need to apply it correctly
-            if self.locality_radius is not None:
-                # Transpose temporarily to match (pop, hidden, outputs) for penalty
-                W2_for_penalty = W2_raw.transpose(0, 2, 1)  # (pop, total_positions, num_outputs)
-                W2_for_penalty = apply_locality_penalty_to_weights(
-                    W2_for_penalty, all_positions, output_coords, self.locality_radius
-                )
-                W2_raw = W2_for_penalty.transpose(0, 2, 1)  # Back to (pop, num_outputs, total_positions)
-                if self.verbose:
-                    print(f"[Locality] Applied penalty (r={self.locality_radius}) to W2")
-
-            W2 = jnp.where(
-                active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh),
-                W2_raw,
-                0.0
-            )
-            W2 = W2.transpose(0, 2, 1)  # (pop, num_outputs, total_positions) → (pop, total_positions, num_outputs)
+            if self.locality_radius is not None and self.verbose:
+                print(f"[Locality] Applied penalty (r={self.locality_radius}) to W1 and W2")
 
             step_times['step4_build_matrices'] = time.perf_counter() - start
 
@@ -6411,15 +8704,37 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # this local; self._cached_self_conn stays ceiling-sized for multi-task.
         self_conn_eval = self._cached_self_conn
         ceiling_positions = W1.shape[2] if W1.ndim > 2 else W1.shape[1]
+        # The ceiling-sized mask, and the ceiling position of every evaluated position (None:
+        # the identity), for evaluate_on_data's substrate statistics.
+        masks_full = masks_A
+        eval_positions = None
+        # Virtual positions appended to the compact axis (execution.compaction_bucket 'auto');
+        # 0 without compaction or with 'exact'. Counts and records use the real positions only.
+        compact_pad = 0
         if self._forward_mode != ForwardPassMode.DENSE_ONLY and not _compaction_blocked:
             from emr_hyperneat.execution.compaction import (
+                bucket_active_set,
                 compact_weights,
                 find_active_positions,
+                pad_positions,
                 remap_sparse_hh,
             )
 
             _active = find_active_positions(masks_A)
+            # The random per-node modes draw their indices with the position count as the shape,
+            # and a longer draw is not the same draw: they keep exact shapes.
+            _random_draws = (self.dynamic_functions_mode in ('random_fixed', 'random_generation')
+                             or getattr(self, 'agg_mode', None) in ('random_fixed', 'random_generation'))
             if _active.num_active and _active.num_active < _active.total_positions:
+                # Bucketed: the compact axis is padded to a bucketed length so its shape repeats
+                # across generations. A count that lands exactly on a bucket length needs no padding
+                # but still takes the host path: there the exact path's device gathers, and the later
+                # ops on the gathered mask, compiled a separate set of executables (13 on a GPU) the
+                # first time such a count occurred.
+                bucketed = self.execution_config.compaction_bucket == 'auto' and not _random_draws
+                if bucketed:
+                    _active = bucket_active_set(_active)
+                    compact_pad = _active.length - _active.num_active
                 # W2 is (pop, positions, n_out) here, unlike the offload path's host
                 # layout, so it is moved to positions-last for the shared helper and
                 # back afterwards.
@@ -6427,7 +8742,11 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                     W1, jnp.transpose(W2, (0, 2, 1)), _active
                 )
                 W2 = jnp.transpose(_W2_last, (0, 2, 1))
-                masks_A = masks_A[:, _active.indices]
+                if bucketed:
+                    masks_A = pad_positions(masks_A, _active, axis=1, fill=False)
+                else:
+                    masks_A = masks_A[:, _active.indices]
+                eval_positions = _active.indices
                 sparse_hh = remap_sparse_hh(sparse_hh, _active)
                 # The self-connection query above ran over h_grid.all_positions, so
                 # it is still ceiling-sized while everything else is compact, and
@@ -6441,11 +8760,17 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 # with "Incompatible shapes for broadcasting" at generation 0.
                 # Position is axis 1 here -- (pop, positions, cppn_outputs).
                 if self_conn_eval is not None:
-                    self_conn_eval = self_conn_eval[:, _active.indices, :]
+                    if bucketed:
+                        # Finite raw outputs for the virtual nodes: they decode to an ordinary
+                        # palette entry, finite at a zero pre-activation, and feed nothing.
+                        self_conn_eval = pad_positions(self_conn_eval, _active, axis=1, fill=0.0)
+                    else:
+                        self_conn_eval = self_conn_eval[:, _active.indices, :]
                 if self.verbose:
                     print(f"[Compact] recurrent evaluation on {_active.num_active:,} "
                           f"active of {_active.total_positions:,} positions "
-                          f"({_active.reduction:,.0f}x reduction)")
+                          f"({_active.reduction:,.0f}x reduction)"
+                          + (f", padded to {_active.length:,}" if compact_pad else ""))
 
 
         # === DIAGNOSTIC: Log weight matrix statistics for feedforward investigation ===
@@ -6472,20 +8797,14 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Get chunk size from config (None or 0 = no chunking, -1 = auto)
         eval_chunk_size = getattr(self.extended_config, 'eval_chunk_size', None) if self.extended_config else None
         pop_size = W1.shape[0]
-        total_positions = W1.shape[2] if len(W1.shape) > 2 else W1.shape[1]
+        # eval_length is the position axis of the arrays, padding included (the chunking heuristics
+        # key on it: it is the compiled shape); total_positions counts the real positions, for the reports.
+        eval_length = W1.shape[2] if len(W1.shape) > 2 else W1.shape[1]
+        total_positions = eval_length - compact_pad
 
-        # Auto-compute chunk size based on position count (same heuristics as CPPN queries)
+        # Auto-compute chunk size (same heuristics as CPPN queries)
         if eval_chunk_size == -1:
-            if total_positions < 1000:        # depth <= 3
-                eval_chunk_size = None  # No chunking needed
-            elif total_positions < 6000:      # depth 4-5
-                eval_chunk_size = min(500, pop_size)
-            elif total_positions < 50000:     # depth 6 "anomaly zone"
-                eval_chunk_size = min(50, pop_size)
-            elif total_positions < 200000:    # depth 7
-                eval_chunk_size = min(200, pop_size)
-            else:                             # depth 8+
-                eval_chunk_size = min(50, pop_size)
+            eval_chunk_size = _auto_eval_chunk_size(eval_length, pop_size)
 
         # =========================================================================
         # DYNAMIC FUNCTIONS: Compute per-node activation indices based on mode
@@ -6501,62 +8820,51 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             # Derive activation indices from W1 weight patterns
             # W1 shape: (pop, num_inputs, num_positions)
             # For each position, compute activation index based on incoming weights
-            if self.df_interpretation == 'magnitude_bio':
-                # Use mean absolute weight to determine activation
-                mean_abs = jnp.mean(jnp.abs(W1), axis=1)  # (pop, num_positions)
-                normalized = -jnp.tanh(mean_abs * 2 - 1)
-                act_indices = continuous_to_index(normalized, self.df_num_activations)
-            elif self.df_interpretation == 'variance':
+            if self.df_interpretation == 'variance':
                 weight_var = jnp.var(W1, axis=1)  # (pop, num_positions)
                 normalized = jnp.tanh(weight_var * 5)
-                act_indices = continuous_to_index(normalized, self.df_num_activations)
             elif self.df_interpretation == 'sign':
-                mean_sign = jnp.mean(jnp.sign(W1), axis=1)  # (pop, num_positions)
-                act_indices = continuous_to_index(mean_sign, self.df_num_activations)
+                normalized = jnp.mean(jnp.sign(W1), axis=1)  # (pop, num_positions)
             else:
-                # Default to magnitude_bio
-                mean_abs = jnp.mean(jnp.abs(W1), axis=1)
+                # magnitude_bio, and the default: mean absolute incoming weight
+                mean_abs = jnp.mean(jnp.abs(W1), axis=1)  # (pop, num_positions)
                 normalized = -jnp.tanh(mean_abs * 2 - 1)
-                act_indices = continuous_to_index(normalized, self.df_num_activations)
-        elif self.dynamic_functions_mode == 'random_fixed':
-            # Random per-node activation, fixed at first generation
-            if self._random_fixed_indices is None:
-                rng_seed = self._random_mode_seed or 42
-                key = jax.random.PRNGKey(rng_seed)
-                num_activations = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
-                self._random_fixed_indices = jax.random.randint(
-                    key, (total_positions,), 0, num_activations, dtype=jnp.int32
-                )
-                if self.df_palette is not None:
-                    # Map to actual palette indices
-                    self._random_fixed_indices = self.df_palette[self._random_fixed_indices]
-            # Broadcast to all genomes
-            act_indices = jnp.broadcast_to(self._random_fixed_indices, (pop_size, total_positions))
-        elif self.dynamic_functions_mode == 'random_generation':
-            # Random per-node activation, re-randomized each generation
-            key = jax.random.PRNGKey(self._current_generation + (self._random_mode_seed or 0))
-            num_activations = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
-            random_indices = jax.random.randint(
-                key, (total_positions,), 0, num_activations, dtype=jnp.int32
-            )
-            if self.df_palette is not None:
-                random_indices = self.df_palette[random_indices]
-            act_indices = jnp.broadcast_to(random_indices, (pop_size, total_positions))
-        elif self.dynamic_functions_mode == 'cppn_output':
-            # CPPN output mode: Derive activation indices from CPPN output
-            num_activations = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
-            if self.num_cppn_outputs > 1 and self_conn_eval is not None:
-                # Use dedicated CPPN output for activation (multi-output CPPN)
-                act_output_idx = self._cppn_output_indices['activation']
-                activation_raw = self_conn_eval[:, :, act_output_idx]  # (pop, positions)
-                activation_raw = jnp.where(masks_A, activation_raw, 0.0)
-            else:
-                # Fallback: derive from weight matrix (1-output CPPN)
-                # W1 shape: (pop, num_inputs, num_positions)
-                activation_raw = jnp.mean(W1, axis=1)  # (pop, num_positions)
-            act_indices = continuous_to_index(activation_raw, num_activations)
+            # With a palette the decode picks a palette position and maps it to the function's
+            # ACTIVATION_LIST index, as the cppn_output and random modes do. 0.1.0 left the position
+            # unmapped, and evaluation (which expects palette members) gave every node whose
+            # position was not also a palette member an output of 0.
+            num_options = (len(self.df_palette) if self.df_palette is not None
+                           else self.df_num_activations)
+            act_indices = continuous_to_index(normalized, num_options, self.df_index_decode)
             if self.df_palette is not None:
                 act_indices = self.df_palette[act_indices]
+        elif self.dynamic_functions_mode in ('random_fixed', 'random_generation'):
+            # Random per-node activation (a negative control): drawn at the first generation and
+            # kept (random_fixed, per population slot) or drawn every generation
+            # (random_generation); see random_function_indices for the two scopes.
+            num_activations = (len(self.df_palette) if self.df_palette is not None
+                               else self.df_num_activations)
+            fixed = self.dynamic_functions_mode == 'random_fixed'
+            if not fixed or self._random_fixed_indices is None:
+                draw = random_function_indices(
+                    self._random_scope, self._random_mode_seed, state.randkey,
+                    9997 if fixed else 9999, None if fixed else self._current_generation,
+                    num_activations, self.df_palette, pop_size, total_positions)
+                if fixed:
+                    self._random_fixed_indices = draw
+            act_indices = self._random_fixed_indices if fixed else draw
+        elif self.dynamic_functions_mode == 'cppn_output':
+            # CPPN output mode: activation index from the dedicated CPPN output at each
+            # node's self-connection, or from W1 for a one-output CPPN
+            num_activations = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
+            act_indices = cppn_output_function_indices(
+                self_conn_eval, masks_A, W1,
+                channel=self._cppn_output_indices['activation'],
+                num_options=num_activations,
+                num_cppn_outputs=self.num_cppn_outputs,
+                palette=self.df_palette,
+                decode=self.df_index_decode,
+            )
 
         # Step 4b: Compute H→H aggregation indices if dynamic mode enabled
         hh_agg_indices = None
@@ -6565,22 +8873,14 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 # Use dedicated CPPN output for H→H aggregation (multi-output CPPN)
                 agg_output_idx = self._cppn_output_indices['aggregation']
                 agg_raw = self_conn_eval[:, :, agg_output_idx]  # (pop, positions)
-                hh_agg_indices = continuous_to_index(agg_raw, self.agg_num_aggregations)
+                hh_agg_indices = continuous_to_index(agg_raw, self.agg_num_aggregations, self.agg_index_decode)
             else:
-                # Fallback: Use weight interpretation logic for H→H aggregation
-                if self.agg_interpretation == 'magnitude_bio':
-                    mean_abs = jnp.mean(jnp.abs(W1), axis=1)  # (pop, num_positions)
-                    normalized = -jnp.tanh(mean_abs * 2 - 1)
-                    hh_agg_indices = continuous_to_index(normalized, self.agg_num_aggregations)
-                elif self.agg_interpretation == 'variance':
-                    weight_var = jnp.var(W1, axis=1)  # (pop, num_positions)
-                    normalized = jnp.tanh(weight_var * 5)
-                    hh_agg_indices = continuous_to_index(normalized, self.agg_num_aggregations)
-                else:
-                    # Default to magnitude_bio
-                    mean_abs = jnp.mean(jnp.abs(W1), axis=1)
-                    normalized = -jnp.tanh(mean_abs * 2 - 1)
-                    hh_agg_indices = continuous_to_index(normalized, self.agg_num_aggregations)
+                # Fallback: the input side's weight interpretation. 0.1.0 re-implemented it here for
+                # magnitude_bio and variance only, so sign_uniformity and fan_in ran magnitude_bio
+                # on the hidden-to-hidden side while the input side honored them; the two it had are
+                # the same arithmetic.
+                hh_agg_indices = aggregation_from_weight_interpretation(
+                    W1, self.agg_interpretation, self.agg_num_aggregations, self.agg_index_decode)
 
         # Step 4c: Compute I→H aggregation indices based on aggregation mode
         ih_agg_indices = None
@@ -6590,36 +8890,29 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 self.agg_global_function, AGGREGATION_FUNCTIONS['sum']
             )
         elif self.agg_mode == 'cppn_output':
-            if self.num_cppn_outputs > 1 and self_conn_eval is not None:
-                # Use dedicated CPPN output for aggregation (multi-output CPPN)
-                agg_output_idx = self._cppn_output_indices['aggregation']
-                agg_raw = self_conn_eval[:, :, agg_output_idx]  # (pop, positions)
-                agg_raw = jnp.where(masks_A, agg_raw, 0.0)
-            else:
-                # Fallback: derive from weight matrix (1-output CPPN)
-                agg_raw = jnp.mean(W1, axis=1)  # (pop, num_positions)
-            ih_agg_indices = continuous_to_index(agg_raw, self.agg_num_aggregations)
+            # Dedicated CPPN output at the self-connection, or W1 for a one-output CPPN
+            ih_agg_indices = cppn_output_function_indices(
+                self_conn_eval, masks_A, W1,
+                channel=self._cppn_output_indices['aggregation'],
+                num_options=self.agg_num_aggregations,
+                num_cppn_outputs=self.num_cppn_outputs,
+                decode=self.agg_index_decode,
+            )
         elif self.agg_mode == 'weight_interpretation':
             ih_agg_indices = aggregation_from_weight_interpretation(
-                W1, self.agg_interpretation, self.agg_num_aggregations
+                W1, self.agg_interpretation, self.agg_num_aggregations, self.agg_index_decode
             )
-        elif self.agg_mode == 'random_fixed':
-            if self._random_fixed_agg_indices is None:
-                key = jax.random.PRNGKey(self._random_agg_seed or 42)
-                self._random_fixed_agg_indices = jax.random.randint(
-                    key, (total_positions,), 0, self.agg_num_aggregations, dtype=jnp.int32
-                )
-            ih_agg_indices = jnp.broadcast_to(
-                self._random_fixed_agg_indices, (pop_size, total_positions)
-            )
-        elif self.agg_mode == 'random_generation':
-            key = jax.random.PRNGKey(
-                self._current_generation + (self._random_agg_seed or 0)
-            )
-            random_agg = jax.random.randint(
-                key, (total_positions,), 0, self.agg_num_aggregations, dtype=jnp.int32
-            )
-            ih_agg_indices = jnp.broadcast_to(random_agg, (pop_size, total_positions))
+        elif self.agg_mode in ('random_fixed', 'random_generation'):
+            # Random per-node aggregation, as the activation's random modes (HMR's salts 7777, 8888)
+            fixed = self.agg_mode == 'random_fixed'
+            if not fixed or self._random_fixed_agg_indices is None:
+                draw = random_function_indices(
+                    self._random_agg_scope, self._random_agg_seed, state.randkey,
+                    7777 if fixed else 8888, None if fixed else self._current_generation,
+                    self.agg_num_aggregations, None, pop_size, total_positions)
+                if fixed:
+                    self._random_fixed_agg_indices = draw
+            ih_agg_indices = self._random_fixed_agg_indices if fixed else draw
 
         use_ih_aggregation = (ih_agg_indices is not None or ih_global_agg_fn is not None)
 
@@ -6665,7 +8958,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 # Derive per-context gate modulation from W1 patterns
                 # Use variance across inputs to create context-specific modulation
                 weight_var = jnp.var(W1, axis=1)  # (pop, num_positions)
-                context_modulation = jnp.zeros((pop_size, context_dim, total_positions))
+                context_modulation = jnp.zeros((pop_size, context_dim, eval_length))
 
                 # Create context-specific modulations using different weight patterns
                 for ctx_idx in range(context_dim):
@@ -6683,17 +8976,11 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 # Level 3: Modulatory neurons (Soltoggio-style)
                 # A subset of neurons act as modulatory neurons
                 mod_ratio = self.neuromod_config.mod_neuron_ratio
-                num_mod_neurons = max(1, int(total_positions * mod_ratio))
 
-                # Select modulatory neurons based on weight patterns
-                # Neurons with highest variance become modulatory
+                # Each genome's modulatory neurons: mod_neuron_ratio of its own active positions (at least one),
+                # those of highest input-weight variance
                 weight_var = jnp.var(W1, axis=1)  # (pop, num_positions)
-                # Get top-k positions by variance for each genome
-                # For simplicity, use same modulatory positions for all genomes
-                mean_var = jnp.mean(weight_var, axis=0)  # (num_positions,)
-                mod_indices = jnp.argsort(mean_var)[-num_mod_neurons:]
-                mod_mask = jnp.zeros(total_positions, dtype=jnp.bool_)
-                mod_mask = mod_mask.at[mod_indices].set(True)
+                mod_mask = modulatory_neuron_masks(weight_var, masks_A, mod_ratio)  # (pop, num_positions)
 
                 # Modulatory connections: derived from W1 patterns
                 # Modulatory neurons affect regular neurons multiplicatively
@@ -6764,6 +9051,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 neuromod_data['mod_strength'] = mod_strength
                 neuromod_data['modulation_mode'] = self.neuromod_config.modulation_mode
                 neuromod_data['use_output_inversion'] = self.neuromod_config.use_output_inversion
+                neuromod_data['node_rule'] = self.neuromod_config.node_rule
                 neuromod_data['branch_gating'] = self.neuromod_config.branch_gating
 
                 # Get default NT vector for single-task evaluation
@@ -6780,794 +9068,37 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 self._neuromod_true['receptor_densities'] = receptor_densities
                 self._neuromod_true['base_gains'] = base_gains
 
-        if sparse_hh is not None and self._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH:
-            # Hybrid evaluation with sparse h→h
+        # One per-genome forward for this configuration: the population's fitness here and
+        # evaluate_on_data's held-out score both come from it (see _build_forward).
+        recurrent = (sparse_hh is not None
+                     and self._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH)
+        forward_one, genome_args, chunk_by_scan = self._build_forward(
+            W1, W2, sparse_hh if recurrent else None, neuromod_data, act_indices,
+            hh_agg_indices, ih_agg_indices, ih_global_agg_fn, use_dynamic_eval,
+            use_ih_aggregation, pop_size, eval_length,
+        )
+        fitness_mode_val = self.fitness_mode
 
-            # Check for neuromodulation FIRST
-            if neuromod_data is not None:
-                # =====================================================================
-                # NEUROMODULATED HYBRID SPARSE H→H EVALUATION
-                # Applies neuromodulation to BOTH Input→Hidden AND H→H iterations
-                # =====================================================================
-                neuromod_mode = neuromod_data['mode']
-                hidden_act_fn = self._hidden_act_fn if self._hidden_act_fn is not None else jnp.tanh
-                output_act_fn = self._output_act_fn if self._output_act_fn is not None else jax.nn.sigmoid
-                palette = self.df_palette
-                num_activations = self.df_num_activations
-                activate_time = self.activate_time
+        def eval_one(*args):
+            outputs = forward_one(inputs_batch, *args)
+            return _eval_single_fitness(outputs, targets_batch, fitness_mode_val)
 
-                if neuromod_mode == 'static_gating':
-                    # Level 1: Static gating with H→H
-                    static_gates = neuromod_data['static_gates']
-
-                    def eval_single_hybrid_neuromod_static(
-                        W1_i, W2_i, from_idx, to_idx, hh_w, mask, act_idx, gates
-                    ):
-                        """Hybrid forward with static gating applied to both I→H and H→H."""
-                        # Input→Hidden
-                        pre_h = inputs_batch @ W1_i
-                        if act_idx is None:
-                            h = hidden_act_fn(pre_h)
-                        elif palette is not None:
-                            h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                        else:
-                            h = grouped_activation_forward(pre_h, act_idx, num_activations)
-                        h = h * gates  # Apply static gates
-
-                        # H→H iterations with gating
-                        # Precompute safe indices and masked weights (JIT-compatible)
-                        num_hidden = h.shape[1]
-                        safe_from = jnp.clip(from_idx, 0, num_hidden - 1)
-                        safe_to = jnp.clip(to_idx, 0, num_hidden - 1)
-                        effective_hh_w = jnp.where(mask, hh_w, 0.0)
-
-                        for _ in range(activate_time):
-                            # Sparse H→H aggregation (JIT-compatible vectorized version)
-                            source_vals = h[:, safe_from]  # (batch, num_conns)
-                            contributions = source_vals * effective_hh_w  # (batch, num_conns)
-                            hh_contrib = jnp.zeros_like(h)
-                            hh_contrib = hh_contrib.at[:, safe_to].add(contributions)
-                            # Apply gating to H→H contribution
-                            hh_contrib = hh_contrib * gates
-                            h = h + jnp.tanh(hh_contrib)
-
-                        outputs = output_act_fn(h @ W2_i)
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_hybrid_neuromod_static)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                sparse_hh.from_indices[chunk_start:chunk_end],
-                                sparse_hh.to_indices[chunk_start:chunk_end],
-                                sparse_hh.weights[chunk_start:chunk_end],
-                                sparse_hh.valid_mask[chunk_start:chunk_end],
-                                chunk_act,
-                                static_gates[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_hybrid_neuromod_static)(
-                            W1, W2,
-                            sparse_hh.from_indices, sparse_hh.to_indices,
-                            sparse_hh.weights, sparse_hh.valid_mask,
-                            act_indices, static_gates
-                        )
-
-                elif neuromod_mode == 'context_gating':
-                    # Level 2: Context-dependent gating with H→H (XdG-style)
-                    base_gates = neuromod_data['base_gates']
-                    context_mod = neuromod_data['context_modulation']
-                    context_influence = neuromod_data['context_influence']
-                    context_idx = self._multitask_state.get('current_task_idx', 0)
-
-                    def eval_single_hybrid_neuromod_context(
-                        W1_i, W2_i, from_idx, to_idx, hh_w, mask, act_idx, base_g, ctx_mod
-                    ):
-                        """Hybrid forward with context gating applied to both I→H and H→H."""
-                        # Compute context-modulated gates
-                        gates = jax.nn.sigmoid(base_g + context_influence * ctx_mod[context_idx])
-
-                        # Input→Hidden
-                        pre_h = inputs_batch @ W1_i
-                        if act_idx is None:
-                            h = hidden_act_fn(pre_h)
-                        elif palette is not None:
-                            h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                        else:
-                            h = grouped_activation_forward(pre_h, act_idx, num_activations)
-                        h = h * gates
-
-                        # H→H iterations with context gating
-                        # Precompute safe indices and masked weights (JIT-compatible)
-                        num_hidden = h.shape[1]
-                        safe_from = jnp.clip(from_idx, 0, num_hidden - 1)
-                        safe_to = jnp.clip(to_idx, 0, num_hidden - 1)
-                        effective_hh_w = jnp.where(mask, hh_w, 0.0)
-
-                        for _ in range(activate_time):
-                            # Sparse H→H aggregation (JIT-compatible vectorized version)
-                            source_vals = h[:, safe_from]
-                            contributions = source_vals * effective_hh_w
-                            hh_contrib = jnp.zeros_like(h)
-                            hh_contrib = hh_contrib.at[:, safe_to].add(contributions)
-                            hh_contrib = hh_contrib * gates
-                            h = h + jnp.tanh(hh_contrib)
-
-                        outputs = output_act_fn(h @ W2_i)
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_hybrid_neuromod_context)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                sparse_hh.from_indices[chunk_start:chunk_end],
-                                sparse_hh.to_indices[chunk_start:chunk_end],
-                                sparse_hh.weights[chunk_start:chunk_end],
-                                sparse_hh.valid_mask[chunk_start:chunk_end],
-                                chunk_act,
-                                base_gates[chunk_start:chunk_end],
-                                context_mod[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_hybrid_neuromod_context)(
-                            W1, W2,
-                            sparse_hh.from_indices, sparse_hh.to_indices,
-                            sparse_hh.weights, sparse_hh.valid_mask,
-                            act_indices, base_gates, context_mod
-                        )
-
-                elif neuromod_mode == 'modulatory_neurons':
-                    # Level 3: Modulatory neurons with H→H (Soltoggio-style)
-                    mod_mask = neuromod_data['mod_mask']
-                    mod_weights = neuromod_data['mod_connection_weights']
-                    mod_type = neuromod_data['mod_connection_type']
-                    mod_decay = neuromod_data['mod_decay']
-
-                    def eval_single_hybrid_neuromod_neurons(
-                        W1_i, W2_i, from_idx, to_idx, hh_w, mask, act_idx, mod_w
-                    ):
-                        """Hybrid forward with modulatory neurons affecting both I→H and H→H."""
-                        # Input→Hidden
-                        pre_h = inputs_batch @ W1_i
-                        if act_idx is None:
-                            h = hidden_act_fn(pre_h)
-                        elif palette is not None:
-                            h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                        else:
-                            h = grouped_activation_forward(pre_h, act_idx, num_activations)
-
-                        # Compute initial modulatory signal
-                        mod_activity = jnp.mean(h[:, mod_mask], axis=1, keepdims=True)
-                        mod_signal = jnp.tanh(mod_activity) * mod_decay
-
-                        # Apply initial modulation
-                        if mod_type == 'multiplicative':
-                            h = h * (1.0 + mod_signal * mod_w)
-                        elif mod_type == 'additive':
-                            h = h + mod_signal * mod_w
-                        else:  # gating
-                            h = h * jax.nn.sigmoid(mod_signal * mod_w)
-
-                        # H→H iterations with modulatory neuron influence
-                        # Precompute safe indices and masked weights (JIT-compatible)
-                        num_hidden = h.shape[1]
-                        safe_from = jnp.clip(from_idx, 0, num_hidden - 1)
-                        safe_to = jnp.clip(to_idx, 0, num_hidden - 1)
-                        effective_hh_w = jnp.where(mask, hh_w, 0.0)
-
-                        for _ in range(activate_time):
-                            # Sparse H→H aggregation (JIT-compatible vectorized version)
-                            source_vals = h[:, safe_from]
-                            contributions = source_vals * effective_hh_w
-                            hh_contrib = jnp.zeros_like(h)
-                            hh_contrib = hh_contrib.at[:, safe_to].add(contributions)
-
-                            # Update modulatory signal from current hidden state
-                            mod_activity = jnp.mean(h[:, mod_mask], axis=1, keepdims=True)
-                            mod_signal = jnp.tanh(mod_activity) * mod_decay
-
-                            # Apply modulation to H→H contribution
-                            if mod_type == 'multiplicative':
-                                hh_contrib = hh_contrib * (1.0 + mod_signal * mod_w)
-                            elif mod_type == 'additive':
-                                hh_contrib = hh_contrib + mod_signal * mod_w
-                            else:
-                                hh_contrib = hh_contrib * jax.nn.sigmoid(mod_signal * mod_w)
-
-                            h = h + jnp.tanh(hh_contrib)
-
-                        outputs = output_act_fn(h @ W2_i)
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_hybrid_neuromod_neurons)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                sparse_hh.from_indices[chunk_start:chunk_end],
-                                sparse_hh.to_indices[chunk_start:chunk_end],
-                                sparse_hh.weights[chunk_start:chunk_end],
-                                sparse_hh.valid_mask[chunk_start:chunk_end],
-                                chunk_act,
-                                mod_weights[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_hybrid_neuromod_neurons)(
-                            W1, W2,
-                            sparse_hh.from_indices, sparse_hh.to_indices,
-                            sparse_hh.weights, sparse_hh.valid_mask,
-                            act_indices, mod_weights
-                        )
-
-                elif neuromod_mode == 'true_neuromodulation':
-                    # Level 4: TRUE neuromodulation with H→H (NT vectors + receptor densities)
-                    # Uses the pre-defined forward_hybrid_vmapped_neuromodulated function
-                    receptor_densities = neuromod_data['receptor_densities']
-                    base_gains = neuromod_data['base_gains']
-                    neurotransmitter = neuromod_data['neurotransmitter']
-                    mod_strength = neuromod_data['mod_strength']
-                    modulation_mode = neuromod_data['modulation_mode']
-                    use_output_inversion = neuromod_data['use_output_inversion']
-                    num_nt = neuromod_data['num_nt']
-                    hh_agg_mode = self.hh_aggregation_mode
-                    num_hh_agg = self.agg_num_aggregations
-
-                    def eval_single_hybrid_true_neuromod(
-                        W1_i, W2_i, from_idx, to_idx, hh_w, mask,
-                        act_idx, hh_agg_idx, receptors, base_g
-                    ):
-                        """Hybrid forward with TRUE neuromodulation on both I→H and H→H."""
-                        # Compute modulation from receptors × NT
-                        nt_mod = neurotransmitter[:min(3, num_nt)]
-                        modulation = receptors[:, :min(3, num_nt)] @ nt_mod
-                        effective_gains = base_g + mod_strength * modulation
-                        gates = jax.nn.sigmoid(modulation * 5.0)
-
-                        # Input→Hidden with neuromodulation
-                        pre_h = inputs_batch @ W1_i
-
-                        if modulation_mode == 'gating_only':
-                            if act_idx is None:
-                                h = hidden_act_fn(pre_h)
-                            elif palette is not None:
-                                h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                            else:
-                                h = grouped_activation_forward(pre_h, act_idx, num_activations)
-                            h = h * gates
-                        elif modulation_mode == 'gain_bias_only':
-                            if act_idx is None:
-                                h = hidden_act_fn(effective_gains * pre_h)
-                            elif palette is not None:
-                                h = grouped_activation_forward_with_palette(
-                                    effective_gains * pre_h, act_idx, palette
-                                )
-                            else:
-                                h = grouped_activation_forward(
-                                    effective_gains * pre_h, act_idx, num_activations
-                                )
-                        else:  # 'full' mode
-                            if act_idx is None:
-                                h = hidden_act_fn(effective_gains * pre_h)
-                            elif palette is not None:
-                                h = grouped_activation_forward_with_palette(
-                                    effective_gains * pre_h, act_idx, palette
-                                )
-                            else:
-                                h = grouped_activation_forward(
-                                    effective_gains * pre_h, act_idx, num_activations
-                                )
-                            h = h * gates
-
-                        # H→H iterations with TRUE neuromodulation
-                        # Precompute safe indices and masked weights (JIT-compatible)
-                        num_hidden = h.shape[1]
-                        safe_from = jnp.clip(from_idx, 0, num_hidden - 1)
-                        safe_to = jnp.clip(to_idx, 0, num_hidden - 1)
-                        effective_hh_w = jnp.where(mask, hh_w, 0.0)
-
-                        for _ in range(activate_time):
-                            # Sparse H→H aggregation (JIT-compatible vectorized version)
-                            source_vals = h[:, safe_from]
-                            contributions = source_vals * effective_hh_w
-                            hh_contrib = jnp.zeros_like(h)
-                            hh_contrib = hh_contrib.at[:, safe_to].add(contributions)
-
-                            # Apply neuromodulation to H→H contribution
-                            if modulation_mode == 'gating_only':
-                                hh_update = jnp.tanh(hh_contrib) * gates
-                            elif modulation_mode == 'gain_bias_only':
-                                hh_update = jnp.tanh(effective_gains * hh_contrib)
-                            else:  # 'full'
-                                hh_update = jnp.tanh(effective_gains * hh_contrib) * gates
-
-                            h = h + hh_update
-
-                        # Hidden→Output
-                        outputs = output_act_fn(h @ W2_i)
-
-                        # NT4 output inversion control
-                        if use_output_inversion and num_nt >= 4:
-                            invert = neurotransmitter[3]
-                            outputs = invert * outputs + (1 - invert) * (1 - outputs)
-
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_hh_agg = hh_agg_indices[chunk_start:chunk_end] if hh_agg_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_hybrid_true_neuromod)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                sparse_hh.from_indices[chunk_start:chunk_end],
-                                sparse_hh.to_indices[chunk_start:chunk_end],
-                                sparse_hh.weights[chunk_start:chunk_end],
-                                sparse_hh.valid_mask[chunk_start:chunk_end],
-                                chunk_act,
-                                chunk_hh_agg,
-                                receptor_densities[chunk_start:chunk_end],
-                                base_gains[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_hybrid_true_neuromod)(
-                            W1, W2,
-                            sparse_hh.from_indices, sparse_hh.to_indices,
-                            sparse_hh.weights, sparse_hh.valid_mask,
-                            act_indices, hh_agg_indices,
-                            receptor_densities, base_gains
-                        )
-                else:
-                    raise ValueError(f"Unknown neuromodulation mode: {neuromod_mode}")
-
-            elif use_dynamic_eval and (act_indices is not None or self._hidden_act_fn is not None):
-                # Use dynamic evaluation with per-node or global activation functions
-                # Create wrapper function to avoid functools.partial issues with vmap
-                hidden_act_fn = self._hidden_act_fn
-                output_act_fn = self._output_act_fn
-                num_activations = self.df_num_activations
-                palette = self.df_palette
-                hh_activation_mode = self.hh_activation_mode
-                activate_time = self.activate_time
-                hh_aggregation_mode = self.hh_aggregation_mode
-                num_hh_aggregations = self.agg_num_aggregations
-
-                def eval_single_hybrid_dynamic_wrapper(
-                    W1_i, W2_i, from_idx, to_idx, hh_w, mask, act_idx, hh_agg_idx
-                ):
-                    return eval_single_network_hybrid_dynamic(
-                        W1=W1_i,
-                        W2=W2_i,
-                        from_indices=from_idx,
-                        to_indices=to_idx,
-                        hh_weights=hh_w,
-                        valid_mask=mask,
-                        inputs=inputs_batch,
-                        targets=targets_batch,
-                        activate_time=activate_time,
-                        act_indices=act_idx,
-                        hidden_act_fn=hidden_act_fn,
-                        output_act_fn=output_act_fn,
-                        num_activations=num_activations,
-                        palette=palette,
-                        hh_activation_mode=hh_activation_mode,
-                        hh_agg_indices=hh_agg_idx,
-                        hh_aggregation_mode=hh_aggregation_mode,
-                        num_hh_aggregations=num_hh_aggregations,
-                    )
-
-                if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                    # Chunked evaluation with dynamic functions
-                    fitness_chunks = []
-                    for chunk_start in range(0, pop_size, eval_chunk_size):
-                        chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                        # Get act_indices and hh_agg_indices for this chunk
-                        chunk_act_indices = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                        chunk_hh_agg_indices = hh_agg_indices[chunk_start:chunk_end] if hh_agg_indices is not None else None
-                        chunk_fitnesses = jax.vmap(eval_single_hybrid_dynamic_wrapper)(
-                            W1[chunk_start:chunk_end],
-                            W2[chunk_start:chunk_end],
-                            sparse_hh.from_indices[chunk_start:chunk_end],
-                            sparse_hh.to_indices[chunk_start:chunk_end],
-                            sparse_hh.weights[chunk_start:chunk_end],
-                            sparse_hh.valid_mask[chunk_start:chunk_end],
-                            chunk_act_indices,
-                            chunk_hh_agg_indices,
-                        )
-                        fitness_chunks.append(chunk_fitnesses)
-                    fitnesses = jnp.concatenate(fitness_chunks)
-                else:
-                    # Full population vmap with dynamic functions
-                    fitnesses = jax.vmap(eval_single_hybrid_dynamic_wrapper)(
-                        W1, W2,
-                        sparse_hh.from_indices, sparse_hh.to_indices,
-                        sparse_hh.weights, sparse_hh.valid_mask,
-                        act_indices,
-                        hh_agg_indices,
-                    )
+        if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
+            if chunk_by_scan:
+                # Scan-based: one compiled dispatch, not ceil(pop/chunk) launches -- the
+                # loop form measured +116-126% at d5/chunk 10.
+                fitnesses = chunked_vmap_eval(eval_one, eval_chunk_size, *genome_args)
             else:
-                # Original evaluation (disabled mode)
-                eval_fn = functools.partial(
-                    eval_single_network_hybrid,
-                    inputs=inputs_batch,
-                    targets=targets_batch,
-                    activate_time=self.activate_time,
-                )
-
-                if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                    # Chunked evaluation to prevent OOM. Scan-based: one
-                    # compiled dispatch, not ceil(pop/chunk) launches -- the
-                    # loop form measured +116-126% at d5/chunk 10.
-                    fitnesses = chunked_vmap_eval(
-                        eval_fn, eval_chunk_size,
-                        W1, W2,
-                        sparse_hh.from_indices, sparse_hh.to_indices,
-                        sparse_hh.weights, sparse_hh.valid_mask,
-                    )
-                else:
-                    # Full population vmap (original behavior)
-                    fitnesses = jax.vmap(eval_fn)(
-                        W1, W2,
-                        sparse_hh.from_indices, sparse_hh.to_indices,
-                        sparse_hh.weights, sparse_hh.valid_mask,
-                    )
+                fitness_chunks = []
+                for chunk_start in range(0, pop_size, eval_chunk_size):
+                    chunk_end = min(chunk_start + eval_chunk_size, pop_size)
+                    fitness_chunks.append(jax.vmap(eval_one)(*[
+                        None if arg is None else arg[chunk_start:chunk_end]
+                        for arg in genome_args
+                    ]))
+                fitnesses = jnp.concatenate(fitness_chunks)
         else:
-            # Dense-only evaluation (DENSE_ONLY mode)
-            hidden_act_fn = self._hidden_act_fn if self._hidden_act_fn is not None else jnp.tanh
-            output_act_fn = self._output_act_fn if self._output_act_fn is not None else jax.nn.sigmoid
-            palette = self.df_palette
-            num_activations = self.df_num_activations
-
-            # Check for neuromodulation
-            if neuromod_data is not None:
-                # =====================================================================
-                # NEUROMODULATED DENSE-ONLY EVALUATION
-                # =====================================================================
-                neuromod_mode = neuromod_data['mode']
-
-                if neuromod_mode == 'static_gating':
-                    # Level 1: Static gating
-                    static_gates = neuromod_data['static_gates']
-
-                    def eval_single_dense_neuromod_static(W1_i, W2_i, act_idx, gates):
-                        pre_h = inputs_batch @ W1_i  # (n_samples, total_positions)
-
-                        if act_idx is None:
-                            h = hidden_act_fn(pre_h)
-                        elif palette is not None:
-                            h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                        else:
-                            h = grouped_activation_forward(pre_h, act_idx, num_activations)
-
-                        # Apply static gates
-                        h = h * gates  # (n_samples, total_positions)
-
-                        outputs = output_act_fn(h @ W2_i)
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_dense_neuromod_static)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                chunk_act,
-                                static_gates[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_dense_neuromod_static)(
-                            W1, W2, act_indices, static_gates
-                        )
-
-                elif neuromod_mode == 'context_gating':
-                    # Level 2: Context-dependent gating (XdG-style)
-                    base_gates = neuromod_data['base_gates']
-                    context_mod = neuromod_data['context_modulation']
-                    context_influence = neuromod_data['context_influence']
-                    # Use current context or default to first context
-                    context_idx = self._multitask_state.get('current_task_idx', 0)
-
-                    def eval_single_dense_neuromod_context(W1_i, W2_i, act_idx, base_g, ctx_mod):
-                        pre_h = inputs_batch @ W1_i
-
-                        if act_idx is None:
-                            h = hidden_act_fn(pre_h)
-                        elif palette is not None:
-                            h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                        else:
-                            h = grouped_activation_forward(pre_h, act_idx, num_activations)
-
-                        # Compute context-modulated gates
-                        gates = jax.nn.sigmoid(
-                            base_g + context_influence * ctx_mod[context_idx]
-                        )
-                        h = h * gates
-
-                        outputs = output_act_fn(h @ W2_i)
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_dense_neuromod_context)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                chunk_act,
-                                base_gates[chunk_start:chunk_end],
-                                context_mod[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_dense_neuromod_context)(
-                            W1, W2, act_indices, base_gates, context_mod
-                        )
-
-                elif neuromod_mode == 'modulatory_neurons':
-                    # Level 3: Modulatory neurons (Soltoggio-style)
-                    mod_mask = neuromod_data['mod_mask']
-                    mod_weights = neuromod_data['mod_connection_weights']
-                    mod_type = neuromod_data['mod_connection_type']
-                    mod_decay = neuromod_data['mod_decay']
-
-                    def eval_single_dense_neuromod_neurons(W1_i, W2_i, act_idx, mod_w):
-                        pre_h = inputs_batch @ W1_i
-
-                        if act_idx is None:
-                            h = hidden_act_fn(pre_h)
-                        elif palette is not None:
-                            h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                        else:
-                            h = grouped_activation_forward(pre_h, act_idx, num_activations)
-
-                        # Compute modulatory neuron output
-                        mod_activity = jnp.mean(h[:, mod_mask], axis=1, keepdims=True)  # (n_samples, 1)
-                        mod_signal = jnp.tanh(mod_activity) * mod_decay
-
-                        # Apply modulation
-                        if mod_type == 'multiplicative':
-                            h = h * (1.0 + mod_signal * mod_w)
-                        elif mod_type == 'additive':
-                            h = h + mod_signal * mod_w
-                        else:  # gating
-                            h = h * jax.nn.sigmoid(mod_signal * mod_w)
-
-                        outputs = output_act_fn(h @ W2_i)
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_dense_neuromod_neurons)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                chunk_act,
-                                mod_weights[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_dense_neuromod_neurons)(
-                            W1, W2, act_indices, mod_weights
-                        )
-
-                elif neuromod_mode == 'true_neuromodulation':
-                    # Level 4: TRUE neuromodulation (NT vectors + receptor densities)
-                    receptor_densities = neuromod_data['receptor_densities']
-                    base_gains = neuromod_data['base_gains']
-                    neurotransmitter = neuromod_data['neurotransmitter']
-                    mod_strength = neuromod_data['mod_strength']
-                    modulation_mode = neuromod_data['modulation_mode']
-                    use_output_inversion = neuromod_data['use_output_inversion']
-                    num_nt = neuromod_data['num_nt']
-
-                    def eval_single_dense_true_neuromod(
-                        W1_i, W2_i, act_idx, receptors, base_g
-                    ):
-                        pre_h = inputs_batch @ W1_i  # (n_samples, total_positions)
-
-                        # Compute modulation from receptors × NT
-                        # receptors: (total_positions, num_nt), NT: (num_nt,)
-                        # Use first 3 NT types for modulation
-                        nt_mod = neurotransmitter[:min(3, num_nt)]
-                        modulation = receptors[:, :min(3, num_nt)] @ nt_mod  # (total_positions,)
-
-                        # Compute effective gains and gates
-                        effective_gains = base_g + mod_strength * modulation
-                        gates = jax.nn.sigmoid(modulation * 5.0)
-
-                        # Apply modulation based on mode
-                        if modulation_mode == 'gating_only':
-                            # Only gates, no gain modulation
-                            if act_idx is None:
-                                h = hidden_act_fn(pre_h)
-                            elif palette is not None:
-                                h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                            else:
-                                h = grouped_activation_forward(pre_h, act_idx, num_activations)
-                            h = h * gates
-                        elif modulation_mode == 'gain_bias_only':
-                            # Only gain modulation, no gating
-                            if act_idx is None:
-                                h = hidden_act_fn(effective_gains * pre_h)
-                            elif palette is not None:
-                                h = grouped_activation_forward_with_palette(
-                                    effective_gains * pre_h, act_idx, palette
-                                )
-                            else:
-                                h = grouped_activation_forward(
-                                    effective_gains * pre_h, act_idx, num_activations
-                                )
-                        else:  # 'full' mode
-                            # Both gain modulation AND gating
-                            if act_idx is None:
-                                h = hidden_act_fn(effective_gains * pre_h)
-                            elif palette is not None:
-                                h = grouped_activation_forward_with_palette(
-                                    effective_gains * pre_h, act_idx, palette
-                                )
-                            else:
-                                h = grouped_activation_forward(
-                                    effective_gains * pre_h, act_idx, num_activations
-                                )
-                            h = h * gates
-
-                        outputs = output_act_fn(h @ W2_i)  # (n_samples, num_outputs)
-
-                        # NT4 output inversion control
-                        if use_output_inversion and num_nt >= 4:
-                            invert = neurotransmitter[3]
-                            outputs = invert * outputs + (1 - invert) * (1 - outputs)
-
-                        errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
-                        return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
-
-                    if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                        fitness_chunks = []
-                        for chunk_start in range(0, pop_size, eval_chunk_size):
-                            chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                            chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                            chunk_fitnesses = jax.vmap(eval_single_dense_true_neuromod)(
-                                W1[chunk_start:chunk_end],
-                                W2[chunk_start:chunk_end],
-                                chunk_act,
-                                receptor_densities[chunk_start:chunk_end],
-                                base_gains[chunk_start:chunk_end],
-                            )
-                            fitness_chunks.append(chunk_fitnesses)
-                        fitnesses = jnp.concatenate(fitness_chunks)
-                    else:
-                        fitnesses = jax.vmap(eval_single_dense_true_neuromod)(
-                            W1, W2, act_indices, receptor_densities, base_gains
-                        )
-                else:
-                    raise ValueError(f"Unknown neuromodulation mode: {neuromod_mode}")
-
-            elif (use_dynamic_eval and (act_indices is not None or self._hidden_act_fn is not None)) or use_ih_aggregation:
-                # Dynamic evaluation with optional I→H aggregation
-                # Handles: dynamic activation only, aggregation only, or both combined
-                use_global_agg = ih_global_agg_fn is not None
-                use_per_node_agg = ih_agg_indices is not None
-                use_true_agg = self.agg_use_true_aggregation
-                num_agg = self.agg_num_aggregations
-                fitness_mode_val = self.fitness_mode
-
-                # Prepare agg_indices for vmap (dummy zeros if not per-node)
-                if ih_agg_indices is not None:
-                    ih_agg_for_vmap = ih_agg_indices
-                else:
-                    ih_agg_for_vmap = jnp.zeros((pop_size, total_positions), dtype=jnp.int32)
-
-                def eval_single_dense_dynamic(W1_i, W2_i, act_idx, agg_idx):
-                    # I→H with optional aggregation
-                    if use_global_agg:
-                        # Global aggregation: all nodes use same function
-                        weighted = inputs_batch[:, :, None] * W1_i[None, :, :]
-                        pre_h = ih_global_agg_fn(weighted)
-                    elif use_per_node_agg and use_true_agg:
-                        # True per-node aggregation
-                        weighted = inputs_batch[:, :, None] * W1_i[None, :, :]
-                        pre_h = grouped_aggregation_forward(weighted, agg_idx, num_agg)
-                    elif use_per_node_agg:
-                        # Approximated aggregation: matmul + correction factors
-                        pre_h = inputs_batch @ W1_i
-                        factors = compute_aggregation_correction_factors(
-                            agg_idx, W1_i.shape[0], num_agg
-                        )
-                        pre_h = pre_h * factors
-                    else:
-                        # Standard matmul (sum aggregation)
-                        pre_h = inputs_batch @ W1_i
-
-                    # Apply activation
-                    if act_idx is None:
-                        h = hidden_act_fn(pre_h)
-                    elif palette is not None:
-                        h = grouped_activation_forward_with_palette(pre_h, act_idx, palette)
-                    else:
-                        h = grouped_activation_forward(pre_h, act_idx, num_activations)
-
-                    outputs = output_act_fn(h @ W2_i)
-                    return _eval_single_fitness(outputs, targets_batch, fitness_mode_val)
-
-                if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                    fitness_chunks = []
-                    for chunk_start in range(0, pop_size, eval_chunk_size):
-                        chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                        chunk_act = act_indices[chunk_start:chunk_end] if act_indices is not None else None
-                        chunk_agg = ih_agg_for_vmap[chunk_start:chunk_end]
-                        chunk_fitnesses = jax.vmap(eval_single_dense_dynamic)(
-                            W1[chunk_start:chunk_end],
-                            W2[chunk_start:chunk_end],
-                            chunk_act,
-                            chunk_agg,
-                        )
-                        fitness_chunks.append(chunk_fitnesses)
-                    fitnesses = jnp.concatenate(fitness_chunks)
-                else:
-                    fitnesses = jax.vmap(eval_single_dense_dynamic)(
-                        W1, W2, act_indices, ih_agg_for_vmap
-                    )
-            else:
-                # Original dense-only evaluation (disabled mode)
-                # W1: (num_inputs, total_positions), W2: (total_positions, num_outputs)
-                fitness_mode_val = self.fitness_mode
-
-                def eval_single_dense(W1_i, W2_i):
-                    # inputs: (n_samples, num_inputs), W1_i: (num_inputs, total_positions)
-                    h = jnp.tanh(inputs_batch @ W1_i)  # (n_samples, total_positions)
-                    outputs = jax.nn.sigmoid(h @ W2_i)  # (n_samples, num_outputs)
-                    return _eval_single_fitness(outputs, targets_batch, fitness_mode_val)
-
-                if eval_chunk_size and eval_chunk_size > 0 and pop_size > eval_chunk_size:
-                    # Chunked evaluation to prevent OOM
-                    fitness_chunks = []
-                    for chunk_start in range(0, pop_size, eval_chunk_size):
-                        chunk_end = min(chunk_start + eval_chunk_size, pop_size)
-                        chunk_fitnesses = jax.vmap(eval_single_dense)(
-                            W1[chunk_start:chunk_end],
-                            W2[chunk_start:chunk_end],
-                        )
-                        fitness_chunks.append(chunk_fitnesses)
-                    fitnesses = jnp.concatenate(fitness_chunks)
-                else:
-                    # Full population vmap (original behavior)
-                    fitnesses = jax.vmap(eval_single_dense)(W1, W2)
+            fitnesses = jax.vmap(eval_one)(*genome_args)
 
         step_times['step5_evaluation'] = time.perf_counter() - start
 
@@ -7579,6 +9110,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             r2_values = 1.0 - mse_values / self._fitness_rescale_variance
             fitnesses = jnp.maximum(0.0, r2_values)
 
+        # NaN (an overflowing settling, a NaN target) becomes -inf before selection sees it.
+        fitnesses, nan_fitness_count = sanitize_fitness(fitnesses)
+
         # Cache per-individual fitness for external access (e.g., Baldwin Effect)
         self._cached_fitnesses = fitnesses
 
@@ -7586,6 +9120,11 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         start = time.perf_counter()
         new_state = self._compiled_tell(state, fitnesses)
         step_times['step6_neat_evolution'] = time.perf_counter() - start
+
+        self._record_evaluation(
+            forward_one, genome_args, fitnesses, cppn_population,
+            masks_full, masks_A, eval_positions, act_indices, ih_agg_indices, new_state,
+        )
 
         # Update generation counter
         self._current_generation += 1
@@ -7596,12 +9135,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # === Metrics ===
         total_time = time.perf_counter() - total_start
 
-        # Compute fitness statistics
-        best_fitness = float(jnp.max(fitnesses))
-        mean_fitness = float(jnp.mean(fitnesses))
-        min_fitness = float(jnp.min(fitnesses))
-        max_fitness = float(jnp.max(fitnesses))
-        std_fitness = float(jnp.std(fitnesses))
+        # Compute fitness statistics (over the finite entries when NaN was sanitized)
+        best_fitness, mean_fitness, min_fitness, std_fitness = fitness_statistics(
+            fitnesses, nan_fitness_count)
+        max_fitness = best_fitness
 
         custom_metrics = {
             'total_positions': total_positions,
@@ -7611,11 +9148,20 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             'multi_hop_algorithm': self.extended_config.multi_hop_algorithm if self.extended_config else 'none',
             'iteration_level': self.extended_config.iteration_level if self.extended_config else 0,
             'cache_hit': cache_hit,
+            'nan_fitness_count': nan_fitness_count,
         }
 
         if sparse_hh is not None:
             custom_metrics['total_hh_connections'] = int(jnp.sum(sparse_hh.num_valid))
             custom_metrics['avg_hh_connections'] = float(jnp.mean(sparse_hh.num_valid))
+            truncated = _last_discovery_stats.get('truncated_per_genome')
+            if (not cache_hit and truncated is not None
+                    and truncated.shape[0] == sparse_hh.num_valid.shape[0]):
+                # Genomes whose h->h set the max_sparse_conns cap cut this generation, and the
+                # largest set.
+                custom_metrics['hh_truncated_genomes'] = int(np.count_nonzero(truncated))
+                custom_metrics['hh_max_uncapped'] = int(
+                    _last_discovery_stats['uncapped_per_genome'].max())
 
         # Compute substrate efficiency metrics
         active_counts = masks_A.sum(axis=1)  # Per-genome active position counts
@@ -7633,10 +9179,23 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         custom_metrics['min_hidden_nodes'] = active_positions_min
         custom_metrics['max_hidden_nodes'] = active_positions_max
         custom_metrics['position_utilization'] = position_utilization
+        # HMR's keys, under the same names and meanings.
+        custom_metrics['variance_threshold'] = self.variance_threshold
+        custom_metrics['num_levels'] = h_grid.num_levels
+
+        # The evaluated population's species (state is the state before tell) and topology.
+        num_species, species_sizes, species_fitness = species_summary(state.species, fitnesses)
+        topology = topology_summary(
+            W1, W2, masks_A, sparse_hh.num_valid if sparse_hh is not None else None)
 
         # Compute weight matrix density
         w1_total = W1.size
         w2_total = W2.size
+        if compact_pad:
+            # The virtual positions are zero columns of W1 and zero rows of W2; they are not
+            # part of the substrate, so they stay out of the denominators.
+            w1_total = W1.shape[0] * W1.shape[1] * (W1.shape[2] - compact_pad)
+            w2_total = W2.shape[0] * (W2.shape[1] - compact_pad) * W2.shape[2]
         w1_nonzero = int(jnp.sum(W1 != 0))
         w2_nonzero = int(jnp.sum(W2 != 0))
         w1_density = w1_nonzero / w1_total if w1_total > 0 else 0.0
@@ -7709,11 +9268,12 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             min_fitness=min_fitness,
             max_fitness=max_fitness,
             std_fitness=std_fitness,
-            num_species=0,  # Not tracked in this implementation
-            species_sizes=[],
-            species_fitness=[],
+            num_species=num_species,
+            species_sizes=species_sizes,
+            species_fitness=species_fitness,
             evaluations=pop_size,
             time_elapsed=total_time,
+            **topology,
         )
         # Add custom metrics
         metrics.custom_metrics = custom_metrics
@@ -7759,104 +9319,50 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Use provided activation or default to tanh
         act_fn = hidden_act_fn if hidden_act_fn is not None else jnp.tanh
 
+        node_rule = self.neuromod_config.node_rule if self.neuromod_config else 'paper'
+        use_output_inversion = (self.neuromod_config.use_output_inversion if self.neuromod_config
+                                else True)
+
+        def modulated_node(receptor_densities_single, base_gains_single, neurotransmitter,
+                           modulation_mode, modulation_strength_override):
+            """A node under neuromodulation, as a function of its pre-activation: the same rule
+            as the single-task path (true_neuromodulation_node_fn, neuromodulation.node_rule). The
+            feed-forward and the recurrent evaluation below both apply it."""
+            strength = (modulation_strength_override if modulation_strength_override is not None
+                        else mod_strength)
+            return true_neuromodulation_node_fn(act_fn, receptor_densities_single,
+                                                base_gains_single, neurotransmitter, strength,
+                                                neurotransmitter.shape[-1], modulation_mode,
+                                                node_rule)
+
+        def finish(hidden, W2_single, neurotransmitter, targets, fitness_mode):
+            # Output inversion by NT[3] (complementary tasks like NAND, NOR), only with four or more
+            # channels and use_output_inversion (0.1.0's multi-task path read nt[3] whatever the
+            # count, and ignored the flag)
+            outputs = invert_outputs(jax.nn.sigmoid(hidden @ W2_single), neurotransmitter,
+                                     use_output_inversion, neurotransmitter.shape[-1], node_rule)
+            return compute_fitness(outputs, targets, fitness_mode)
+
         if has_hh and activate_time > 0:
-            # H→H enabled version with iteration loop
             def eval_single_network_true_neuromodulated_hh(
                 W1_single, W2_single, receptor_densities_single, base_gains_single,
                 neurotransmitter, inputs, targets,
                 from_idx, to_idx, hh_w, hh_mask,
                 fitness_mode='mse', modulation_mode='full', modulation_strength_override=None
             ):
-                """Evaluate single network with TRUE neuromodulation AND H→H connections.
+                """One network with TRUE neuromodulation and H→H connections, on one task.
 
-                This extends the feedforward version to include H→H iterations:
-                - W1, W2, receptor_densities, base_gains are FIXED
-                - H→H sparse connections (from_idx, to_idx, hh_w, hh_mask) are FIXED
-                - ONLY neurotransmitter vector varies per task
-                - After initial I→H activation, applies H→H iterations with neuromodulation
-
-                Args:
-                    W1_single: Input→Hidden weights, shape (num_inputs, total_positions)
-                    W2_single: Hidden→Output weights, shape (total_positions, num_outputs)
-                    receptor_densities_single: Per-neuron NT sensitivity, shape (total_positions, num_nt)
-                    base_gains_single: Base activation gain per neuron, shape (total_positions,)
-                    neurotransmitter: NT levels, shape (num_nt,) - ONLY this changes per task!
-                    inputs: Input data, shape (num_cases, num_inputs)
-                    targets: Target data, shape (num_cases, num_outputs)
-                    from_idx: Source indices for H→H connections, shape (max_conns,)
-                    to_idx: Target indices for H→H connections, shape (max_conns,)
-                    hh_w: H→H connection weights, shape (max_conns,)
-                    hh_mask: Valid connection mask, shape (max_conns,)
-                    fitness_mode: Fitness function ('mse', 'accuracy', etc.)
-                    modulation_mode: 'full', 'gating_only', 'gain_bias_only'
-                    modulation_strength_override: Override default modulation strength
-
-                Returns:
-                    Fitness score for this network on this task
+                W1, W2, receptors, base gains and the H→H connections are fixed; only the
+                neurotransmitter vector varies per task. The hidden layer settles by the
+                recurrent path's one rule (:func:`settle_hidden`), with the node function of
+                the feed-forward evaluation, so without H→H connections both agree.
                 """
-                # Use override if provided, otherwise use default
-                strength = modulation_strength_override if modulation_strength_override is not None else mod_strength
-
-                # Compute per-neuron modulation from FIXED receptors and VARIABLE NT
-                modulation = receptor_densities_single[:, :3] @ neurotransmitter[:3]
-
-                # Initial I→H forward pass
-                pre_hidden = inputs @ W1_single  # (num_cases, total_positions)
-
-                if modulation_mode == 'gating_only':
-                    gates = jax.nn.sigmoid(modulation * strength)
-                    hidden = act_fn(pre_hidden) * gates
-                elif modulation_mode == 'gain_bias_only':
-                    effective_gains = base_gains_single + strength * modulation
-                    effective_gains = jnp.clip(effective_gains, 0.1, 5.0)
-                    effective_gains = jnp.where(jnp.isnan(effective_gains), 1.0, effective_gains)
-                    modulation_bias = modulation * strength
-                    hidden = act_fn(effective_gains * pre_hidden + modulation_bias)
-                    gates = None  # Not used in gain_bias_only mode
-                else:  # 'full' mode
-                    effective_gains = base_gains_single + strength * modulation
-                    effective_gains = jnp.clip(effective_gains, 0.1, 5.0)
-                    effective_gains = jnp.where(jnp.isnan(effective_gains), 1.0, effective_gains)
-                    gates = jax.nn.sigmoid(modulation)
-                    modulation_bias = modulation * strength
-                    hidden = act_fn(effective_gains * pre_hidden + modulation_bias) * gates
-
-                # H→H iterations with neuromodulation
-                num_hidden = hidden.shape[1]
-                safe_from = jnp.clip(from_idx, 0, num_hidden - 1)
-                safe_to = jnp.clip(to_idx, 0, num_hidden - 1)
-                effective_hh_w = jnp.where(hh_mask, hh_w, 0.0)
-
-                # Static unroll for JIT compatibility (activate_time is compile-time constant)
-                for _ in range(activate_time):
-                    # Gather from source positions
-                    source_vals = hidden[:, safe_from]  # (num_cases, max_conns)
-                    contributions = source_vals * effective_hh_w  # (num_cases, max_conns)
-
-                    # Scatter-add to target positions
-                    hh_contrib = jnp.zeros_like(hidden)
-                    hh_contrib = hh_contrib.at[:, safe_to].add(contributions)
-
-                    # Apply neuromodulation to H→H contribution
-                    if modulation_mode == 'gating_only':
-                        hh_update = act_fn(hh_contrib) * gates
-                    elif modulation_mode == 'gain_bias_only':
-                        hh_update = act_fn(effective_gains * hh_contrib + modulation_bias)
-                    else:  # 'full'
-                        hh_update = act_fn(effective_gains * hh_contrib + modulation_bias) * gates
-
-                    hidden = hidden + hh_update
-
-                # Output layer
-                outputs = jax.nn.sigmoid(hidden @ W2_single)
-
-                # Output inversion using NT[3]
-                invert_signal = neurotransmitter[3]
-                invert_weight = jnp.clip(invert_signal, 0.0, 1.0)
-                inverted = 1.0 - outputs
-                outputs = invert_weight * outputs + (1.0 - invert_weight) * inverted
-
-                return compute_fitness(outputs, targets, fitness_mode)
+                node = modulated_node(receptor_densities_single, base_gains_single,
+                                      neurotransmitter, modulation_mode,
+                                      modulation_strength_override)
+                hidden = settle_hidden(inputs @ W1_single, from_idx, to_idx, hh_w, hh_mask,
+                                       activate_time, node)
+                return finish(hidden, W2_single, neurotransmitter, targets, fitness_mode)
 
             # Vmap over population (axis 0 for all per-genome arrays)
             eval_population = jax.vmap(
@@ -7865,75 +9371,21 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             )
 
         else:
-            # Original feedforward-only version
             def eval_single_network_true_neuromodulated(
                 W1_single, W2_single, receptor_densities_single, base_gains_single,
                 neurotransmitter, inputs, targets, fitness_mode='mse',
                 modulation_mode='full', modulation_strength_override=None
             ):
-                """Evaluate single network with TRUE neuromodulation (feedforward only).
+                """One network with TRUE neuromodulation (feedforward), on one task.
 
-                This is the KEY function for multi-task neuromodulation:
-                - W1, W2, receptor_densities, base_gains are FIXED (from run_generation_verbose)
-                - ONLY neurotransmitter vector varies per task
-                - Same network produces different behaviors via NT-modulated activation
-
-                Args:
-                    W1_single: Input→Hidden weights, shape (num_inputs, total_positions)
-                    W2_single: Hidden→Output weights, shape (total_positions, num_outputs)
-                    receptor_densities_single: Per-neuron NT sensitivity, shape (total_positions, num_nt)
-                    base_gains_single: Base activation gain per neuron, shape (total_positions,)
-                    neurotransmitter: NT levels, shape (num_nt,) - ONLY this changes per task!
-                    inputs: Input data, shape (num_cases, num_inputs)
-                    targets: Target data, shape (num_cases, num_outputs)
-                    fitness_mode: Fitness function ('mse', 'accuracy', etc.)
-                    modulation_mode: 'full', 'gating_only', 'gain_bias_only'
-                    modulation_strength_override: Override default modulation strength
-
-                Returns:
-                    Fitness score for this network on this task
+                W1, W2, receptors and base gains are fixed; only the neurotransmitter vector
+                varies per task, so one network produces different behaviors.
                 """
-                # Use override if provided, otherwise use default
-                strength = modulation_strength_override if modulation_strength_override is not None else mod_strength
-
-                # Compute per-neuron modulation from FIXED receptors and VARIABLE NT
-                # Only use first 3 NT components for modulation (NT[3] is for output inversion)
-                modulation = receptor_densities_single[:, :3] @ neurotransmitter[:3]
-
-                # Forward pass
-                pre_hidden = inputs @ W1_single  # (num_cases, total_positions)
-
-                if modulation_mode == 'gating_only':
-                    # GATING-ONLY: Standard activation, only gating varies by task
-                    gates = jax.nn.sigmoid(modulation * strength)
-                    hidden = act_fn(pre_hidden) * gates
-                elif modulation_mode == 'gain_bias_only':
-                    # GAIN+BIAS ONLY: No gating, full gain and bias modulation
-                    effective_gains = base_gains_single + strength * modulation
-                    effective_gains = jnp.clip(effective_gains, 0.1, 5.0)
-                    effective_gains = jnp.where(jnp.isnan(effective_gains), 1.0, effective_gains)
-                    modulation_bias = modulation * strength
-                    hidden = act_fn(effective_gains * pre_hidden + modulation_bias)
-                else:  # 'full' mode (default)
-                    # FULL MODULATION: Gain + Bias + Gating
-                    effective_gains = base_gains_single + strength * modulation
-                    effective_gains = jnp.clip(effective_gains, 0.1, 5.0)
-                    effective_gains = jnp.where(jnp.isnan(effective_gains), 1.0, effective_gains)
-                    gates = jax.nn.sigmoid(modulation)
-                    modulation_bias = modulation * strength
-                    hidden = act_fn(effective_gains * pre_hidden + modulation_bias) * gates
-
-                # Output layer
-                outputs = jax.nn.sigmoid(hidden @ W2_single)
-
-                # Output inversion using NT[3] (for complementary tasks like NAND, NOR)
-                invert_signal = neurotransmitter[3]
-                invert_weight = jnp.clip(invert_signal, 0.0, 1.0)
-                inverted = 1.0 - outputs
-                outputs = invert_weight * outputs + (1.0 - invert_weight) * inverted
-
-                # Compute fitness
-                return compute_fitness(outputs, targets, fitness_mode)
+                node = modulated_node(receptor_densities_single, base_gains_single,
+                                      neurotransmitter, modulation_mode,
+                                      modulation_strength_override)
+                hidden = node(inputs @ W1_single)
+                return finish(hidden, W2_single, neurotransmitter, targets, fitness_mode)
 
             # Vmap over population dimension (axis 0 for W1, W2, receptor_densities, base_gains)
             eval_population = jax.vmap(
@@ -7974,6 +9426,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         x_coords = all_positions[:, 0]
         pfc_mask = x_coords < 0.0  # Left hemisphere = PFC (rule)
         sm_mask = x_coords >= 0.0   # Right hemisphere = Sensorimotor (execution)
+
+        use_output_inversion = (self.neuromod_config.use_output_inversion if self.neuromod_config
+                                else True)
 
         def eval_single_network_two_module(
             W1_single, W2_single, receptor_densities_single, base_gains_single,
@@ -8079,11 +9534,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             output_sm = hidden_sm @ W2_sm    # (num_cases, num_outputs)
             outputs = jax.nn.sigmoid(output_pfc + output_sm)
 
-            # Output inversion using NT[3]
-            invert_signal = neurotransmitter[3]
-            invert_weight = jnp.clip(invert_signal, 0.0, 1.0)
-            inverted = 1.0 - outputs
-            outputs = invert_weight * outputs + (1.0 - invert_weight) * inverted
+            # Output inversion by NT[3], only with four or more channels and use_output_inversion
+            outputs = invert_outputs(outputs, neurotransmitter, use_output_inversion,
+                                     neurotransmitter.shape[-1])
 
             return compute_fitness(outputs, targets, fitness_mode)
 
@@ -8159,10 +9612,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             output_sm = hidden_sm @ W2_sm
             outputs = jax.nn.sigmoid(output_pfc + output_sm)
 
-            invert_signal = neurotransmitter[3]
-            invert_weight = jnp.clip(invert_signal, 0.0, 1.0)
-            inverted = 1.0 - outputs
-            outputs = invert_weight * outputs + (1.0 - invert_weight) * inverted
+            # Output inversion by NT[3], only with four or more channels and use_output_inversion
+            outputs = invert_outputs(outputs, neurotransmitter, use_output_inversion,
+                                     neurotransmitter.shape[-1])
 
             fitness = compute_fitness(outputs, targets, fitness_mode)
 
@@ -8272,6 +9724,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
 
         # Cache for next-level weights (for variance lookahead)
         cached_next_input_weights = None
+        # variance_rule legacy: level 0's own variance, set at level 0 and read where level 1's
+        # reach is derived
+        legacy_v0 = None
 
         if self.verbose:
             print(f"[Streaming] Processing {num_levels} levels, {total_positions} total positions")
@@ -8292,7 +9747,8 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             else:
                 # Compute reached from previous level's subdivision
                 prev_reached = level_reached[level - 1]
-                prev_variance = level_variances[level - 1]
+                prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
+                                 else level_variances[level - 1])
                 # Canonical ES-HyperNEAT subdivides on two clauses:
                 #   (level < initial_depth) or (variance > threshold)
                 # A parent at level-1 is forced when level <= initial_depth.
@@ -8320,6 +9776,12 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                     geometry_seeding_enabled=self.geometry_seeding_enabled,
                     num_cppn_outputs=num_cppn_outputs,
                 )
+
+            if level == 0 and self._legacy_level0_variance:
+                # Channel 0 of the first input, the standard path's variance source.
+                legacy_v0 = legacy_level0_variance(
+                    level_input_weights[:, 0, :, 0] if num_cppn_outputs > 1
+                    else level_input_weights[:, 0, :])
 
             # Output weights for this level (always query fresh)
             level_output_weights = query_level_positions(
@@ -8483,18 +9945,30 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 - 'softmin': Soft minimum (smoother than min)
                 - 'harmonic': Harmonic mean (emphasizes poor performance)
             aggregation_weights: Weights for 'weighted' method (must sum to 1)
-            orthogonality_bonus: Bonus for having orthogonal NT vectors
-            specialization_bonus: Bonus for having distinct activation patterns per task
+            orthogonality_bonus: Refused above 0, as specialization_bonus (see Raises).
+            specialization_bonus: Refused above 0.
 
         Returns:
             Tuple of (new_state, metrics) with multi-task metrics
 
         Raises:
-            ValueError: If neuromodulation is disabled or mode not true_neuromodulation
+            ValueError: If neuromodulation is disabled or mode not true_neuromodulation; a bonus above 0
+                (the two arguments, or orthogonality_bonus_weight on a multi-task configuration built by
+                hand): each adds one value to every genome of a generation, from the NT vectors or from the
+                population's mean variance, so it never changes a rank within the generation, only the reported
+                fitness (the configuration keys are refused as well).
         """
         import time as time_module
 
         total_start = time_module.perf_counter()
+
+        configured = getattr(getattr(self, 'multitask_config', None), 'orthogonality_bonus_weight', 0.0) or 0.0
+        for name, value in (('orthogonality_bonus', orthogonality_bonus),
+                            ('specialization_bonus', specialization_bonus),
+                            ('multitask_config.orthogonality_bonus_weight', configured)):
+            if value:
+                raise ValueError(f"{name}={value} would add one value to every genome of a generation, which "
+                                 f"never changes a rank within it")
 
         # Validate neuromodulation is enabled
         if self.neuromod_config is None or self.neuromod_config.mode == 'disabled':
@@ -8539,6 +10013,11 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             total_weight = sum(aggregation_weights)
             aggregation_weights = [w / total_weight for w in aggregation_weights]
 
+        # A mode set on the configuration object by hand is checked before the generation is built
+        mode = getattr(self.multitask_config, 'fitness_mode', 'mse') if self.multitask_config else 'mse'
+        if mode not in MULTITASK_FITNESS_MODES:
+            raise ValueError(f"multitask fitness_mode must be one of {MULTITASK_FITNESS_MODES}, got {mode!r}")
+
         # Store current multi-task state
         self._multitask_state['num_tasks'] = num_tasks
         self._multitask_state['task_names'] = [
@@ -8551,7 +10030,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Use first problem to build weight matrices
         # This caches: self._cached_W1, self._cached_W2, self._neuromod_true
         first_problem = problems[0]
-        _, _ = self.run_generation_verbose(state, first_problem, skip_metrics=True)
+        # Its metrics carry this population's topology, which no task changes.
+        _, structure = self.run_generation_verbose(state, first_problem, skip_metrics=True)
+        # That generation's champion is the first task's, not this generation's
+        self._last_eval = None
 
         # ====================================================================
         # STEP 2: Extract cached data
@@ -8627,6 +10109,18 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             cfg_generalist_threshold = getattr(multitask_cfg, 'generalist_threshold', 0.9)
             cfg_softmin_temperature = getattr(multitask_cfg, 'softmin_temperature', 0.1)
 
+        # Also checked by create_config; repeated here because a runner may set two_module_mode on
+        # the MultiTaskConfig after create_config
+        if cfg_two_module_mode != 'none' and has_hh:
+            raise ValueError(
+                "multitask.two_module_mode evaluates feed-forward only and would ignore the "
+                "hidden-to-hidden connections this configuration discovers"
+            )
+        if (cfg_two_module_mode != 'none' and self.neuromod_config is not None
+                and self.neuromod_config.node_rule == 'hmr_full'):
+            raise ValueError("neuromodulation.node_rule 'hmr_full' is not applied by "
+                             "multitask.two_module_mode, whose modules compute the paper's rule")
+
         # Create eval functions for unique activation functions (cache to avoid redundant JIT)
         unique_activations = set(per_task_act_names)
         eval_fn_cache = {}
@@ -8635,17 +10129,18 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Get all_positions for two-module evaluation (if needed)
         all_positions = None
         if cfg_two_module_mode != 'none':
-            h_grid = getattr(self, '_cached_h_grid', None)
-            if h_grid is not None:
-                all_positions = h_grid.all_positions
-            else:
-                # Fall back to standard mode if positions not available
-                cfg_two_module_mode = 'none'
-                if self.verbose:
-                    print("[MultiTask] Warning: two_module_mode requires cached positions, falling back to 'none'")
+            # The grid itself: 0.1.0 read a cached grid that nothing set, so two-module mode always
+            # fell back to one module (with a warning only under verbose). The multi-task path keeps
+            # every position (no compaction), so the grid's positions line up with W1.
+            all_positions = get_hierarchical_grid(self.max_depth).all_positions
 
         for act_name in unique_activations:
-            act_fn = ACTIVATION_FUNCTIONS.get(act_name, jnp.tanh)
+            # An unknown name (a MultiTaskConfig built by hand; create_config checks the keys) ran
+            # tanh in 0.1.0
+            if act_name not in ACTIVATION_FUNCTIONS:
+                raise ValueError(f"unknown multi-task activation {act_name!r}; the names are "
+                                 f"{sorted(ACTIVATION_FUNCTIONS)}")
+            act_fn = ACTIVATION_FUNCTIONS[act_name]
             eval_fn_cache[act_name] = self._create_eval_population_true_neuromodulated(
                 has_hh=has_hh,
                 activate_time=activate_time,
@@ -8807,18 +10302,19 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # ====================================================================
         # STEP 6: Run NEAT selection with aggregated fitness
         # ====================================================================
+        # NaN (an overflowing settling, a NaN target) becomes -inf before selection sees it.
+        aggregated_fitness, nan_fitness_count = sanitize_fitness(aggregated_fitness)
         new_state = self._compiled_tell(state, aggregated_fitness)
 
-        # Update generation counter
-        self._current_generation += 1
+        # The generation counter was advanced by the run_generation_verbose call above; a
+        # second increment here made the H→H cache refresh and the random modes' per-
+        # generation keys run twice as fast under multi-task evaluation.
 
         # Build multi-task metrics
         total_time = time_module.perf_counter() - total_start
 
-        best_fitness = float(jnp.max(aggregated_fitness))
-        mean_fitness = float(jnp.mean(aggregated_fitness))
-        min_fitness = float(jnp.min(aggregated_fitness))
-        std_fitness = float(jnp.std(aggregated_fitness))
+        best_fitness, mean_fitness, min_fitness, std_fitness = fitness_statistics(
+            aggregated_fitness, nan_fitness_count)
 
         # Find best generalist (single individual with highest aggregated fitness)
         best_gen_idx = int(jnp.argmax(aggregated_fitness))
@@ -8830,6 +10326,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         custom_metrics = {
             'method': 'multitask',
             'num_tasks': num_tasks,
+            'nan_fitness_count': nan_fitness_count,
             'aggregation_method': aggregation_method,
             'per_task_best': [float(jnp.max(f)) for f in per_task_fitnesses],
             'per_task_mean': [float(jnp.mean(f)) for f in per_task_fitnesses],
@@ -8855,6 +10352,8 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         )
 
         total_time = time_module.perf_counter() - total_start
+        num_species, species_sizes, species_fitness = species_summary(state.species,
+                                                                      aggregated_fitness)
         metrics = AlgorithmMetrics(
             generation=self._current_generation,
             best_fitness=best_fitness,
@@ -8862,12 +10361,16 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             min_fitness=min_fitness,
             max_fitness=best_fitness,
             std_fitness=std_fitness,
-            num_species=1,
-            species_sizes=[len(aggregated_fitness)],  # All in one "species"
-            species_fitness=[float(best_fitness)],
+            num_species=num_species,
+            species_sizes=species_sizes,
+            species_fitness=species_fitness,
             evaluations=len(aggregated_fitness) * num_tasks,  # pop_size * num_tasks
             time_elapsed=total_time,
             custom_metrics=custom_metrics,
+            hidden_nodes_mean=structure.hidden_nodes_mean,
+            hidden_nodes_std=structure.hidden_nodes_std,
+            connections_mean=structure.connections_mean,
+            connections_std=structure.connections_std,
         )
 
         return new_state, metrics
@@ -8969,7 +10472,11 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         activate_time = self.activate_time if has_hh else 0
 
         # Get activation function
-        act_fn = ACTIVATION_FUNCTIONS.get(activation_name, jnp.tanh) if activation_name else jnp.tanh
+        if activation_name is not None and activation_name not in ACTIVATION_FUNCTIONS:
+            # 0.1.0 ran tanh for an unknown name
+            raise ValueError(f"unknown activation {activation_name!r}; the names are "
+                             f"{sorted(ACTIVATION_FUNCTIONS)}")
+        act_fn = ACTIVATION_FUNCTIONS[activation_name] if activation_name else jnp.tanh
 
         # Create evaluation function
         eval_population = self._create_eval_population_true_neuromodulated(
@@ -9010,170 +10517,205 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         state: Any,
         inputs: jnp.ndarray,
         targets: jnp.ndarray,
-    ) -> Dict[str, float]:
-        """Evaluate the best genome on arbitrary input/target data.
+    ) -> Dict[str, Any]:
+        """Evaluate the last generation's champion on arbitrary input/target data.
 
-        Overrides base class to preserve CPPN-assigned per-node activation
-        functions when dynamic_functions_mode == 'cppn_output'. The base class
-        uses hardcoded jnp.tanh for all hidden nodes, which produces incorrect
-        (severely pessimistic) results when per-node activations were evolved.
+        The champion is scored with the forward its generation evaluated it with: the same
+        per-genome function, arrays and fitness mode, rescaling included (see
+        ``_build_forward``). On the training data its fitness is therefore the fitness it was
+        selected on (bit for bit on CPU), and a held-out score describes the network that was
+        evolved, recurrent connections, per-node aggregation, global and random activation
+        modes and neuromodulation included. In 0.1.0 this re-derived the champion as a
+        dense tanh network with sum aggregation, which held for feed-forward per-node
+        activation and for nothing else.
+
+        The champion is recorded by :meth:`run_generation_verbose`, the generation of the
+        standard and streaming execution modes on one task. Depth offload, multi-task
+        generations and the multi-GPU strategies record none, and this raises after them.
 
         Args:
-            state: Current algorithm state (contains population)
+            state: The state the last generation returned. Its first genome is that
+                generation's champion: TensorNEAT places the best genome, unmutated, first in
+                the next population, and this is checked.
             inputs: Input data array of shape (n_samples, n_features)
             targets: Target data array of shape (n_samples, n_outputs)
 
         Returns:
-            Dict with 'mse', 'fitness', 'n_samples', and substrate statistics.
-            Includes 'activation_indices' and 'activation_names' when dynamic
-            functions are enabled.
+            Dict with 'mse', 'fitness', 'n_samples', the error distribution, substrate
+            statistics, 'champion_index', 'generation' and 'training_fitness', and, when a
+            dynamic-functions mode is on, 'activation_counts' and
+            'activation_counts_per_level' over the champion's hidden nodes.
+
+        Raises:
+            RuntimeError: The last generation recorded no champion.
+            ValueError: ``state`` is not the one the last generation returned.
         """
-        # Get base result (substrate W1/W2/mask are correct; forward pass may be wrong)
-        result = super().evaluate_on_data(state, inputs, targets)
-
-        # If dynamic functions disabled, the base class forward pass is correct
-        if getattr(self, 'dynamic_functions_mode', 'disabled') == 'disabled':
-            return result
-
-        # Dynamic functions are enabled, recompute forward pass with per-node activations
-        W1_best = result['_W1']  # (num_inputs, total_positions)
-        W2_best = result['_W2']  # (total_positions, num_outputs)
-        mask_best = result['_mask']  # (total_positions,)
-        h_grid = result['_h_grid']
-
-        # Convert inputs/targets to JAX arrays if needed
-        if not isinstance(inputs, jnp.ndarray):
-            inputs = jnp.array(inputs, dtype=jnp.float32)
-        if not isinstance(targets, jnp.ndarray):
-            targets = jnp.array(targets, dtype=jnp.float32)
-
-        # --- Derive per-node activation indices ---
-        act_indices = None
-
-        if self.dynamic_functions_mode == 'cppn_output' and self.num_cppn_outputs > 1:
-            # Query self-connections to get activation channel for best genome
-            cppn_population = self._compiled_ask(state)
-            cppns_transformed = self._compiled_transform_batch(state, cppn_population)
-            all_positions = h_grid.all_positions
-
-            self_conn_outputs = batch_query_population_self_connections(
-                state, cppns_transformed, all_positions,
-                self._jitted_cppn_forward,
-                num_cppn_outputs=self.num_cppn_outputs,
-                geometry_seeding_enabled=self.geometry_seeding_enabled,
+        record = self._last_eval
+        if record is None:
+            raise RuntimeError(
+                "evaluate_on_data scores the champion of the last generation this model ran "
+                "with run_generation_verbose (standard or streaming execution, one task); run "
+                "a generation first. Depth offload, multi-task generations and the multi-GPU "
+                "strategies record no champion"
             )
-            # self_conn_outputs: (pop_size, num_positions, num_cppn_outputs)
-            # Extract best genome (index 0), activation channel
-            act_output_idx = self._cppn_output_indices.get('activation', 1)
-            activation_raw = self_conn_outputs[0, :, act_output_idx]  # (num_positions,)
-            activation_raw = jnp.where(mask_best, activation_raw, 0.0)
+        population = self._compiled_ask(state)
+        champion_nodes, champion_conns = record['champion_genome']
+        if not (np.array_equal(np.asarray(population[0][0]), champion_nodes, equal_nan=True)
+                and np.array_equal(np.asarray(population[1][0]), champion_conns,
+                                   equal_nan=True)):
+            raise ValueError(
+                "evaluate_on_data scores the champion of the last generation this model ran, "
+                "and the state passed is not the one that generation returned"
+            )
 
-            num_activations = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
-            act_indices = continuous_to_index(activation_raw, num_activations)
-            if self.df_palette is not None:
-                act_indices = self.df_palette[act_indices]
+        inputs = jnp.asarray(inputs, dtype=jnp.float32)
+        targets = jnp.asarray(targets, dtype=jnp.float32)
+        forward_one = record['forward_one']
+        fitness_mode = self.fitness_mode
 
-        elif self.dynamic_functions_mode == 'cppn_output' and self.num_cppn_outputs == 1:
-            # Single-output CPPN: derive activation from mean of W1
-            activation_raw = jnp.mean(W1_best, axis=0)  # (total_positions,)
-            num_activations = len(self.df_palette) if self.df_palette is not None else self.df_num_activations
-            act_indices = continuous_to_index(activation_raw, num_activations)
-            if self.df_palette is not None:
-                act_indices = self.df_palette[act_indices]
+        def score(*args):
+            outputs = forward_one(inputs, *args)
+            return outputs, _eval_single_fitness(outputs, targets, fitness_mode)
 
-        elif self.dynamic_functions_mode == 'global':
-            # Global mode: all nodes use the same activation (stored in self._hidden_act_func)
-            act_name = getattr(self, 'df_global_activation', 'tanh')
-            act_func = ACTIVATION_FUNCTIONS.get(act_name, jnp.tanh)
-            hidden_pre = inputs @ W1_best  # (n_samples, total_positions)
-            hidden = act_func(hidden_pre)
-            output_act_name = getattr(self, 'df_output_activation', 'sigmoid')
-            output_act = ACTIVATION_FUNCTIONS.get(output_act_name, jax.nn.sigmoid)
-            outputs = output_act(hidden @ W2_best)
-            # Recompute metrics
-            errors = (outputs - targets) ** 2
-            mse = float(jnp.mean(errors))
-            fitness = max(0.0, min(1.0, 1.0 - mse))
-            sample_errors = jnp.mean(errors, axis=1)
-            result.update({
-                'mse': mse, 'fitness': fitness,
-                'mse_std': float(jnp.std(sample_errors)),
-                'mse_min': float(jnp.min(sample_errors)),
-                'mse_max': float(jnp.max(sample_errors)),
-                'mse_median': float(jnp.median(sample_errors)),
-                'dynamic_functions_mode': 'global',
-                'global_activation': act_name,
-            })
-            return result
+        # vmapped over the champion's two copies, as the generation vmapped the population
+        outputs, fitness = jax.vmap(score)(*record['champion_args'])
+        if self._fitness_rescale_variance is not None:
+            fitness = jnp.maximum(
+                0.0, 1.0 - (1.0 - fitness) / self._fitness_rescale_variance
+            )
+        outputs = outputs[0]
+        errors = (outputs - targets) ** 2
+        sample_errors = jnp.mean(errors, axis=1)
 
-        # If we have per-node activation indices, recompute forward pass
-        if act_indices is not None:
-            hidden_pre = inputs @ W1_best  # (n_samples, total_positions)
-
-            # Apply per-node activations
-            if self.df_palette is not None:
-                hidden = grouped_activation_forward_with_palette(
-                    hidden_pre, act_indices, jnp.array(self.df_palette)
-                )
-            else:
-                num_activations = getattr(self, 'df_num_activations', 6)
-                hidden = grouped_activation_forward(hidden_pre, act_indices, num_activations)
-
-            # Output activation
-            output_act_name = getattr(self, 'df_output_activation', 'sigmoid')
-            output_act = ACTIVATION_FUNCTIONS.get(output_act_name, jax.nn.sigmoid)
-            outputs = output_act(hidden @ W2_best)
-
-            # Recompute metrics
-            errors = (outputs - targets) ** 2
-            mse = float(jnp.mean(errors))
-            fitness = max(0.0, min(1.0, 1.0 - mse))
-            sample_errors = jnp.mean(errors, axis=1)
-
-            # Build activation name counts for logging
-            act_indices_np = np.array(act_indices)
-            act_names = {}
-            for idx in range(len(ACTIVATION_LIST)):
-                count = int(np.sum(act_indices_np == idx))
-                if count > 0:
-                    act_names[ACTIVATION_LIST[idx]] = count
-
-            # Build per-level activation counts
-            activation_counts_per_level = {}
-            if h_grid is not None and hasattr(h_grid, 'level_offsets_static'):
-                offsets = h_grid.level_offsets_static
-                num_levels = len(offsets) - 1
-                for lvl in range(num_levels):
-                    lvl_start = offsets[lvl]
-                    lvl_end = offsets[lvl + 1]
-                    lvl_indices = act_indices_np[lvl_start:lvl_end]
-                    lvl_counts = {}
-                    for idx in range(len(ACTIVATION_LIST)):
-                        count = int(np.sum(lvl_indices == idx))
-                        if count > 0:
-                            lvl_counts[ACTIVATION_LIST[idx]] = count
-                    activation_counts_per_level[f'level_{lvl}'] = {
-                        'num_positions': int(lvl_end - lvl_start),
-                        'counts': lvl_counts,
-                    }
-
-            result.update({
-                'mse': mse, 'fitness': fitness,
-                'mse_std': float(jnp.std(sample_errors)),
-                'mse_min': float(jnp.min(sample_errors)),
-                'mse_max': float(jnp.max(sample_errors)),
-                'mse_median': float(jnp.median(sample_errors)),
-                'dynamic_functions_mode': self.dynamic_functions_mode,
-                'activation_counts': act_names,
-                'activation_counts_per_level': activation_counts_per_level,
-                'num_activations_used': len(act_names),
-            })
-
+        h_grid = get_hierarchical_grid(self.max_depth)
+        mask_full = record['mask_full']
+        W1_best, W2_best = record['W1_full'], record['W2_full']
+        W1_nonzero = int(jnp.sum(jnp.abs(W1_best) > 0))
+        W2_nonzero = int(jnp.sum(jnp.abs(W2_best) > 0))
+        W1_flat, W2_flat = W1_best.flatten(), W2_best.flatten()
+        W1_active = W1_flat[jnp.abs(W1_flat) > 0]
+        W2_active = W2_flat[jnp.abs(W2_flat) > 0]
+        result: Dict[str, Any] = {
+            'mse': float(jnp.mean(errors)),
+            'fitness': float(fitness[0]),
+            'n_samples': int(inputs.shape[0]),
+            'mse_std': float(jnp.std(sample_errors)),
+            'mse_min': float(jnp.min(sample_errors)),
+            'mse_max': float(jnp.max(sample_errors)),
+            'mse_median': float(jnp.median(sample_errors)),
+            'active_hidden_nodes': int(np.sum(mask_full)),
+            'total_positions': h_grid.total_positions,
+            'total_connections': W1_nonzero + W2_nonzero,
+            'input_connections': W1_nonzero,
+            'output_connections': W2_nonzero,
+            'w1_mean': float(jnp.mean(W1_active)) if W1_active.size else 0.0,
+            'w1_std': float(jnp.std(W1_active)) if W1_active.size else 0.0,
+            'w2_mean': float(jnp.mean(W2_active)) if W2_active.size else 0.0,
+            'w2_std': float(jnp.std(W2_active)) if W2_active.size else 0.0,
+            '_mask': mask_full,
+            '_W1': W1_best,
+            '_W2': W2_best,
+            '_h_grid': h_grid,
+            'champion_index': record['champion_index'],
+            'generation': record['generation'],
+            'training_fitness': record['champion_fitness'],
+            'dynamic_functions_mode': self.dynamic_functions_mode,
+        }
+        if self.dynamic_functions_mode != 'disabled':
+            result.update(self._champion_activation_counts(record, h_grid))
         return result
+
+    def _champion_activation_counts(self, record: Dict[str, Any], h_grid: Any) -> Dict[str, Any]:
+        """How many of the champion's hidden nodes use each activation, overall and per level.
+
+        Hidden nodes only: positions the mask drops compute nothing. In 0.1.0 the counts
+        included them, decoded at a raw output of 0, which inflated the middle function.
+        """
+        mask = np.asarray(record['mask_eval'], dtype=bool)
+        positions = (record['eval_positions'] if record['eval_positions'] is not None
+                     else np.arange(mask.shape[0]))
+        if record['act_indices'] is not None:
+            names = np.array([ACTIVATION_LIST[i] for i in np.asarray(record['act_indices'])])
+        else:
+            one = (self.df_hidden_activation if self.dynamic_functions_mode == 'global'
+                   else 'tanh')
+            names = np.full(mask.shape[0], one)
+        live_names, live_positions = names[mask], np.asarray(positions)[mask]
+
+        def counts(selected):
+            values, numbers = np.unique(selected, return_counts=True)
+            return {str(v): int(n) for v, n in zip(values, numbers)}
+
+        offsets = h_grid.level_offsets_static
+        per_level = {}
+        for level in range(len(offsets) - 1):
+            in_level = (live_positions >= offsets[level]) & (live_positions < offsets[level + 1])
+            per_level[f'level_{level}'] = {
+                'num_positions': int(offsets[level + 1] - offsets[level]),
+                'num_hidden_nodes': int(np.sum(in_level)),
+                'counts': counts(live_names[in_level]),
+            }
+        overall = counts(live_names)
+        return {
+            'activation_counts': overall,
+            'activation_counts_per_level': per_level,
+            'num_activations_used': len(overall),
+        }
 
     # ========================================================================
     # Multi-GPU run_until_threshold() Override
     # ========================================================================
+
+    #: The strategies run_until_threshold runs on more than one device (each on one when only one is visible).
+    MULTI_DEVICE_ROUTES = (MultiGPUStrategy.FULL_PIPELINE_PARALLEL, MultiGPUStrategy.EVAL_ONLY_PARALLEL,
+                           MultiGPUStrategy.POPULATION_PARALLEL_PROCESS)
+
+    def get_num_devices(self) -> int:
+        """Devices the strategy's route in run_until_threshold uses.
+
+        Every visible device for FULL_PIPELINE_PARALLEL, EVAL_ONLY_PARALLEL and POPULATION_PARALLEL_PROCESS; one for
+        SINGLE_GPU, SINGLE_GPU_PYTHON_LOOP and STREAMING. run_until_threshold runs the three multi-device routes on one
+        device when only one is visible, and FULL_PIPELINE_PARALLEL also on an exhaustive or small dataset; its result
+        records the devices a run used. The base class counted devices by the name.
+
+        Returns:
+            The number of devices.
+        """
+        return len(jax.devices()) if self.strategy in self.MULTI_DEVICE_ROUTES else 1
+
+    @staticmethod
+    def _record_route(result: Dict[str, Any], route: str, devices: int) -> Dict[str, Any]:
+        """Records the route run_until_threshold took, the devices it used and the execution mode it ran.
+
+        A strategy name alone does not say that FULL_PIPELINE_PARALLEL runs one device on an exhaustive dataset such
+        as XOR, so a run could carry a multi-device label it did not run. The one-device route reports its own mode (depth offload replaces the generation even under the
+        STREAMING route); the multi-device routes run their own on-device pipeline, 'standard'.
+
+        Args:
+            result: The route's result dictionary.
+            route: SINGLE_GPU, STREAMING, FULL_PIPELINE_PARALLEL, EVAL_ONLY_PARALLEL or POPULATION_PARALLEL_PROCESS.
+            devices: The devices the route used.
+
+        Returns:
+            The same dictionary, with 'route', 'devices' and 'execution_mode'.
+        """
+        result['route'] = route
+        result['devices'] = devices
+        result.setdefault('execution_mode', 'standard')
+        return result
+
+    def _refuse_ignored_execution_mode(self, route: str) -> None:
+        """A multi-device route runs its own on-device pipeline: an explicitly configured streaming or depth
+        offload would be ignored, so it is refused. AUTO leaves the choice to the engine, and the route's record says
+        'standard'.
+
+        Raises:
+            ValueError: execution.mode is streaming or depth_offload.
+        """
+        if self.execution_config.mode in (ExecutionMode.STREAMING, ExecutionMode.DEPTH_OFFLOAD):
+            raise ValueError(
+                f"{route} runs its own on-device pipeline and would ignore execution.mode "
+                f"{self.execution_config.mode.value!r}; use SINGLE_GPU or STREAMING for a memory mode")
 
     def run_until_threshold(
         self,
@@ -9252,7 +10794,15 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             streaming_chunk_size: Chunk size for streaming (unused in extended)
 
         Returns:
-            Dict with 'generations', 'best_fitness', 'state', 'history' (optional)
+            Dict with 'generations', 'best_fitness', 'state', 'history' (optional), 'route' (the route taken:
+            SINGLE_GPU, STREAMING, FULL_PIPELINE_PARALLEL, EVAL_ONLY_PARALLEL or POPULATION_PARALLEL_PROCESS),
+            'devices' (the devices it used) and 'execution_mode' (the mode it ran: standard, streaming or
+            depth_offload)
+
+        Raises:
+            ValueError: a multi-device route with an explicit execution.mode streaming or depth_offload, which
+                it would ignore; a strategy without a route on two or more devices (assigned to
+                ``self.strategy`` by hand); POPULATION_PARALLEL_PROCESS with features its workers drop.
         """
         num_devices = len(jax.devices())
 
@@ -9274,6 +10824,26 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # Can use data-parallel only if: NOT exhaustive AND enough samples
         can_use_data_parallel = (not is_exhaustive) and has_enough_samples
 
+        # Only run_generation_verbose records a champion for evaluate_on_data; the
+        # multi-GPU loops below record none, and an earlier record would be stale
+        self._last_eval = None
+
+        # In 0.1.0 a strategy with no route below ran the one-device loop under its own name, on
+        # any number of devices. The constructor and the configuration key map every name through
+        # STRATEGY_NAME_MAP and raise for a name without a route, so this guard fires only for a
+        # strategy assigned to self.strategy by hand.
+        routed = (MultiGPUStrategy.FULL_PIPELINE_PARALLEL, MultiGPUStrategy.EVAL_ONLY_PARALLEL,
+                  MultiGPUStrategy.POPULATION_PARALLEL_PROCESS, MultiGPUStrategy.STREAMING)
+        one_device = (MultiGPUStrategy.SINGLE_GPU, MultiGPUStrategy.BASELINE,
+                      MultiGPUStrategy.SINGLE_GPU_PYTHON_LOOP)
+        if num_devices >= 2 and self.strategy not in routed + one_device:
+            raise ValueError(
+                f"strategy {self.strategy.name} has no route in run_until_threshold, which runs "
+                f"SINGLE_GPU, STREAMING, FULL_PIPELINE_PARALLEL, EVAL_ONLY_PARALLEL and "
+                f"POPULATION_PARALLEL_PROCESS; on {num_devices} devices it would run on one. A name "
+                f"given to the constructor or to emr_hyperneat.multi_gpu_strategy maps to one of these "
+                f"(STRATEGY_NAME_MAP), so this strategy was assigned by hand.")
+
         # Route based on strategy
         # ============================================================================
         # 5 AVAILABLE GPU STRATEGIES (legacy aliases normalized at config parsing)
@@ -9292,9 +10862,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                     print(f"  - Sharding {n_samples} samples across GPUs ({n_samples // num_devices} samples/GPU)")
                     print(f"  - Best for: Large statistical datasets (MNIST, ImageNet) where subsets are representative")
                     print(f"  - Each GPU evaluates FULL population on its data shard, fitnesses averaged")
-                    return self._run_until_threshold_data_parallel_full(
+                    self._refuse_ignored_execution_mode('FULL_PIPELINE_PARALLEL')
+                    return self._record_route(self._run_until_threshold_data_parallel_full(
                         state, problem, target_fitness, max_generations, collect_history
-                    )
+                    ), 'FULL_PIPELINE_PARALLEL', num_devices)
                 else:
                     # Cannot use data-parallel sharding - fall back to single GPU
                     # to evaluate each genome on ALL samples for correct fitness
@@ -9308,10 +10879,17 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                         print(f"  - Reason: Dataset too small ({n_samples} samples, need {MIN_SAMPLES_PER_GPU * num_devices}+)")
                         print(f"  - Why fallback: Too few samples per GPU for statistically meaningful fitness")
                         print(f"  - Recommendation: Use POPULATION_PARALLEL_PROCESS, or increase dataset size")
-                    return self._run_until_threshold_single_gpu(
+                    return self._record_route(self._run_until_threshold_single_gpu(
                         state, problem, target_fitness, max_generations, collect_history
-                    )
+                    ), 'SINGLE_GPU', 1)
             elif self.strategy == MultiGPUStrategy.POPULATION_PARALLEL_PROCESS:
+                # The worker processes score tanh nodes and sum aggregation (multi_gpu_worker.py); in
+                # 0.1.0 they did so silently whatever the configuration asked for.
+                dropped = self._features_a_tanh_sum_path_drops() + self._features_offload_drops()
+                if dropped:
+                    raise ValueError(
+                        "POPULATION_PARALLEL_PROCESS evaluates tanh hidden nodes with sum aggregation "
+                        "and 1-MSE, so it would ignore " + ", ".join(dropped) + ". Use SINGLE_GPU.")
                 # ProcessPoolExecutor-based true parallel h→h processing
                 # Each GPU runs in a separate Python process with isolated JAX runtime
                 h_grid = get_hierarchical_grid(self.max_depth)
@@ -9325,9 +10903,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 print(f"  - Splitting population across GPUs, each GPU gets ALL {n_samples} samples")
                 print(f"  - Trade-off: Higher IPC overhead but true parallelism")
 
-                return self._run_until_threshold_device_parallel_process(
+                self._refuse_ignored_execution_mode('POPULATION_PARALLEL_PROCESS')
+                return self._record_route(self._run_until_threshold_device_parallel_process(
                     state, problem, target_fitness, max_generations, collect_history
-                )
+                ), 'POPULATION_PARALLEL_PROCESS', num_devices)
 
             elif self.strategy == MultiGPUStrategy.EVAL_ONLY_PARALLEL:
                 # Native jax.pmap multi-GPU with zero IPC overhead (RECOMMENDED for h→h)
@@ -9343,9 +10922,10 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 print(f"  - Depth {self.max_depth} ({total_positions} positions)")
                 print(f"  - Best for: Recurrent modes where h→h caching saves time")
 
-                return self._run_until_threshold_pmap(
+                self._refuse_ignored_execution_mode('EVAL_ONLY_PARALLEL')
+                return self._record_route(self._run_until_threshold_pmap(
                     state, problem, target_fitness, max_generations, collect_history
-                )
+                ), 'EVAL_ONLY_PARALLEL', num_devices)
 
             elif self.strategy == MultiGPUStrategy.STREAMING:
                 # Streaming: Level-by-level CPPN queries for memory efficiency
@@ -9362,15 +10942,16 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 original_streaming = self.enable_streaming
                 self.enable_streaming = True
                 try:
-                    return self._run_until_threshold_single_gpu(
+                    return self._record_route(self._run_until_threshold_single_gpu(
                         state, problem, target_fitness, max_generations, collect_history
-                    )
+                    ), 'STREAMING', 1)
                 finally:
                     self.enable_streaming = original_streaming
 
         # Fallback for single GPU or when multi-GPU strategies run on single device
-        # Note: Legacy aliases (MULTI_GPU, DATA_PARALLEL, etc.) are normalized to
-        # primary strategies at config parsing time, so only check primary 5 here
+        # Note: Legacy aliases (MULTI_GPU, DATA_PARALLEL, etc.) are mapped to the
+        # primary strategies by the constructor and the configuration key alike
+        # (STRATEGY_NAME_MAP), so only the primary 5 are checked here
         if self.strategy in (
             MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
             MultiGPUStrategy.EVAL_ONLY_PARALLEL,
@@ -9392,20 +10973,23 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             original_streaming = self.enable_streaming
             self.enable_streaming = True
             try:
-                return self._run_until_threshold_single_gpu(
+                return self._record_route(self._run_until_threshold_single_gpu(
                     state, problem, target_fitness, max_generations, collect_history
-                )
+                ), 'STREAMING', 1)
             finally:
                 self.enable_streaming = original_streaming
 
         elif self.strategy == MultiGPUStrategy.SINGLE_GPU:
             print(f"[Strategy] SINGLE_GPU: Using 1 GPU")
             print(f"  - All computation on primary GPU")
+        elif self.strategy not in one_device:
+            print(f"[Strategy] {self.strategy.name} requested on {num_devices} device: "
+                  f"running the one-device loop")
 
         # For single GPU, CPU, or fallback: use run_generation_verbose() loop
-        return self._run_until_threshold_single_gpu(
+        return self._record_route(self._run_until_threshold_single_gpu(
             state, problem, target_fitness, max_generations, collect_history
-        )
+        ), 'SINGLE_GPU', 1)
 
     def _run_until_threshold_single_gpu(
         self,
@@ -9494,6 +11078,9 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             'generations': generation,
             'best_fitness': best_so_far,
             'state': state,
+            # The mode this loop ran (offload replaces the generation, even under the STREAMING route)
+            'execution_mode': ('depth_offload' if _use_offload
+                               else 'streaming' if self.enable_streaming else 'standard'),
         }
         if collect_history:
             result['history'] = history
@@ -10270,19 +11857,16 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         worker_algo_config = {
             'algorithm_params': {
                 'emrhyperneat': {
+                    # The worker builds a TensorNEAT CPPN from this and takes every setting it
+                    # computes with from PersistentWorkerConfig. 0.1.0 also passed activate_time,
+                    # extended_config and neat.species_size here, which nothing read; EMR refuses
+                    # keys it does not read.
                     'emr_hyperneat': {
-                        'initial_depth': 0,
+                        'initial_depth': self.initial_depth,
                         'max_depth': self.max_depth,
                         'variance_threshold': self.variance_threshold,
                         'band_threshold': self.band_threshold,
                         'max_weight': self.max_weight,
-                        'activate_time': self.activate_time,
-                        'extended_config': {
-                            'enabled': self.extended_config.enabled if self.extended_config else False,
-                            'allow_hidden_to_hidden': self.extended_config.allow_hidden_to_hidden if self.extended_config else False,
-                            'iteration_level': self.extended_config.iteration_level if self.extended_config else 0,
-                            'hh_refresh_interval': self.extended_config.hh_refresh_interval if self.extended_config else 1,
-                        },
                     },
                     'substrate': {
                         'input_coords': input_coords_np.tolist(),
@@ -10290,7 +11874,6 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                     },
                     'neat': {
                         'pop_size': pop_size,
-                        'species_size': 10,
                     },
                 }
             }
@@ -11217,7 +12800,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         2. INSIDE PMAP (each GPU):
            - CPPN queries for input→all and output←all
            - Variance/subdivision masks
-           - H→H discovery with multi-hop expansion
+           - H→H discovery (direct connections; iteration level 1 only, no multi-hop expansion)
            - Build W1, W2 matrices
            - Evaluate on data shard
         3. Aggregate fitnesses (mean across GPUs)
@@ -11275,6 +12858,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         inputs_sharded = inputs_padded.reshape(num_devices, per_gpu_samples, -1)
         targets_sharded = targets_padded.reshape(num_devices, per_gpu_samples, -1)
 
+        self._refuse_pmap_pipeline_gaps('FULL_PIPELINE_PARALLEL')
         # Extended config parameters
         allow_hh = self.extended_config.allow_hidden_to_hidden if self.extended_config else False
         iteration_level = self.extended_config.iteration_level if self.extended_config else 0
@@ -11346,6 +12930,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 self.geometry_seeding_enabled,  # STATIC - Risi & Stanley 2012
                 self.initial_depth,          # STATIC
                 self._legacy_level0_variance,  # STATIC (24)
+                *self._hh_class_flags(),  # STATIC (25-27): allow_backward, allow_lateral, allow_self_loops
             )
 
             # Aggregate: average fitness across data shards
@@ -11355,6 +12940,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             # Aggregate h→h counts (same population on each GPU, so take first)
             # Each GPU computes h→h for the full population, they should be identical
             gen_hh_count = int(hh_counts_sharded[0])  # Take from first GPU
+            self._last_pmap_hh_count = gen_hh_count  # for records and tests
             total_hh_count = max(total_hh_count, gen_hh_count)  # Track max across generations
 
             # Aggregate substrate efficiency metrics (same population, take from first GPU)
@@ -11428,6 +13014,8 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             # Cache stats
             cache_hit_count=cache_hit_count,
             cache_refresh_count=cache_refresh_count,
+            # The pmap pipelines discover at level 1 only (levels above 1 are refused on entry).
+            effective_iteration_level=1 if allow_hh else 0,
         )
 
         result = {
@@ -11504,6 +13092,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
         # We need to handle this dynamically since pop_size comes from state
         # Will compute padding inside the loop
 
+        self._refuse_pmap_pipeline_gaps('POPULATION_PARALLEL_SEQUENTIAL')
         # Extended config parameters
         allow_hh = self.extended_config.allow_hidden_to_hidden if self.extended_config else False
         iteration_level = self.extended_config.iteration_level if self.extended_config else 0
@@ -11676,6 +13265,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                             self._jitted_cppn_forward,
                             self.geometry_seeding_enabled,
                             self.initial_depth,
+                            *self._hh_class_flags(),  # STATIC (24-26): allow_backward, allow_lateral, allow_self_loops
                         )
                     else:
                         (fitnesses_sharded, hh_counts_sharded,
@@ -11705,6 +13295,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                             self.geometry_seeding_enabled,
                             self.initial_depth,
                             self._legacy_level0_variance,  # STATIC (24)
+                            *self._hh_class_flags(),  # STATIC (25-27): allow_backward, allow_lateral, allow_self_loops
                         )
 
                     # Extract fitnesses for this chunk (remove padding)
@@ -11722,6 +13313,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                 # Concatenate all chunks
                 fitnesses = jnp.concatenate(all_fitness_chunks)
                 gen_hh_count = int(sum(all_hh_counts))
+                self._last_pmap_hh_count = gen_hh_count  # for records and tests
 
                 # Aggregate substrate efficiency metrics
                 cumulative_active += sum(all_active_sums)
@@ -11784,6 +13376,7 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                         self._jitted_cppn_forward,
                         self.geometry_seeding_enabled,
                         self.initial_depth,
+                        *self._hh_class_flags(),  # STATIC (24-26): allow_backward, allow_lateral, allow_self_loops
                     )
                 else:
                     (fitnesses_sharded, hh_counts_sharded,
@@ -11813,11 +13406,13 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
                         self.geometry_seeding_enabled,
                         self.initial_depth,
                         self._legacy_level0_variance,  # STATIC (24)
+                        *self._hh_class_flags(),  # STATIC (25-27): allow_backward, allow_lateral, allow_self_loops
                     )
 
                 # Gather: concatenate fitnesses and remove padding
                 fitnesses = fitnesses_sharded.reshape(-1)[:pop_size]
                 gen_hh_count = int(jnp.sum(hh_counts_sharded))
+                self._last_pmap_hh_count = gen_hh_count  # for records and tests
 
                 # Aggregate substrate efficiency metrics
                 cumulative_active += float(jnp.sum(active_sums))
@@ -11892,6 +13487,8 @@ class EMRHyperNEAT(EMRHyperNEATMultiGPU):
             # Cache stats
             cache_hit_count=cache_hit_count,
             cache_refresh_count=cache_refresh_count,
+            # The pmap pipelines discover at level 1 only (levels above 1 are refused on entry).
+            effective_iteration_level=1 if allow_hh else 0,
         )
 
         result = {
@@ -12035,6 +13632,29 @@ def _pmap_eval_dense(
 # inside pmap for balanced memory distribution across GPUs.
 
 
+
+def _hh_class_mask_rows(y_all: jnp.ndarray, source_indices: jnp.ndarray, target_indices: jnp.ndarray,
+                        allow_backward: bool, allow_lateral: bool, allow_self_loops: bool) -> jnp.ndarray:
+    """Connection-class mask of the pmap pipelines' inline h->h discovery.
+
+    The rule of ``_get_constraint_mask_fn`` applied to ``source_indices`` rows against
+    ``target_indices`` columns of the hierarchical grid: without ``allow_backward`` a connection
+    needs y_source <= y_target, without ``allow_lateral`` y_source != y_target; a connection from a
+    position to itself is allowed only with ``allow_self_loops``. The flags are Python booleans
+    (static under jit and pmap). In 0.1.0 these pipelines applied no class at all and removed
+    self connections unconditionally, so every preset ran as full recurrence without self loops.
+    """
+    y_src = y_all[source_indices]
+    y_tgt = y_all[target_indices]
+    valid = jnp.ones((source_indices.shape[0], target_indices.shape[0]), dtype=bool)
+    if not allow_backward:
+        valid = valid & (y_src[:, None] <= y_tgt[None, :])
+    if not allow_lateral:
+        valid = valid & (y_src[:, None] != y_tgt[None, :])
+    same = source_indices[:, None] == target_indices[None, :]
+    return (valid | same) if allow_self_loops else (valid & ~same)
+
+
 def _full_pipeline_with_hh_core(
     cppns_transformed: Tuple,
     all_positions: jnp.ndarray,
@@ -12061,11 +13681,15 @@ def _full_pipeline_with_hh_core(
     geometry_seeding_enabled: bool = False,
     initial_depth: int = 0,
     legacy_level0_variance: bool = False,
+    allow_backward: bool = True,
+    allow_lateral: bool = True,
+    allow_self_loops: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Full pipeline with h→h discovery - runs on single GPU inside pmap.
 
     This function replicates the parent class's _full_pipeline_single_gpu logic
-    but adds Phase 2 h→h discovery with multi-hop expansion.
+    but adds Phase 2 h→h discovery of direct connections (iteration level 1; no multi-hop
+    expansion, which is why levels above 1 are refused on entry to this pipeline).
 
     Args:
         cppns_transformed: Transformed CPPNs for this GPU
@@ -12237,6 +13861,10 @@ def _full_pipeline_with_hh_core(
 
         if not use_chunked_hh:
             # Original non-chunked version for smaller grids (depth <= 6)
+            _all_idx = jnp.arange(total_positions)
+            class_mask = _hh_class_mask_rows(all_positions[:, 1], _all_idx, _all_idx,
+                                             allow_backward, allow_lateral, allow_self_loops)
+
             def get_hh_for_genome(cppn_tuple, mask):
                 # Query all→all
                 hh_matrix = jax.vmap(
@@ -12247,9 +13875,8 @@ def _full_pipeline_with_hh_core(
                 hh_matrix = jnp.tanh(hh_matrix) * max_weight
                 valid = (jnp.abs(hh_matrix) > band_threshold) & mask[None, :] & mask[:, None]
 
-                # Remove self-connections
-                diag_mask = ~jnp.eye(total_positions, dtype=bool)
-                valid = valid & diag_mask
+                # Connection class (backward, lateral, self loops) and no self connection unless allowed
+                valid = valid & class_mask
 
                 # Convert to sparse representation
                 flat_valid = valid.flatten()
@@ -12303,10 +13930,13 @@ def _full_pipeline_with_hh_core(
                     source_mask = mask[chunk_source_indices]  # (chunk_size,)
                     valid_chunk = (jnp.abs(hh_chunk) > band_threshold) & source_mask[:, None] & mask[None, :]
 
-                    # Remove self-connections
+                    # Connection class (backward, lateral, self loops) for this chunk's source rows
+
                     target_indices = jnp.arange(total_positions)
-                    self_conn_mask = chunk_source_indices[:, None] != target_indices[None, :]
-                    valid_chunk = valid_chunk & self_conn_mask
+
+                    valid_chunk = valid_chunk & _hh_class_mask_rows(all_positions[:, 1], chunk_source_indices, target_indices,
+
+                                                                    allow_backward, allow_lateral, allow_self_loops)
 
                     # Mask out invalid sources (beyond total_positions)
                     valid_chunk = valid_chunk & valid_source_mask[:, None]
@@ -12456,6 +14086,9 @@ def _single_genome_pipeline_with_hh(
     geometry_seeding_enabled: bool = False,
     initial_depth: int = 0,
     legacy_level0_variance: bool = False,
+    allow_backward: bool = True,
+    allow_lateral: bool = True,
+    allow_self_loops: bool = False,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Process SINGLE genome through full pipeline with h→h discovery.
 
@@ -12612,10 +14245,13 @@ def _single_genome_pipeline_with_hh(
             source_mask_chunk = mask_A[chunk_source_indices]
             valid_chunk = (jnp.abs(hh_chunk) > band_threshold) & source_mask_chunk[:, None] & mask_A[None, :]
 
-            # Remove self-connections
+            # Connection class (backward, lateral, self loops) for this chunk's source rows
+
             target_indices = jnp.arange(total_positions)
-            self_conn_mask = chunk_source_indices[:, None] != target_indices[None, :]
-            valid_chunk = valid_chunk & self_conn_mask
+
+            valid_chunk = valid_chunk & _hh_class_mask_rows(all_positions[:, 1], chunk_source_indices, target_indices,
+
+                                                            allow_backward, allow_lateral, allow_self_loops)
 
             # Mask out invalid sources (beyond total_positions)
             valid_chunk = valid_chunk & valid_source_mask[:, None]
@@ -12693,8 +14329,8 @@ def _single_genome_pipeline_with_hh(
 # This avoids XLA trace explosion from vmap + fori_loop
 @functools.partial(
     jax.pmap,
-    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
-    static_broadcasted_argnums=(10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23),
+    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+    static_broadcasted_argnums=(10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26),
 )
 def _pmap_sequential_pop_parallel_hh(
     cppns_shard,          # 0: sharded (each GPU gets pop slice) - shape (pop_per_gpu, ...)
@@ -12721,6 +14357,9 @@ def _pmap_sequential_pop_parallel_hh(
     cppn_forward,         # STATIC (21)
     geometry_seeding_enabled,  # STATIC (22) - Risi & Stanley 2012 geometry seeding
     initial_depth,        # STATIC (23) - forces subdivision through this level
+    allow_backward=True,  # STATIC (24) - connection class
+    allow_lateral=True,   # STATIC (25)
+    allow_self_loops=False,  # STATIC (26)
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Sequential population-parallel: process genomes one at a time inside pmap.
 
@@ -12760,6 +14399,7 @@ def _pmap_sequential_pop_parallel_hh(
             parent_indices, num_levels, total_positions,
             max_sparse_conns, iteration_level, allow_hh, state, cppn_forward,
             geometry_seeding_enabled, initial_depth,
+            allow_backward=allow_backward, allow_lateral=allow_lateral, allow_self_loops=allow_self_loops,
         )
 
         return None, result
@@ -12793,8 +14433,8 @@ def _pmap_sequential_pop_parallel_hh(
 # NOTE: parent_indices (index 14) contains JAX arrays so NOT static
 @functools.partial(
     jax.pmap,
-    in_axes=(None, None, None, None, 0, 0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
-    static_broadcasted_argnums=(10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 24),
+    in_axes=(None, None, None, None, 0, 0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+    static_broadcasted_argnums=(10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27),
 )
 def _pmap_data_parallel_full_hh(
     cppns_transformed,    # None: replicated
@@ -12822,6 +14462,9 @@ def _pmap_data_parallel_full_hh(
     geometry_seeding_enabled,  # STATIC (22) - Risi & Stanley 2012 geometry seeding
     initial_depth,        # STATIC (23) - forces subdivision through this level
     legacy_level0_variance,  # STATIC (24) - variance_rule: legacy level-0 rule
+    allow_backward=True,  # STATIC (25) - connection class
+    allow_lateral=True,   # STATIC (26)
+    allow_self_loops=False,  # STATIC (27)
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Data-parallel: full population on each GPU, different data slices.
 
@@ -12837,6 +14480,7 @@ def _pmap_data_parallel_full_hh(
         parent_indices, num_levels, total_positions,
         max_sparse_conns, iteration_level, allow_hh, state, cppn_forward,
         geometry_seeding_enabled, initial_depth, legacy_level0_variance,
+        allow_backward, allow_lateral, allow_self_loops,
     )
 
 
@@ -12846,8 +14490,8 @@ def _pmap_data_parallel_full_hh(
 # NOTE: parent_indices (index 14) contains JAX arrays so NOT static
 @functools.partial(
     jax.pmap,
-    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
-    static_broadcasted_argnums=(10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 24),
+    in_axes=(0, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None),
+    static_broadcasted_argnums=(10, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27),
 )
 def _pmap_pop_parallel_hh(
     cppns_shard,          # 0: sharded (each GPU gets pop slice)
@@ -12875,6 +14519,9 @@ def _pmap_pop_parallel_hh(
     geometry_seeding_enabled,  # STATIC (22) - Risi & Stanley 2012 geometry seeding
     initial_depth,        # STATIC (23) - forces subdivision through this level
     legacy_level0_variance,  # STATIC (24) - variance_rule: legacy level-0 rule
+    allow_backward=True,  # STATIC (25) - connection class
+    allow_lateral=True,   # STATIC (26)
+    allow_self_loops=False,  # STATIC (27)
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Population-parallel: full data on each GPU, different pop slices.
 
@@ -12890,6 +14537,7 @@ def _pmap_pop_parallel_hh(
         parent_indices, num_levels, total_positions,
         max_sparse_conns, iteration_level, allow_hh, state, cppn_forward,
         geometry_seeding_enabled, initial_depth, legacy_level0_variance,
+        allow_backward, allow_lateral, allow_self_loops,
     )
 
 

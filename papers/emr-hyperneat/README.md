@@ -5,6 +5,7 @@ Romain Claret, Michael O'Neill, Paul Cotofrei, Kilian Stoffel, GECCO 2026.
 
 > Paper: **[PDF](https://claret.tech/pdf/claret2026emr)** · DOI [10.1145/3795101.3805361](https://doi.org/10.1145/3795101.3805361) (GECCO Companion '26). BibTeX in [Citation](#citation) below.
 > The PDF is hosted at claret.tech, not committed to this repository.
+> Code release: **emr-hyperneat 0.1.0** (tag [`v0.1.0`](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-hyperneat)); run a command below on it with `python scripts/replicate.py run emr-hyperneat -- <command>` from the repository root ([choosing a release](../../docs/reproducing-experiments.md#choosing-a-release)).
 
 This is the paper that introduces **EMR-HyperNEAT** itself: replacing ES-HyperNEAT's
 sequential, CPU-bound quadtree with eager tensor evaluation on a pre-computed

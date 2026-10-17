@@ -24,12 +24,12 @@ env:
   # EMRHyperNEAT instance with the same configuration hits the cache within the same run too.
   JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax_cache
   # Shard assignment for the nightly: every tests/test_*.py file exactly once (a step checks it).
-  # Balanced on measured per-file durations (2026-09-06, 4 workers, warm cache): ~1240 s each.
+  # Balanced on per-file durations measured with 4 workers.
   SHARDS: |
-    1 test_multi_task.py test_hh_cache.py test_smoke.py test_compaction.py test_parity.py
-    2 test_neuromodulation.py test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py
-    3 test_dynamic_functions.py test_recurrence_engages.py test_depth_offload.py test_dynamic_aggregation.py test_hmr_frozen.py test_golden.py test_data_release.py
-    4 test_experimental_features.py test_substrate_building.py test_multi_gpu_strategies.py test_paper_validation.py test_forward_pass_modes.py test_depth_lookahead.py test_discovery_chunking.py test_isolation.py
+    1 test_multi_task.py test_hh_cache.py test_smoke.py test_compaction.py test_parity.py test_recurrent_rule.py test_generation_metrics.py
+    2 test_neuromodulation.py test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py test_substrate_api.py test_compaction_bucketing.py
+    3 test_dynamic_functions.py test_recurrence_engages.py test_depth_offload.py test_depth_offload_gpu.py test_dynamic_aggregation.py test_hmr_frozen.py test_golden.py test_data_release.py test_replicate.py test_substrate_recurrent.py test_pmap_pipeline_class_constraint.py
+    4 test_experimental_features.py test_substrate_building.py test_multi_gpu_strategies.py test_paper_validation.py test_forward_pass_modes.py test_depth_lookahead.py test_discovery_chunking.py test_isolation.py test_hh_discovery_per_genome.py
 
 jobs:
   smoke:
@@ -40,9 +40,9 @@ jobs:
     concurrency:
       group: smoke-${{ github.ref }}
       cancel-in-progress: true
-    # Measured on 2 cores: 31 min without a compilation cache (the old timeouts), 7.7 min with an
-    # empty one (within-run reuse), less once restored; install and smoke add a few minutes.
-    timeout-minutes: 25
+    # Measured on 2 x86 cores with an empty compilation cache (reuse within the run only): smoke
+    # 104 s and the fast gate 1014 s, less once the cache is restored; install adds a few minutes.
+    timeout-minutes: 40
     steps:
       - name: Checkout (with the TensorNEAT submodule)
         uses: actions/checkout@v7

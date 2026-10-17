@@ -5,6 +5,7 @@ Shapes Activation Function Discovery**, PPSN 2026.
 
 > Paper: **[PDF](https://claret.tech/pdf/claret2026bio)** · DOI [10.1007/978-3-032-36217-9_23](https://doi.org/10.1007/978-3-032-36217-9_23) (PPSN 2026). BibTeX in [Citation](#citation) below.
 > The PDF is hosted at claret.tech, not committed to this repository.
+> Code release: **emr-hyperneat 0.1.0** (tag [`v0.1.0`](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-dynamic-functions-bio-inspired)); run a command below on it with `python scripts/replicate.py run emr-dynamic-functions-bio-inspired -- <command>` from the repository root ([choosing a release](../../docs/reproducing-experiments.md#choosing-a-release)).
 
 Where the per-node activation paper showed *that* oscillatory activations matter, this paper
 asks *how evolution discovers them*. It evaluates a library of **bio-inspired palette-evolution

@@ -1025,3 +1025,64 @@ class TestRunUntilThresholdHonorsExecutionMode:
         with pytest.warns(UserWarning, match="offload takes precedence"):
             algorithm.run_until_threshold(
                 state, xor_problem, self.UNREACHABLE_FITNESS, 1)
+
+
+class TestDepthOffloadFollowsTheForwardMode:
+    """Depth offload decides recurrence by the standard path's rule: the forward mode, which
+    follows `allow_hidden_to_hidden`. In 0.1.0 it also required `enabled` and
+    `iteration_level > 0`, so hidden-to-hidden connections at iteration level 0 (direct
+    connections, as at level 1) ran recurrent on the standard path and feed-forward here."""
+
+    @staticmethod
+    def _told(mode, recurrence, generations=2):
+        """The fitness each generation hands to selection, and the path depth offload reports."""
+        import numpy as np
+        config = create_base_config(max_depth=3, population_size=20)
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['recurrence'] = dict(recurrence)
+        # Depth offload evaluates on exactly the union of reached positions. The standard mode's
+        # default pads it to a bucket length, and on x86 a padded sum can round differently (a
+        # genome's fitness by a float32 ulp or two), so both modes run exact shapes here
+        emr['execution'] = {'mode': mode, 'compaction_bucket': 'exact'}
+        # Depth offload splits the key once before selection, the standard path only under
+        # extra_randkey_split: with it, both select from the same population every generation
+        emr['extra_randkey_split'] = True
+        algorithm = EMRHyperNEAT()
+        problem = XORProblem()
+        state = algorithm.initialize(algorithm.create_config(config), problem, seed=DEFAULT_SEED)
+        told, tell = [], algorithm._compiled_tell
+
+        def spy_tell(state_, fitnesses):
+            told.append(np.asarray(fitnesses))
+            return tell(state_, fitnesses)
+
+        algorithm._compiled_tell = spy_tell
+        paths = []
+        for _ in range(generations):
+            state, metrics = algorithm.run_generation(state, problem)
+            paths.append(metrics.custom_metrics.get('mode'))
+        return told, paths
+
+    @pytest.mark.parametrize('iteration_level', [0, 1])
+    def test_standard_and_depth_offload_agree(self, iteration_level):
+        import numpy as np
+        from conftest import GPU_TRAJECTORY_RTOL, exact_backend
+        recurrence = {'allow_hidden_to_hidden': True, 'iteration_level': iteration_level}
+        standard, _ = self._told('standard', recurrence)
+        offload, paths = self._told('depth_offload', recurrence)
+        assert paths == ['recurrent_depth_offload', 'recurrent_depth_offload']
+        assert len(standard) == len(offload) == 2
+        for generation, (expected, actual) in enumerate(zip(standard, offload)):
+            if exact_backend():
+                np.testing.assert_array_equal(actual, expected, err_msg=f'generation {generation}')
+            else:
+                np.testing.assert_allclose(actual, expected, rtol=GPU_TRAJECTORY_RTOL, atol=0,
+                                           err_msg=f'generation {generation}')
+
+    def test_recurrence_switched_off_with_hidden_to_hidden_on_is_refused(self):
+        config = create_base_config(max_depth=3, population_size=20)
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['recurrence'] = {'enabled': False, 'allow_hidden_to_hidden': True}
+        emr['execution'] = {'mode': 'depth_offload'}
+        with pytest.raises(ValueError, match='enabled: false with allow_hidden_to_hidden: true'):
+            EMRHyperNEAT().create_config(config)

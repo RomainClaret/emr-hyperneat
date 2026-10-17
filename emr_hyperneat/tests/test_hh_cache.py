@@ -321,3 +321,31 @@ class TestComprehensiveCache:
 
         assert_no_errors(result)
         assert result.best_fitness > 0.5, f"Interval {interval} should achieve >0.5 fitness"
+
+
+class TestCacheDefault:
+    """The h->h connection cache is off unless the configuration turns it on (since 0.2.0).
+
+    With the cache on, the discovered h->h set is indexed by population slot and reused for up to
+    hh_refresh_interval generations while reproduction moves genomes between slots, so a genome is
+    scored with another genome's recurrent connections between refreshes. The default therefore
+    has to be off; a campaign that wants the cache says so explicitly.
+    """
+
+    def test_default_is_off(self, algorithm, xor_problem):
+        """A recurrence section without the key parses to hh_cache_enabled False."""
+        config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
+        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        del hmr['recurrence']['hh_cache_enabled']
+        config_obj = algorithm.create_config(config)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+
+        assert algorithm.extended_config.hh_cache_enabled is False
+
+    def test_explicit_true_still_honored(self, algorithm, xor_problem):
+        """hh_cache_enabled: true reproduces the cache-on behavior of 0.1.0."""
+        config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
+        config_obj = algorithm.create_config(config)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+
+        assert algorithm.extended_config.hh_cache_enabled is True

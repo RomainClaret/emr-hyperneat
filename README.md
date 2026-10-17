@@ -28,9 +28,11 @@ library together with the code to reproduce the experiments from its papers.
 
 On top of the substrate engine, the package makes the substrate's *computation* evolvable along
 four dimensions: **per-node activation functions** (an 18-function palette instead of one fixed
-nonlinearity), **per-node aggregation** (partial — exercised through the bio-inspired palette
-meta-learning), **neuromodulation** (`[DA, 5HT, NE, ACh]` vectors let one substrate serve several
-tasks), and **hidden-to-hidden recurrence** with a connection cache. Deep substrates run through
+nonlinearity), **per-node aggregation** (global, CPPN-assigned or weight-interpreted; published
+through the bio-inspired palette meta-learning), **neuromodulation** (`[DA, 5HT, NE, ACh]` vectors
+let one substrate serve several tasks), and **hidden-to-hidden recurrence** with an optional
+connection cache (off by default since 0.2.0; see [docs/configuration.md](docs/configuration.md)).
+Deep substrates run through
 memory-bounded execution modes and optional multi-GPU strategies. The mechanism, end to end:
 [docs/architecture.md](docs/architecture.md#how-a-generation-is-computed).
 
@@ -95,7 +97,7 @@ results were produced on (JAX 0.6.1); omit it to run on any JAX in the supported
 
 ## Quick start
 
-The whole public API is one class and four calls — a problem is any plain object exposing
+Evolving takes one class and four calls — a problem is any plain object exposing
 `get_data()` and its shapes:
 
 ```python
@@ -109,6 +111,9 @@ state, metrics = algo.run_generation(state, problem)
 
 A complete runnable XOR example (a per-node `sin` activation solves it in the first generations),
 the `Problem` interface, and multi-task usage: [docs/writing-experiments.md](docs/writing-experiments.md).
+To inspect what evolved, `algo.population_substrates(state)` returns each genome's feed-forward
+substrate exactly as the generation loop builds it
+([the substrate on its own](docs/architecture.md#the-substrate-on-its-own)).
 
 ## Testing
 
@@ -127,12 +132,27 @@ experiment. Full commands, markers, the Linux `vm.max_map_count` note, and local
 Each subdirectory of [`papers/`](papers/) is self-contained (its own runners, analysis, figures, and
 a README with exact reproduction commands). Each paper adds a capability to the same algorithm core.
 
-| Paper | Venue | Adds | PDF | Publication |
-|-------|-------|------|-----|-------------|
-| [`emr-hyperneat`](papers/emr-hyperneat/README.md) | GECCO 2026 | the base EMR algorithm + GPU speedups | [PDF](https://claret.tech/pdf/claret2026emr) | [10.1145/3795101.3805361](https://doi.org/10.1145/3795101.3805361) |
-| [`emr-dynamic-functions`](papers/emr-dynamic-functions/README.md) | ALIFE 2026 | per-node activation function evolution | [PDF](https://claret.tech/pdf/claret2026activations) | [10.1162/ISAL.a.1042](https://doi.org/10.1162/ISAL.a.1042) |
-| [`emr-dynamic-functions-bio-inspired`](papers/emr-dynamic-functions-bio-inspired/README.md) | PPSN 2026 | bio-inspired palette-evolution strategies | [PDF](https://claret.tech/pdf/claret2026bio) | [10.1007/978-3-032-36217-9_23](https://doi.org/10.1007/978-3-032-36217-9_23) |
-| [`emr-neuromodulation`](papers/emr-neuromodulation/README.md) | ALIFE 2026 | neuromodulation for multi-task learning | [PDF](https://claret.tech/pdf/claret2026neuromodulation) | [10.1162/ISAL.a.968](https://doi.org/10.1162/ISAL.a.968) |
+| Paper | Venue | Release | Adds | PDF | Publication |
+|-------|-------|---------|------|-----|-------------|
+| [`emr-hyperneat`](papers/emr-hyperneat/README.md) | GECCO 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-hyperneat) | the base EMR algorithm + GPU speedups | [PDF](https://claret.tech/pdf/claret2026emr) | [10.1145/3795101.3805361](https://doi.org/10.1145/3795101.3805361) |
+| [`emr-dynamic-functions`](papers/emr-dynamic-functions/README.md) | ALIFE 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-dynamic-functions) | per-node activation function evolution | [PDF](https://claret.tech/pdf/claret2026activations) | [10.1162/ISAL.a.1042](https://doi.org/10.1162/ISAL.a.1042) |
+| [`emr-dynamic-functions-bio-inspired`](papers/emr-dynamic-functions-bio-inspired/README.md) | PPSN 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-dynamic-functions-bio-inspired) | bio-inspired palette-evolution strategies | [PDF](https://claret.tech/pdf/claret2026bio) | [10.1007/978-3-032-36217-9_23](https://doi.org/10.1007/978-3-032-36217-9_23) |
+| [`emr-neuromodulation`](papers/emr-neuromodulation/README.md) | ALIFE 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-neuromodulation) | neuromodulation for multi-task learning | [PDF](https://claret.tech/pdf/claret2026neuromodulation) | [10.1162/ISAL.a.968](https://doi.org/10.1162/ISAL.a.968) |
+
+**Each paper names the release its code was published with** (a later paper names the first
+release that contains its folder). `scripts/replicate.py` runs a paper's commands on that release,
+in its own checkout and environment under `.replicate/`:
+
+```bash
+python scripts/replicate.py run emr-dynamic-functions -- python scripts/runners/E1_parity_scaling.py
+```
+
+`--release <version>` picks another release, and `--release current` this checkout. On a CPU,
+0.2.0 gives the per-node paper's runners the same results as 0.1.0; the neuromodulation paper's
+runner departs from 0.1.0 on its default EMR backend, whose species settings 0.2.0 applies (the
+paper's numbers come from its HMR backend, unchanged). The tables and figures regenerate from the
+data release with any release. Details, and the plain-git route:
+[docs/reproducing-experiments.md](docs/reproducing-experiments.md#choosing-a-release).
 
 The repository ships **code only**; result data is a separate Zenodo release fetched with
 `python scripts/fetch_results.py`. How to reproduce each paper, and which experiments run on the
@@ -142,13 +162,13 @@ Data archive (all papers' result JSON), on Zenodo: [![Data release DOI](https://
 
 Some paper runners target the **frozen HMR module** vendored under
 [`emr_hyperneat/_hmr_frozen/`](emr_hyperneat/_hmr_frozen), which reproduces specific published
-tables exactly. It is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned to `variance_rule: legacy` (the package default is `canonical`) and is not part of the
+tables exactly. It is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned to `variance_rule: legacy` (the package default is `canonical`) and is given no `neat_*` settings, and it is not part of the
 public API.
 
 ### Scope
 
 - **Paper features:** the EMR substrate machinery (GECCO), per-node activations and the
-  18-function palette (ALIFE), palette meta-learning with the partial per-node aggregation (PPSN),
+  18-function palette (ALIFE), palette meta-learning with per-node aggregation (PPSN),
   and neuromodulation with multi-task evaluation (ALIFE).
 - **Infrastructure:** the execution modes, memory budgets, compaction, and multi-GPU strategies
   make the deep-substrate results runnable; they change cost, never results.
@@ -159,7 +179,7 @@ public API.
 ## Repository layout
 
 ```
-emr_hyperneat/        installable algorithm package (public API: EMRHyperNEAT)
+emr_hyperneat/        installable algorithm package (public API: EMRHyperNEAT, substrate)
   _compat/            vendored compatibility shim (internal; lets EMR run standalone)
   _hmr_frozen/        frozen HMR module (reproduction only)
   tests/              test suite incl. paper-validation

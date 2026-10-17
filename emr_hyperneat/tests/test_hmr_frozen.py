@@ -69,7 +69,7 @@ def _config(algo_key, section_key, activation):
                 },
                 section_key: {
                     "initial_depth": 0,
-                    # frozen HMR is the pre-0.4 level-0 rule by construction; EMR
+                    # frozen HMR is the original level-0 rule by construction; EMR
                     # must be pinned to the same rule to stay bit-equivalent
                     "variance_rule": "legacy",
                     "max_depth": 2,
@@ -80,12 +80,11 @@ def _config(algo_key, section_key, activation):
                     },
                     # restores HMR's extra per-generation randkey split in EMR
                     "extra_randkey_split": True,
-                    "pop_size": 60,
+                    # (0.1.0's builder also set "pop_size" here, which neither engine reads; the
+                    # population is population_size above)
                 },
-                "neat_species": {
-                    "compatibility_threshold": 2.5,
-                    "max_stagnation": 40,
-                },
+                # No neat_species block: EMR reads it, while the frozen module keeps its own
+                # defaults (compatibility 3.0), so passing one would make the engines differ.
             },
         },
     }

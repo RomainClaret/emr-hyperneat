@@ -4,6 +4,7 @@
 
 > Paper: **[PDF](https://claret.tech/pdf/claret2026neuromodulation)** · DOI [10.1162/ISAL.a.968](https://doi.org/10.1162/ISAL.a.968) (ALIFE 2026). BibTeX in [Citation](#citation) below.
 > The PDF is hosted at claret.tech, not committed to this repository.
+> Code release: **emr-hyperneat 0.1.0** (tag [`v0.1.0`](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-neuromodulation)); run a command below on it with `python scripts/replicate.py run emr-neuromodulation -- <command>` from the repository root ([choosing a release](../../docs/reproducing-experiments.md#choosing-a-release)).
 
 This paper adds **neuromodulation** to EMR-HyperNEAT: per-neuron receptor densities modulated by
 task-specific neurotransmitter vectors `[DA, 5HT, NE, ACh]`, letting one evolved substrate solve

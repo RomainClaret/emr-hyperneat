@@ -133,6 +133,10 @@ def _golden_generation_zero_on_cpu():
         "print('GOLDEN_JSON=' + json.dumps(list(test_golden._golden_generation_zero())))\n"
     )
     env = {**os.environ, "JAX_PLATFORMS": "cpu", "TF_CPP_MIN_LOG_LEVEL": "3"}
+    # As in the paper-validation tests: an inherited JAX_PLATFORM_NAME or JAX_BACKEND_TARGET
+    # of gpu asks JAX for a backend that JAX_PLATFORMS=cpu never loads.
+    env.pop("JAX_PLATFORM_NAME", None)
+    env.pop("JAX_BACKEND_TARGET", None)
     proc = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=900,
     )

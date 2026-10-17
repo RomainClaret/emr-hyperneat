@@ -31,6 +31,7 @@ from typing import Any, Dict, Optional
 __all__ = [
     "ExecutionMode",
     "ExecutionConfig",
+    "EXECUTION_KEYS",
     "resolve_mode",
     "parse_execution_config",
 ]
@@ -95,11 +96,9 @@ class ExecutionConfig:
     Behaviourally identical -- an unreached level contributes exactly zeros through
     `jnp.where(mask & ..., W1_raw, 0.0)` against a pre-zeroed buffer -- but it changes
     the cost profile, so it is on by default and can be turned off. Acts on
-    the depth-offload path only. Measured on the HMR path at 1.88x (d7), 9.51x (d9) and
-    27.17x (d10) with byte-identical reach and fitness, because subdivision stops at
-    level 3 at the default threshold and everything below is empty. (The CHANGELOG's
-    2.37x/9.77x figures are the EMR path at pop 1000; the two sets are different
-    measurements, not a disagreement.)
+    the depth-offload path only. Reach and fitness are the same with it off
+    (`test_depth_lookahead.py`); the saving grows with depth, because at the default
+    threshold subdivision stops at level 3 and every level below is empty.
     """
 
     # --- evaluation chunking ---------------------------------------------
@@ -120,6 +119,20 @@ class ExecutionConfig:
     memmap_path: str = "/tmp/emr_memmap"
     enable_disk_offload: bool = False
     disk_offload_path: str = "/tmp/emr_offload"
+
+    # --- active-set compaction ------------------------------------------------
+    compaction_bucket: str = "auto"
+    """Shape of the compacted recurrent evaluation space: `auto` or `exact`.
+
+    The recurrent evaluation runs on the population's union of reached positions, a size
+    that changes from generation to generation once the union leaves part of the grid unused
+    (depth 3 and deeper). `exact` evaluates on exactly that many positions, so every step
+    after compaction meets a new shape and recompiles (18 to 54 executables per generation
+    on two RTX 2080 Ti at depth 3, population 1000). `auto` pads the compact space to
+    a bucketed size with virtual positions after the real ones: zero weights in and out, no
+    hidden-to-hidden connection, mask False, so a bucket size compiles once and results do
+    not change. Acts on the standard and streaming paths; depth offload keeps exact shapes.
+    """
 
     # --- diagnostics -------------------------------------------------------
     verbose: bool = False
@@ -199,8 +212,12 @@ _DIRECT_KEYS = (
     "memmap_path",
     "enable_disk_offload",
     "disk_offload_path",
+    "compaction_bucket",
     "verbose",
 )
+#: Every key of the `execution:` block; EMRHyperNEAT.create_config raises on any other (0.1.0 ignored
+#: it, so a misspelled setting ran the default).
+EXECUTION_KEYS = frozenset(("mode",) + _DIRECT_KEYS)
 
 
 def parse_execution_config(
@@ -254,5 +271,9 @@ def parse_execution_config(
     for key in _DIRECT_KEYS:
         if key in block:
             setattr(config, key, block[key])
+    if config.compaction_bucket not in ("auto", "exact"):
+        raise ValueError(
+            f"execution.compaction_bucket must be 'auto' or 'exact', got {config.compaction_bucket!r}"
+        )
 
     return config

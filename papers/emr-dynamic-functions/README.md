@@ -4,6 +4,7 @@
 
 > Paper: **[PDF](https://claret.tech/pdf/claret2026activations)** · DOI [10.1162/ISAL.a.1042](https://doi.org/10.1162/ISAL.a.1042) (ALIFE 2026). BibTeX in [Citation](#citation) below.
 > The PDF is hosted at claret.tech, not committed to this repository.
+> Code release: **emr-hyperneat 0.1.0** (tag [`v0.1.0`](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-dynamic-functions)); run a command below on it with `python scripts/replicate.py run emr-dynamic-functions -- <command>` from the repository root ([choosing a release](../../docs/reproducing-experiments.md#choosing-a-release)).
 
 This paper adds **per-node activation function evolution** to EMR-HyperNEAT: instead of a
 single fixed activation, each node's activation is selected from an 18-function palette,

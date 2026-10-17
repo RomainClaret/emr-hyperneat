@@ -35,10 +35,17 @@ The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. The contracts
 computation across layouts (the execution modes, compaction on and off, the scan-chunked evaluation
 against its loop form) are bitwise on XLA:CPU and hold to float32 rounding on a GPU, where kernels
 are chosen per shape; the tests switch on `jax.default_backend()` through
-`conftest.assert_trajectories_agree` (`rtol` 1e-5, set from an RTX 2080 Ti measurement whose largest
-difference was 3.4e-6). Under `pytest-xdist` set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, otherwise every
+`conftest.assert_trajectories_agree` (`rtol` 1e-4, set from an RTX 2080 Ti measurement whose largest
+difference was 3.4e-6). The CPU contracts hold bitwise on the arm64 and x86 processors the suite ran
+on, with one exception on x86: bucketed compaction can round a padded sum differently from `exact`,
+so the comparison of the standard and depth-offload modes runs both at exact shapes. The recurrent
+substrate API's forwards are compared on a GPU in the genomes that one ulp in the weights does not
+move past that tolerance (`test_substrate_recurrent.py`): with dynamic h→h aggregation a GPU's
+forward differs from itself between calls. Under
+`pytest-xdist` set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, otherwise every
 worker preallocates 75% of the first card; and run `test_depth_offload_gpu.py` (marker `cuda`) on its
-own with the default preallocation, because it sizes its depth from the pool XLA reports:
+own with the default preallocation and allocator, because it sizes its depth from the pool XLA
+reports (`XLA_PYTHON_CLIENT_ALLOCATOR=platform` reports none, and its tests skip):
 
 ```bash
 pytest emr_hyperneat/tests/test_depth_offload_gpu.py -m cuda -q
@@ -117,7 +124,7 @@ pytest emr_hyperneat/tests -m "not slow and not golden_cpu"  # when intentionall
 |---|---|---|
 | Push gate (`ci.yml`, job `smoke`) | every push and pull request | the XOR smoke script, then the isolation, configuration, execution-mode, compaction, recurrence, frozen-HMR, data-release, and golden files |
 | Nightly (`ci.yml`, job `full-suite`) | 04:00 UTC daily, or `workflow_dispatch` | the whole non-slow, non-GPU suite, split into shards that run in parallel; each test file is assigned to exactly one shard, and a step fails the job if a new file is not assigned |
-| Paper validation (`paper-validation.yml`) | every push and pull request (fast); dispatch (slow) | the paper-validation tests below |
+| Paper validation (`paper-validation.yml`) | every push and pull request (fast); dispatch (slow, and `replicate`) | the paper-validation tests below; on dispatch, also each paper's own release, through `scripts/replicate.py` |
 | Local only | on a machine with 2+ GPUs | `-m multi_gpu` (45 tests) and `-m slow` |
 
 GitHub-hosted runners have two vCPUs and no GPU. Two things make the
@@ -146,12 +153,20 @@ self-contained. They recompute fresh and do not need the downloaded result data.
 JAX_PLATFORMS=cpu pytest emr_hyperneat/tests/test_paper_validation.py -m "paper and not slow" -q
 ```
 
+Their golden values were recorded on each paper's own release, so they check that the current
+release still gives a paper's results. The `replicate` job (manual dispatch) checks the other
+direction: it builds every release that `papers/releases.json` names with `scripts/replicate.py`
+and runs that release's own fast paper findings in its checkout
+([choosing a release](reproducing-experiments.md#choosing-a-release)). `test_replicate.py` checks
+the script without network or installs: the release map against `papers/` and the READMEs, and
+its git steps in a temporary repository with a tag.
+
 ## Validating the GitHub Actions locally with `act`
 
 CI is defined in `.github/workflows/`: `ci.yml` (the push gate and the sharded nightly) and
-`paper-validation.yml` (a fast job on push/PR, a slow job on manual dispatch). Both run locally
-with [`act`](https://github.com/nektos/act) (also available as the `gh act` extension) and
-Docker. Pin the runner image once in `~/.actrc`:
+`paper-validation.yml` (a fast job on push/PR; a slow job and `replicate` on manual dispatch).
+Both run locally with [`act`](https://github.com/nektos/act) (also available as the `gh act`
+extension) and Docker. Pin the runner image once in `~/.actrc`:
 
 ```
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
@@ -174,6 +189,7 @@ act workflow_dispatch -W .github/workflows/ci.yml -j full-suite --matrix shard:1
 # The paper-validation jobs:
 act -W .github/workflows/paper-validation.yml -j paper-validation
 act workflow_dispatch -W .github/workflows/paper-validation.yml -j paper-validation-slow
+act workflow_dispatch -W .github/workflows/paper-validation.yml -j replicate  # needs the tags
 ```
 
 Notes:

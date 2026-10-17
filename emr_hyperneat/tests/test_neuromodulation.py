@@ -390,7 +390,7 @@ class TestComprehensiveNeuromodulation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
         }
         hmr['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
 
@@ -462,7 +462,6 @@ class TestContextSource:
         hmr['neuromodulation'] = {
             'enabled': True,
             'mode': 'context_gating',
-            'gate_from_cppn': True,
             'context_dim': 4,
             'context_source': context_source,
         }
@@ -626,11 +625,136 @@ class TestOutputInversion:
         assert_no_errors(result)
 
 
+class TestNeuromodulationNodeRule:
+    """One neuromodulated node for every path: the paper's rule by default, HMR FULL's as an opt-in.
+
+    In 0.1.0 the single-task path computed HMR FULL's rule (unclipped gain, no bias, gate
+    sigmoid(5 m)) while the multi-task path computed the published one (gain clipped to [0.1, 5],
+    additive bias, gate sigmoid(m)), and the multi-task output inversion read nt[3] whatever the
+    channel count.
+    """
+
+    @staticmethod
+    def _node_inputs():
+        import jax.numpy as jnp
+        receptors = jnp.array([[0.5, -0.2, 0.1, 0.9], [-0.3, 0.8, 0.4, 0.0], [1.0, 1.0, 1.0, 1.0]])
+        base_gains = jnp.array([0.6, 1.2, 0.9])
+        nt = jnp.array([0.5, 0.3, 0.7, 0.2])
+        pre = jnp.array([[0.4, -1.1, 2.0], [-0.5, 0.2, 0.3]])
+        return receptors, base_gains, nt, pre
+
+    @pytest.mark.parametrize('rule', ['paper', 'hmr_full'])
+    @pytest.mark.parametrize('mode', ['full', 'gating_only', 'gain_bias_only'])
+    def test_node_formulas(self, rule, mode):
+        import jax.numpy as jnp
+        import numpy as np
+        from emr_hyperneat.emrhyperneat import true_neuromodulation_node_fn
+        receptors, base_gains, nt, pre = self._node_inputs()
+        s = 2.5
+        m = np.asarray(receptors)[:, :3] @ np.asarray(nt)[:3]
+        sig = lambda x: 1 / (1 + np.exp(-x))  # noqa: E731
+        if rule == 'paper':
+            gains = np.clip(np.asarray(base_gains) + s * m, 0.1, 5.0)
+            expected = {'full': np.tanh(gains * pre + s * m) * sig(m),
+                        'gating_only': np.tanh(pre) * sig(m * s),
+                        'gain_bias_only': np.tanh(gains * pre + s * m)}[mode]
+        else:
+            gains = np.asarray(base_gains) + s * m
+            expected = {'full': np.tanh(gains * pre) * sig(5 * m),
+                        'gating_only': np.tanh(pre) * sig(5 * m),
+                        'gain_bias_only': np.tanh(gains * pre)}[mode]
+        node = true_neuromodulation_node_fn(jnp.tanh, receptors, base_gains, nt, s, 4, mode, rule)
+        np.testing.assert_allclose(np.asarray(node(pre)), expected, rtol=1e-5, atol=1e-6)
+
+    def test_inversion_needs_four_channels(self):
+        import jax.numpy as jnp
+        import numpy as np
+        from emr_hyperneat.emrhyperneat import invert_outputs
+        outputs = jnp.array([0.2, 0.9])
+        np.testing.assert_allclose(invert_outputs(outputs, jnp.array([0.4, 0.0]), True, 2), outputs)
+        np.testing.assert_allclose(
+            invert_outputs(outputs, jnp.array([0.1, 0.1, 0.1, 0.0]), True, 4), 1 - outputs)
+        np.testing.assert_allclose(
+            invert_outputs(outputs, jnp.array([0.1, 0.1, 0.1, 2.0]), True, 4), outputs)
+        np.testing.assert_allclose(
+            invert_outputs(outputs, jnp.array([0.1, 0.1, 0.1, 0.0]), False, 4), outputs)
+
+    @pytest.mark.parametrize('mode', ['full', 'gating_only', 'gain_bias_only'])
+    def test_single_task_equals_multitask_evaluator(self, algorithm, xor_problem, mode):
+        """A single-task generation's fitness equals the multi-task evaluator's on the same
+        networks and NT vector."""
+        import jax.numpy as jnp
+        import numpy as np
+        config = create_config_with_neuromodulation(
+            'true_neuromodulation_4nt', recurrence_preset='feedforward', population_size=20,
+            modulation_mode=mode)
+        state = algorithm.initialize(algorithm.create_config(config), xor_problem, seed=DEFAULT_SEED)
+        algorithm.run_generation(state, xor_problem)
+        single = np.asarray(algorithm._cached_fitnesses)
+        other = np.asarray(algorithm.evaluate_with_neurotransmitter(
+            jnp.array([0.5, 0.5, 0.5, 1.0]), algorithm._cached_inputs, algorithm._cached_targets,
+            activation_name='tanh', fitness_mode='mse', modulation_mode=mode))
+        np.testing.assert_allclose(single, other, rtol=1e-6, atol=1e-7)
+
+    def test_unknown_rule_raises(self, algorithm):
+        config = create_config_with_neuromodulation(
+            'true_neuromodulation_4nt', recurrence_preset='feedforward', node_rule='mean_field')
+        with pytest.raises(ValueError, match='node_rule must be one of'):
+            algorithm.create_config(config)
+
+    def test_two_module_set_after_create_config_refuses_hmr_full(self, algorithm,
+                                                                 two_task_problems):
+        """A runner may set two_module_mode on the multi-task configuration after create_config;
+        the modules compute the paper's rule, so 'hmr_full' is refused there too."""
+        import dataclasses
+        from conftest import create_config_with_multi_task
+        config = create_config_with_multi_task(task_names=two_task_problems['task_names'])
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['recurrence'] = {'preset': 'feedforward'}
+        emr['neuromodulation']['node_rule'] = 'hmr_full'
+        state = algorithm.initialize(algorithm.create_config(config),
+                                     two_task_problems['problems'][0], seed=DEFAULT_SEED)
+        algorithm.multitask_config = dataclasses.replace(algorithm.multitask_config,
+                                                         two_module_mode='parallel')
+        with pytest.raises(ValueError, match='not applied by multitask.two_module_mode'):
+            algorithm.run_generation_multitask(state, problems=two_task_problems['problems'],
+                                               neurotransmitters=two_task_problems['nt_vectors'])
+
+    def test_one_network_wrapper_forwards_the_rule(self):
+        """eval_single_network_hybrid_neuromodulated passes node_rule to the forward."""
+        import jax
+        import jax.numpy as jnp
+        import numpy as np
+        from emr_hyperneat.emrhyperneat import (
+            eval_single_network_hybrid_neuromodulated,
+            forward_hybrid_vmapped_neuromodulated,
+        )
+        keys = jax.random.split(jax.random.PRNGKey(3), 4)
+        inputs = jnp.array([[0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 1.0]])
+        targets = jnp.array([[0.0], [1.0], [1.0], [0.0]])
+        W1 = jax.random.normal(keys[0], (3, 5))
+        W2 = jax.random.normal(keys[1], (5, 1))
+        receptors = jax.random.uniform(keys[2], (5, 4), minval=-1.0, maxval=1.0)
+        base_gains = jax.random.uniform(keys[3], (5,), minval=0.5, maxval=1.5)
+        nt = jnp.array([0.5, 0.3, 0.7, 1.0])
+        empty = (jnp.zeros(1, jnp.int32), jnp.zeros(1, jnp.int32), jnp.zeros(1), jnp.zeros(1, bool))
+        fitness = {}
+        for rule in ('paper', 'hmr_full'):
+            fitness[rule] = float(eval_single_network_hybrid_neuromodulated(
+                W1, W2, *empty, inputs, targets, 1, receptors, base_gains, nt, 2.5, node_rule=rule))
+            outputs = forward_hybrid_vmapped_neuromodulated(
+                inputs, W1, W2, *empty, 1, receptors, base_gains, nt, 2.5, node_rule=rule)
+            np.testing.assert_allclose(
+                fitness[rule], 1.0 - float(jnp.mean((outputs - targets) ** 2)), rtol=1e-6)
+        assert fitness['paper'] != fitness['hmr_full']
+
+
 class TestBranchGating:
     """Tests for branch_gating in neuromodulation."""
 
     def test_branch_gating_enabled(self, algorithm, xor_problem):
-        """Verify branch gating can be enabled."""
+        """Branch gating is not implemented (the function is never called), so enabling it raises;
+        this test used to pass on the ignored key."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -646,9 +770,8 @@ class TestBranchGating:
             'receptor_derivation': 'tanh',
             'branch_gating': True,
         }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
+        with pytest.raises(ValueError, match='branch_gating is not implemented'):
+            algorithm.create_config(config)
 
     def test_branch_gating_disabled(self, algorithm, xor_problem):
         """Verify branch gating can be disabled (default)."""
@@ -672,7 +795,7 @@ class TestBranchGating:
         assert_no_errors(result)
 
     def test_branch_gating_with_static_gating(self, algorithm, xor_problem):
-        """Verify branch gating works with static gating mode."""
+        """Branch gating with static gating raises too (not implemented)."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -684,24 +807,22 @@ class TestBranchGating:
         hmr['neuromodulation'] = {
             'enabled': True,
             'mode': 'static_gating',
-            'gate_from_cppn': True,
             'branch_gating': True,
         }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
+        with pytest.raises(ValueError, match='branch_gating is not implemented'):
+            algorithm.create_config(config)
 
 
 class TestContextDerivation:
-    """Tests for context_derivation parameter in context gating neuromodulation.
+    """Context gating's context: context_dim, and context_derivation refused.
 
-    The context_derivation parameter controls how context vectors are derived:
-    - 'mean': Simple mean of input features to derive context
-    - 'statistics': Use statistical features (mean, variance) for richer context
+    context_derivation ('mean', 'statistics') was never read by any engine, EMR or HMR; the tests
+    that set it only asserted that a run had no error. It raises, naming
+    context_source, which chooses the context.
     """
 
-    def test_context_derivation_default(self, algorithm, xor_problem):
-        """Verify context gating uses default context_derivation when not specified."""
+    @staticmethod
+    def _context_gating_config(**neuromodulation):
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -710,124 +831,27 @@ class TestContextDerivation:
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
-            'enabled': True,
-            'mode': 'context_gating',
-            'context_dim': 4,
-            # context_derivation not specified - should use default
-        }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
+        hmr['neuromodulation'] = {'enabled': True, 'mode': 'context_gating', 'context_dim': 4, **neuromodulation}
+        return config
 
+    def test_context_gating_default(self, algorithm, xor_problem):
+        """Verify context gating runs with its default context."""
+        result = run_quick_evolution(algorithm, self._context_gating_config(), xor_problem,
+                                     generations=QUICK_GENERATIONS)
         assert_no_errors(result)
         assert_positive_fitness(result)
 
-    def test_context_derivation_mean(self, algorithm, xor_problem):
-        """Verify 'mean' context derivation method works."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
-            'preset': 'hidden_only',
-            'enabled': True,
-            'allow_hidden_to_hidden': True,
-            'iteration_level': 2,
-        }
-        hmr['neuromodulation'] = {
-            'enabled': True,
-            'mode': 'context_gating',
-            'context_dim': 4,
-            'context_derivation': 'mean',
-        }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
+    @pytest.mark.parametrize('context_dim', [2, 8])
+    def test_context_gating_dims(self, algorithm, xor_problem, context_dim):
+        """Verify context gating runs with other context dimensions."""
+        result = run_quick_evolution(algorithm, self._context_gating_config(context_dim=context_dim),
+                                     xor_problem, generations=QUICK_GENERATIONS)
+        assert_no_errors(result, f"context_dim={context_dim} failed")
 
-        assert_no_errors(result, "context_derivation='mean' failed")
-        assert_positive_fitness(result)
-
-    def test_context_derivation_statistics(self, algorithm, xor_problem):
-        """Verify 'statistics' context derivation method works."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
-            'preset': 'hidden_only',
-            'enabled': True,
-            'allow_hidden_to_hidden': True,
-            'iteration_level': 2,
-        }
-        hmr['neuromodulation'] = {
-            'enabled': True,
-            'mode': 'context_gating',
-            'context_dim': 4,
-            'context_derivation': 'statistics',
-        }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, "context_derivation='statistics' failed")
-        assert_positive_fitness(result)
-
-    @pytest.mark.parametrize("derivation", ['mean', 'statistics'])
-    def test_context_derivation_with_context_gating(self, algorithm, xor_problem, derivation):
-        """Verify all context_derivation methods work with context gating mode."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
-            'preset': 'hidden_only',
-            'enabled': True,
-            'allow_hidden_to_hidden': True,
-            'iteration_level': 2,
-        }
-        hmr['neuromodulation'] = {
-            'enabled': True,
-            'mode': 'context_gating',
-            'gate_from_cppn': True,
-            'context_dim': 4,
-            'context_source': 'input',
-            'context_derivation': derivation,
-        }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result, f"context_derivation='{derivation}' with context_gating failed")
-        assert_positive_fitness(result)
-
-    def test_context_derivation_mean_with_different_dims(self, algorithm, xor_problem):
-        """Verify 'mean' context derivation works with different context dimensions."""
-        for context_dim in [2, 4, 8]:
-            config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['recurrence'] = {
-                'preset': 'hidden_only',
-                'enabled': True,
-                'allow_hidden_to_hidden': True,
-                'iteration_level': 2,
-            }
-            hmr['neuromodulation'] = {
-                'enabled': True,
-                'mode': 'context_gating',
-                'context_dim': context_dim,
-                'context_derivation': 'mean',
-            }
-            result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-            assert_no_errors(result, f"context_derivation='mean' with dim={context_dim} failed")
-
-    def test_context_derivation_statistics_with_different_dims(self, algorithm, xor_problem):
-        """Verify 'statistics' context derivation works with different context dimensions."""
-        for context_dim in [2, 4, 8]:
-            config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['recurrence'] = {
-                'preset': 'hidden_only',
-                'enabled': True,
-                'allow_hidden_to_hidden': True,
-                'iteration_level': 2,
-            }
-            hmr['neuromodulation'] = {
-                'enabled': True,
-                'mode': 'context_gating',
-                'context_dim': context_dim,
-                'context_derivation': 'statistics',
-            }
-            result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-            assert_no_errors(result, f"context_derivation='statistics' with dim={context_dim} failed")
+    @pytest.mark.parametrize('derivation', ['mean', 'statistics'])
+    def test_context_derivation_refused(self, algorithm, derivation):
+        with pytest.raises(ValueError, match='context_derivation is not a setting.*context_source'):
+            algorithm.create_config(self._context_gating_config(context_derivation=derivation))
 
 
 # =============================================================================
@@ -857,7 +881,6 @@ class TestGateHardness:
         hmr['neuromodulation'] = {
             'enabled': True,
             'mode': 'static_gating',
-            'gate_from_cppn': True,
             'gate_scaling': 'soft_threshold',
             'gate_hardness': hardness,
         }
@@ -878,7 +901,6 @@ class TestGateHardness:
         hmr['neuromodulation'] = {
             'enabled': True,
             'mode': 'static_gating',
-            'gate_from_cppn': True,
             'gate_scaling': 'soft_threshold',
             # gate_hardness not specified - uses default 10.0
         }
@@ -902,7 +924,6 @@ class TestGateHardness:
             hmr['neuromodulation'] = {
                 'enabled': True,
                 'mode': 'static_gating',
-                'gate_from_cppn': True,
                 'gate_scaling': 'soft_threshold',
                 'gate_hardness': hardness,
             }
@@ -927,7 +948,6 @@ class TestGateHardness:
             hmr['neuromodulation'] = {
                 'enabled': True,
                 'mode': 'static_gating',
-                'gate_from_cppn': True,
                 'gate_scaling': 'soft_threshold',
                 'gate_hardness': hardness,
             }
@@ -1035,14 +1055,13 @@ class TestCombinedNeuromodulationLevels:
             'enabled': True,
             'mode': 'modulatory_neurons',  # Level 3
             'static_gating': True,  # Also enable Level 1
-            'gate_from_cppn': True,
             'mod_neuron_ratio': 0.1,
             'mod_connection_type': 'multiplicative',
         }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
+        # EMR evaluates one level per run; the level flag was never read, so this ran the mode's level alone.
+        # It raises: one mode is one level, and HMR's level combinations are not part of EMR.
+        with pytest.raises(ValueError, match='neuromodulation.static_gating is not a setting'):
+            algorithm.create_config(config)
 
     def test_context_gating_with_static_gating(self, algorithm, xor_problem):
         """Verify context gating + static gating combination."""
@@ -1058,14 +1077,13 @@ class TestCombinedNeuromodulationLevels:
             'enabled': True,
             'mode': 'context_gating',  # Level 2
             'static_gating': True,  # Also enable Level 1
-            'gate_from_cppn': True,
             'context_dim': 4,
             'context_source': 'input',
         }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
+        # EMR evaluates one level per run; the level flag was never read, so this ran the mode's level alone.
+        # It raises: one mode is one level, and HMR's level combinations are not part of EMR.
+        with pytest.raises(ValueError, match='neuromodulation.static_gating is not a setting'):
+            algorithm.create_config(config)
 
     def test_true_neuromodulation_with_static_gating(self, algorithm, xor_problem):
         """Verify TRUE neuromodulation + static gating combination."""
@@ -1081,17 +1099,16 @@ class TestCombinedNeuromodulationLevels:
             'enabled': True,
             'mode': 'true_neuromodulation',  # Level 4
             'static_gating': True,  # Also enable Level 1
-            'gate_from_cppn': True,
             'num_nt_types': 4,
             'receptor_derivation': 'tanh',
         }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
+        # EMR evaluates one level per run; the level flag was never read, so this ran the mode's level alone.
+        # It raises: one mode is one level, and HMR's level combinations are not part of EMR.
+        with pytest.raises(ValueError, match='neuromodulation.static_gating is not a setting'):
+            algorithm.create_config(config)
 
     def test_true_neuromodulation_with_branch_gating(self, algorithm, xor_problem):
-        """Verify TRUE neuromodulation + branch gating combination."""
+        """TRUE neuromodulation with branch gating raises: branch gating is not implemented."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -1107,13 +1124,12 @@ class TestCombinedNeuromodulationLevels:
             'receptor_derivation': 'tanh',
             'branch_gating': True,  # Enable branch-specific gating
         }
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
-        assert_positive_fitness(result)
+        with pytest.raises(ValueError, match='branch_gating is not implemented'):
+            algorithm.create_config(config)
 
     def test_full_feature_combination_neuromod(self, algorithm, xor_problem):
-        """Verify complex neuromodulation feature combination."""
+        """A neuromodulation configuration with many settings. In 0.1.0 it also set static_gating: True (a
+        level flag EMR never read: one mode is one level), gate_from_cppn and branch_gating: True, all ignored."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -1128,15 +1144,12 @@ class TestCombinedNeuromodulationLevels:
         hmr['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
-            'static_gating': True,
-            'gate_from_cppn': True,
             'gate_scaling': 'soft_threshold',
             'gate_hardness': 10.0,
             'num_nt_types': 4,
             'receptor_derivation': 'tanh',
             'modulation_strength': 2.0,
             'modulation_mode': 'full',
-            'branch_gating': True,
             'use_output_inversion': True,
         }
         hmr['dynamic_functions'] = {
@@ -1147,3 +1160,57 @@ class TestCombinedNeuromodulationLevels:
 
         assert_no_errors(result)
         assert_positive_fitness(result)
+
+
+class TestModulatoryNeuronsPerGenome:
+    """Modulatory neurons are each genome's own: mod_neuron_ratio of its own active positions, at least one, those of
+    highest input-weight variance (0.1.0 gave every genome the population's top positions, counted as a fraction of
+    every grid position)."""
+
+    def test_masks_are_per_genome_and_active(self):
+        import jax.numpy as jnp
+        import numpy as np
+        from emr_hyperneat.emrhyperneat import modulatory_neuron_masks
+        weight_var = jnp.array([[0.9, 0.1, 0.5, 0.3], [0.1, 0.8, 0.2, 0.7], [0.4, 0.4, 0.0, 0.0]])
+        active = jnp.array([[True, True, True, True], [True, True, False, True], [True, False, False, False]])
+        # Half of 4, 3 and 1 active positions: 2, 1 and (at least) 1
+        mask = np.asarray(modulatory_neuron_masks(weight_var, active, 0.5))
+        np.testing.assert_array_equal(mask, [[True, False, True, False], [False, True, False, False],
+                                             [True, False, False, False]])
+        # A genome's mask does not depend on the other genomes
+        other = weight_var.at[1:].set(5.0)
+        np.testing.assert_array_equal(np.asarray(modulatory_neuron_masks(other, active, 0.5))[0], mask[0])
+
+    def test_the_count_is_a_fraction_of_the_genome_active_positions(self):
+        import jax.numpy as jnp
+        import numpy as np
+        from emr_hyperneat.emrhyperneat import modulatory_neuron_masks
+        weight_var = jnp.asarray(np.random.default_rng(0).random((5, 100)), dtype=jnp.float32)
+        active = jnp.asarray(np.arange(100)[None, :] < np.array([[40], [4], [10], [90], [0]]))
+        counts = np.asarray(modulatory_neuron_masks(weight_var, active, 0.1)).sum(axis=1)
+        np.testing.assert_array_equal(counts, [4, 1, 1, 9, 0])      # at least one where any position is active
+        # Counted as Python counts, int(90 * 0.7) = 62 (float32 would give 63)
+        counts = np.asarray(modulatory_neuron_masks(weight_var, active, 0.7)).sum(axis=1)
+        np.testing.assert_array_equal(counts, [28, 2, 7, 62, 0])
+
+    def test_mode_runs_with_per_genome_masks(self, algorithm, xor_problem, monkeypatch):
+        import numpy as np
+        import emr_hyperneat.emrhyperneat as E
+        seen = {}
+        original = E.modulatory_neuron_masks
+
+        def spy(weight_var, active, ratio):
+            seen.update(active=np.asarray(active), ratio=ratio)
+            return original(weight_var, active, ratio)
+        monkeypatch.setattr(E, 'modulatory_neuron_masks', spy)
+        config = create_config_with_neuromodulation('modulatory_neurons', recurrence_preset='feedforward',
+                                                    population_size=12)
+        state = algorithm.initialize(algorithm.create_config(config), xor_problem, seed=DEFAULT_SEED)
+        algorithm.run_generation(state, xor_problem)
+        mask = np.asarray(algorithm._mod_neuron_mask)
+        active = seen['active']
+        assert mask.ndim == 2 and mask.shape[0] == 12 and seen['ratio'] == 0.1
+        assert not (mask & ~active).any()
+        n_active = active.sum(axis=1)
+        expected = np.where(n_active > 0, np.maximum(1, np.floor(n_active * seen['ratio'])), 0)
+        np.testing.assert_array_equal(mask.sum(axis=1), expected)

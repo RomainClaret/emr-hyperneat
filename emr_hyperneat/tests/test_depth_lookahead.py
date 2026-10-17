@@ -177,8 +177,8 @@ class TestSkipDeadLevels:
     """skip_dead_levels changes cost, never results."""
 
     def test_noop_on_reach_and_fitness(self):
-        # Explicit on both sides: the default is True since 0.4 and the reported
-        # runtimes were measured with it off, so neither arm relies on the default.
+        # Explicit on both sides: the default is True and the reported runtimes
+        # were measured with it off, so neither arm relies on the default.
         base = _reach(_make_config(
             execution_extra={'skip_dead_levels': False}),
             ExecutionMode.DEPTH_OFFLOAD)
@@ -192,7 +192,7 @@ class TestSkipDeadLevels:
 
 class TestVarianceRule:
     """variance_rule: 'canonical' (default) unifies the modes; 'legacy' reproduces
-    the pre-0.4 standard path."""
+    the original standard path."""
 
     def _cfg(self, rule=None, mode='standard'):
         cfg = _make_config(mode=mode)
@@ -215,6 +215,34 @@ class TestVarianceRule:
         reach, _ = _reach(self._cfg(rule='legacy'), ExecutionMode.STANDARD)
         assert reach[1] % 16 == 0
         assert reach[1] > 0
+
+    @pytest.mark.parametrize('mode, chunked', [('streaming', False), ('depth_offload', False),
+                                               ('depth_offload', True)])
+    def test_legacy_is_the_same_substrate_on_every_mode(self, mode, chunked, monkeypatch):
+        """Streaming and depth_offload apply the legacy level-0 rule too; in 0.1.0 they ran the
+        canonical rule under `legacy`. `chunked` sends depth_offload through its
+        population-chunked loop (max_population_chunk below the population), the third place the
+        rule is read; the spy shows that loop ran."""
+        std = _reach(self._cfg(rule='legacy'), ExecutionMode.STANDARD)
+        cfg = self._cfg(rule='legacy', mode=mode)
+        chunked_calls = []
+        if chunked:
+            cfg['algorithm_params']['emrhyperneat']['emr_hyperneat']['execution'][
+                'max_population_chunk'] = POPULATION // 2
+            from emr_hyperneat.execution import offload
+            original = offload._run_generation_population_chunked
+
+            def spy(*args, **kwargs):
+                chunked_calls.append(1)
+                return original(*args, **kwargs)
+            monkeypatch.setattr(offload, '_run_generation_population_chunked', spy)
+        other = _reach(cfg, _MODE_ENUM[mode])
+        assert len(chunked_calls) == int(chunked)
+        assert std[0] == other[0], (std, other)
+        assert other[0][1] % 16 == 0
+        assert_trajectories_agree(
+            {'standard': [std[1]], mode: [other[1]]},
+            f"legacy standard vs {mode} (chunked={chunked})")
 
     def test_legacy_differs_from_canonical(self):
         legacy = _reach(self._cfg(rule='legacy'), ExecutionMode.STANDARD)

@@ -13,6 +13,8 @@ Tests marked with @pytest.mark.skipif(get_num_gpu_devices() < 2) require 2+ GPUs
 GPU detection uses jax.devices() filtered by platform == 'gpu'.
 """
 
+import os
+
 import pytest
 import jax
 from conftest import (
@@ -203,20 +205,33 @@ class TestFullPipelineParallelStrategy:
 
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
-    def test_full_pipeline_multi_device(self, xor_problem):
-        """Verify FULL_PIPELINE_PARALLEL uses multiple devices when available.
-
-        Uses run_quick_evolution_multi_gpu which calls run_until_threshold()
-        to trigger actual multi-GPU routing via pmap.
-        """
+    def test_full_pipeline_on_xor_runs_one_device(self, xor_problem):
+        """FULL_PIPELINE_PARALLEL shards the data, so on XOR (four samples) it runs the one-device
+        loop, and the result says so. In 0.1.0 the constructor normalized this name to
+        PIPELINE_CHUNKED, which has no route, so the run took the one-device loop for that reason
+        and this test, asserting no errors only, passed on it."""
         algorithm = EMRHyperNEAT(
             strategy=MultiGPUStrategy.FULL_PIPELINE_PARALLEL
         )
         config = create_base_config()
         result = run_quick_evolution_multi_gpu(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
+        assert algorithm.strategy == MultiGPUStrategy.FULL_PIPELINE_PARALLEL
         assert_no_errors(result)
-        assert_positive_fitness(result)
+        assert (result.route, result.devices) == ('SINGLE_GPU', 1)
+
+    @pytest.mark.multi_gpu
+    @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
+    def test_full_pipeline_shards_a_large_dataset(self):
+        """On a dataset with at least 16 samples per device FULL_PIPELINE_PARALLEL runs on every GPU."""
+        algorithm = EMRHyperNEAT(
+            strategy=MultiGPUStrategy.FULL_PIPELINE_PARALLEL
+        )
+        config = create_base_config()
+        result = run_quick_evolution_multi_gpu(algorithm, config, ShardableProblem(), generations=QUICK_GENERATIONS)
+
+        assert_no_errors(result)
+        assert (result.route, result.devices) == ('FULL_PIPELINE_PARALLEL', len(jax.devices()))
 
     def test_full_pipeline_parallel_with_recurrence(self, xor_problem):
         """Verify FULL_PIPELINE_PARALLEL works with h→h recurrence."""
@@ -332,10 +347,14 @@ class TestPopulationParallelProcessStrategy:
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
     @pytest.mark.xfail(
+        os.environ.get('XLA_PYTHON_CLIENT_PREALLOCATE', '').lower() != 'false',
         reason="ProcessPoolExecutor child processes fail to initialize cuBLAS when "
                "GPU memory is already allocated by parent test process. This is a "
                "known limitation of JAX with ProcessPoolExecutor - see CUDA BLAS "
-               "initialization errors. Works in isolation but fails in test suite."
+               "initialization errors. Works in isolation but fails in test suite. "
+               "With XLA_PYTHON_CLIENT_PREALLOCATE=false the parent holds no pool and the test "
+               "passes, so it is expected to fail only when the parent preallocates.",
+        strict=False,
     )
     def test_population_parallel_multi_device(self, xor_problem):
         """Verify POPULATION_PARALLEL_PROCESS shards across devices.
@@ -388,22 +407,19 @@ class TestCPPNChunkedStrategy:
         assert_no_errors(result)
         assert_positive_fitness(result)
 
-    @pytest.mark.multi_gpu
-    @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
-    def test_cppn_chunked_multi_device(self, xor_problem):
-        """Verify CPPN_CHUNKED uses multiple devices.
-
-        Uses run_quick_evolution_multi_gpu which calls run_until_threshold()
-        to trigger actual multi-GPU routing.
-        """
+    def test_cppn_chunked_runs_streaming_on_one_device(self, xor_problem):
+        """CPPN_CHUNKED is STREAMING (STRATEGY_NAME_MAP), a level-by-level memory route that runs one
+        device by design, on any number of devices. In 0.1.0 the constructor normalized it to
+        POSITION_SHARDING_CHUNKED, which has no route."""
         algorithm = EMRHyperNEAT(
             strategy=MultiGPUStrategy.CPPN_CHUNKED
         )
         config = create_base_config()
         result = run_quick_evolution_multi_gpu(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
+        assert algorithm.strategy == MultiGPUStrategy.STREAMING
         assert_no_errors(result)
-        assert_positive_fitness(result)
+        assert (result.route, result.devices) == ('STREAMING', 1)
 
     def test_cppn_chunked_with_recurrence(self, xor_problem):
         """Verify CPPN_CHUNKED works with h→h recurrence."""
@@ -499,23 +515,27 @@ class TestStrategyStringParsing:
     """Tests for strategy string parsing."""
 
     def test_strategy_string_single_gpu(self, xor_problem):
-        """Verify 'SINGLE_GPU' string is parsed correctly."""
-        algorithm = EMRHyperNEAT()
+        """Verify 'SINGLE_GPU' string is parsed correctly. In 0.1.0 this test set
+        `emr_hyperneat.strategy`, a key EMR never read, and asserted nothing."""
+        algorithm = EMRHyperNEAT(strategy=MultiGPUStrategy.STREAMING)
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['strategy'] = 'SINGLE_GPU'
+        hmr['multi_gpu_strategy'] = 'SINGLE_GPU'
 
         config_obj = algorithm.create_config(config)
+        assert algorithm.strategy == MultiGPUStrategy.SINGLE_GPU
         state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
     def test_strategy_string_streaming(self, xor_problem):
-        """Verify 'STREAMING' string is parsed correctly."""
+        """Verify 'STREAMING' string is parsed correctly (in 0.1.0 the key was `strategy`, which nothing
+        read)."""
         algorithm = EMRHyperNEAT()
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['strategy'] = 'STREAMING'
+        hmr['multi_gpu_strategy'] = 'STREAMING'
 
         config_obj = algorithm.create_config(config)
+        assert algorithm.strategy == MultiGPUStrategy.STREAMING
         state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
 
@@ -592,17 +612,16 @@ class TestPopulationParallelSequentialStrategy:
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
     def test_population_parallel_sequential_multi_device(self, xor_problem):
-        """Verify POPULATION_PARALLEL_SEQUENTIAL uses multiple devices.
-
-        Uses run_quick_evolution_multi_gpu which calls run_until_threshold()
-        to trigger actual multi-GPU routing.
-        """
+        """POPULATION_PARALLEL_SEQUENTIAL through the constructor on two or more devices runs as the configuration
+        key's POPULATION_PARALLEL_PROCESS (STRATEGY_NAME_MAP). In 0.1.0 the constructor kept a
+        name without a route, so the run took the one-device loop."""
         algorithm = EMRHyperNEAT(
             strategy=MultiGPUStrategy.POPULATION_PARALLEL_SEQUENTIAL
         )
         config = create_base_config()
         result = run_quick_evolution_multi_gpu(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
+        assert algorithm.strategy == MultiGPUStrategy.POPULATION_PARALLEL_PROCESS
         assert_no_errors(result)
         assert_positive_fitness(result)
 
@@ -650,17 +669,16 @@ class TestPersistentParallelStrategy:
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
     def test_persistent_parallel_multi_device(self, xor_problem):
-        """Verify PERSISTENT_PARALLEL uses multiple devices when available.
-
-        Uses run_quick_evolution_multi_gpu which calls run_until_threshold()
-        to trigger actual multi-GPU routing.
-        """
+        """PERSISTENT_PARALLEL through the constructor on two or more devices runs as the configuration
+        key's POPULATION_PARALLEL_PROCESS (STRATEGY_NAME_MAP). In 0.1.0 the constructor kept a
+        name without a route, so the run took the one-device loop."""
         algorithm = EMRHyperNEAT(
             strategy=MultiGPUStrategy.PERSISTENT_PARALLEL
         )
         config = create_base_config()
         result = run_quick_evolution_multi_gpu(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
+        assert algorithm.strategy == MultiGPUStrategy.POPULATION_PARALLEL_PROCESS
         assert_no_errors(result)
         assert_positive_fitness(result)
 
@@ -771,7 +789,7 @@ class TestStrategyAliases:
         assert_positive_fitness(result)
 
     def test_position_sharding_chunked_alias_initializes(self, xor_problem):
-        """Verify POSITION_SHARDING_CHUNKED alias initializes (legacy alias for CPPN_CHUNKED)."""
+        """Verify POSITION_SHARDING_CHUNKED alias initializes (should resolve to FULL_PIPELINE_PARALLEL)."""
         algorithm = EMRHyperNEAT(
             strategy=MultiGPUStrategy.POSITION_SHARDING_CHUNKED
         )
@@ -919,48 +937,6 @@ class TestHybridShardingConfig:
                 pytest.skip("shard_map not available for hybrid sharding")
             raise
 
-    @pytest.mark.multi_gpu
-    @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs for HybridSharding")
-    def test_hybrid_sharding_with_hh_recurrence(self, xor_problem):
-        """Verify HYBRID strategy works with h→h connections enabled."""
-        try:
-            hybrid_config = HybridShardingConfig(
-                position_devices=min(2, get_num_gpu_devices()),
-                population_devices=1,
-            )
-            algorithm = EMRHyperNEAT(
-                strategy=MultiGPUStrategy.HYBRID,
-                hybrid_config=hybrid_config
-            )
-            run_config = create_config_with_recurrence('hidden_only')
-            result = run_quick_evolution(algorithm, run_config, xor_problem, generations=QUICK_GENERATIONS)
-            assert_no_errors(result)
-            assert_positive_fitness(result)
-        except Exception as e:
-            if "shard_map" in str(e) or "Sharding" in str(e):
-                pytest.skip(f"HybridSharding not available on this system: {e}")
-            raise
-
-    @pytest.mark.multi_gpu
-    @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
-    def test_hybrid_sharding_with_backward_recurrence(self, xor_problem):
-        """Verify HYBRID strategy works with backward connections."""
-        try:
-            hybrid_config = HybridShardingConfig(
-                position_devices=min(2, get_num_gpu_devices()),
-                population_devices=1,
-            )
-            algorithm = EMRHyperNEAT(
-                strategy=MultiGPUStrategy.HYBRID,
-                hybrid_config=hybrid_config
-            )
-            run_config = create_config_with_recurrence('with_backward')
-            result = run_quick_evolution(algorithm, run_config, xor_problem, generations=QUICK_GENERATIONS)
-            assert_no_errors(result)
-        except Exception as e:
-            if "shard_map" in str(e) or "Sharding" in str(e):
-                pytest.skip(f"HybridSharding not available: {e}")
-            raise
 
 
 # Import IslandModelConfig if available
@@ -1037,40 +1013,6 @@ class TestIslandModelConfig:
 
         assert config.migration_interval == 1
 
-    @pytest.mark.skipif(not ISLAND_MODEL_AVAILABLE, reason="IslandModelConfig not available")
-    @pytest.mark.multi_gpu
-    @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs for IslandModel")
-    def test_island_model_with_hh_recurrence(self, xor_problem):
-        """Verify ISLAND_MODEL strategy works with h→h connections enabled."""
-        island_cfg = IslandModelConfig(
-            migration_interval=5,
-            migration_rate=0.1,
-        )
-        algorithm = EMRHyperNEAT(
-            strategy=MultiGPUStrategy.ISLAND_MODEL,
-            island_config=island_cfg
-        )
-        run_config = create_config_with_recurrence('hidden_only')
-        result = run_quick_evolution(algorithm, run_config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
-        assert_positive_fitness(result)
-
-    @pytest.mark.skipif(not ISLAND_MODEL_AVAILABLE, reason="IslandModelConfig not available")
-    @pytest.mark.multi_gpu
-    @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
-    def test_island_model_with_full_recurrence(self, xor_problem):
-        """Verify ISLAND_MODEL strategy works with full recurrent connections."""
-        island_cfg = IslandModelConfig(
-            migration_interval=10,
-            migration_rate=0.1,
-        )
-        algorithm = EMRHyperNEAT(
-            strategy=MultiGPUStrategy.ISLAND_MODEL,
-            island_config=island_cfg
-        )
-        run_config = create_config_with_recurrence('full_recurrent')
-        result = run_quick_evolution(algorithm, run_config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
 
 
 # =============================================================================
@@ -1078,82 +1020,43 @@ class TestIslandModelConfig:
 # =============================================================================
 
 class TestMultiGPUDeviceUtilization:
-    """Tests to verify actual multi-device execution.
-
-    These tests verify that multi-GPU strategies actually utilize multiple
-    devices rather than just running on a single device.
+    """The route each multi-device strategy takes and the devices it uses, as run_until_threshold
+    records them. In 0.1.0 these tests ran run_generation, which never reads the strategy, and
+    asserted that two GPUs were visible, so none of them could fail on a one-device run.
     """
 
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
-    def test_pmap_full_pipeline_uses_all_devices(self, xor_problem):
-        """Verify FULL_PIPELINE_PARALLEL uses all available GPUs.
+    def test_pmap_full_pipeline_uses_all_devices(self):
+        """FULL_PIPELINE_PARALLEL runs the pmap pipeline on every GPU for a dataset it can shard."""
+        algorithm = EMRHyperNEAT(strategy=MultiGPUStrategy.FULL_PIPELINE_PARALLEL)
+        result = run_quick_evolution_multi_gpu(algorithm, create_base_config(), ShardableProblem(),
+                                               generations=2)
 
-        This test checks that the pmap-based full pipeline strategy
-        actually distributes work across all available devices.
-        """
-        algorithm = EMRHyperNEAT(
-            strategy=MultiGPUStrategy.FULL_PIPELINE_PARALLEL
-        )
-        config = create_base_config()
-        config_obj = algorithm.create_config(config)
-
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
-
-        # Run one generation
-        state, metrics = algorithm.run_generation(state, xor_problem)
-
-        # Verify the strategy is using pmap (which implies multi-device)
-        # The key indicator is that we get valid results on a multi-GPU system
-        assert metrics.best_fitness > 0
-
-        # Check that we have at least 2 GPUs available and the strategy is configured
-        num_gpus = get_num_gpu_devices()
-        assert num_gpus >= 2, f"Expected 2+ GPUs but found {num_gpus}"
+        assert_no_errors(result)
+        assert (result.route, result.devices) == ('FULL_PIPELINE_PARALLEL', len(jax.devices()))
 
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
     def test_eval_only_parallel_uses_all_devices(self, xor_problem):
-        """Verify EVAL_ONLY_PARALLEL uses all available GPUs for evaluation.
+        """EVAL_ONLY_PARALLEL evaluates on every GPU."""
+        algorithm = EMRHyperNEAT(strategy=MultiGPUStrategy.EVAL_ONLY_PARALLEL)
+        result = run_quick_evolution_multi_gpu(algorithm, create_base_config(), xor_problem,
+                                               generations=3)
 
-        EVAL_ONLY_PARALLEL should keep h→h cached while parallelizing
-        the fitness evaluation across GPUs.
-        """
-        algorithm = EMRHyperNEAT(
-            strategy=MultiGPUStrategy.EVAL_ONLY_PARALLEL
-        )
-        config = create_base_config()
-        config_obj = algorithm.create_config(config)
-
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
-
-        # Run a few generations to exercise the caching
-        for _ in range(3):
-            state, metrics = algorithm.run_generation(state, xor_problem)
-
-        assert metrics.best_fitness > 0
-        num_gpus = get_num_gpu_devices()
-        assert num_gpus >= 2
+        assert_no_errors(result)
+        assert (result.route, result.devices) == ('EVAL_ONLY_PARALLEL', len(jax.devices()))
 
     @pytest.mark.multi_gpu
     @pytest.mark.skipif(get_num_gpu_devices() < 2, reason="Requires 2+ GPUs")
     def test_population_parallel_shards_correctly(self, xor_problem):
-        """Verify POPULATION_PARALLEL_SEQUENTIAL shards population across GPUs.
+        """POPULATION_PARALLEL_SEQUENTIAL is POPULATION_PARALLEL_PROCESS, one process per GPU."""
+        algorithm = EMRHyperNEAT(strategy=MultiGPUStrategy.POPULATION_PARALLEL_SEQUENTIAL)
+        result = run_quick_evolution_multi_gpu(
+            algorithm, create_base_config(population_size=100), xor_problem, generations=1)
 
-        With 2 GPUs and 100 population, each GPU should process 50 individuals.
-        """
-        algorithm = EMRHyperNEAT(
-            strategy=MultiGPUStrategy.POPULATION_PARALLEL_SEQUENTIAL
-        )
-        config = create_base_config(population_size=100)
-        config_obj = algorithm.create_config(config)
-
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
-        state, metrics = algorithm.run_generation(state, xor_problem)
-
-        assert metrics.best_fitness > 0
-        # Population size should be maintained
-        assert config['algorithm_params']['emrhyperneat']['population_size'] == 100
+        assert_no_errors(result)
+        assert (result.route, result.devices) == ('POPULATION_PARALLEL_PROCESS', len(jax.devices()))
 
 
 class TestMultiGPUStrategyConsistency:
@@ -1503,3 +1406,227 @@ class TestGPUDeviceDetection:
             assert has_gpu() is True
         else:
             assert has_gpu() is False
+
+
+class ShardableProblem:
+    """64 samples and not exhaustive: FULL_PIPELINE_PARALLEL shards it on up to four devices (16 samples each)."""
+    input_shape = (3,)
+    output_shape = (1,)
+    jitable = True
+    use_bias = True
+    is_exhaustive_dataset = False
+    fitness_threshold = 0.95
+
+    def __init__(self):
+        import numpy as np
+        rng = np.random.default_rng(7)
+        points = rng.uniform(-1.0, 1.0, size=(64, 2))
+        self.inputs = [[float(x), float(y), 1.0] for x, y in points]
+        self.targets = [[float(x * y > 0)] for x, y in points]
+
+    def get_data(self):
+        return list(zip(self.inputs, self.targets))
+
+
+def _two_host_devices_env():
+    """The environment of a subprocess with two CPU devices. Platform selectors a runner may set (a GPU machine's
+    profile can set JAX_PLATFORM_NAME and JAX_BACKEND_TARGET to gpu) are removed: inherited, they make JAX refuse to
+    start on the CPU."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ('JAX_PLATFORM_NAME', 'JAX_BACKEND_TARGET')}
+    env.update(JAX_PLATFORMS='cpu', XLA_FLAGS='--xla_force_host_platform_device_count=2')
+    return env
+
+
+class TestRouteRecords:
+    """run_until_threshold records the route it took, the devices it used and the execution mode it ran; a strategy
+    name alone does not say that FULL_PIPELINE_PARALLEL runs one device on an exhaustive dataset."""
+
+    ROUTES_SCRIPT = r'''
+import json
+import sys
+sys.path.insert(0, {tests!r})
+import jax
+import warnings
+from conftest import EMRHyperNEAT, MultiGPUStrategy, XORProblem, create_base_config
+from test_multi_gpu_strategies import ShardableProblem
+from emr_hyperneat.execution import ExecutionMode
+assert len(jax.devices()) == 2, jax.devices()
+warnings.simplefilter('ignore', UserWarning)
+found = {{}}
+for label, key, constructed, problem, mode in (
+        ('full_pipeline_xor', 'FULL_PIPELINE_PARALLEL', None, XORProblem(), None),
+        ('full_pipeline_64', 'FULL_PIPELINE_PARALLEL', None, ShardableProblem(), None),
+        ('constructor_full_pipeline_64', None, 'FULL_PIPELINE_PARALLEL', ShardableProblem(), None),
+        ('single', 'SINGLE_GPU', None, XORProblem(), None),
+        ('streaming', 'STREAMING', None, XORProblem(), None),
+        ('full_pipeline_xor_offload', 'FULL_PIPELINE_PARALLEL', None, XORProblem(), 'depth_offload'),
+        ('full_pipeline_64_offload', 'FULL_PIPELINE_PARALLEL', None, ShardableProblem(), 'depth_offload'),
+        ('full_pipeline_64_auto', 'FULL_PIPELINE_PARALLEL', None, ShardableProblem(), 'auto')):
+    algorithm = EMRHyperNEAT() if constructed is None else EMRHyperNEAT(strategy=MultiGPUStrategy[constructed])
+    config = create_base_config(population_size=8)
+    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    if key is not None:
+        hmr['multi_gpu_strategy'] = key
+    if mode is not None:
+        hmr['execution'] = {{'mode': mode}}
+    state = algorithm.initialize(algorithm.create_config(config), problem, seed=42)
+    if mode == 'auto':
+        # AUTO escalated to depth offload (as on an 11 GB GPU at depth 7, population 1000): the multi-device
+        # pipeline still runs on the devices, and says so
+        type(algorithm).resolve_execution_mode = lambda self: ExecutionMode.DEPTH_OFFLOAD
+    try:
+        result = algorithm.run_until_threshold(state, problem, target_fitness=2.0, max_generations=1)
+    except ValueError as error:
+        found[label] = 'REFUSED' if 'would ignore execution.mode' in str(error) else str(error)
+        continue
+    found[label] = [result['route'], result['devices'], algorithm.get_num_devices(), result['execution_mode']]
+print('ROUTES', json.dumps(found))
+'''
+
+    def test_routes_and_devices_on_two_devices(self):
+        """On two (host) devices: XOR falls back to one device under FULL_PIPELINE_PARALLEL (honoring a configured
+        depth offload there), a 64-sample dataset is sharded over both (an explicit depth offload is refused, an
+        escalated AUTO still runs the on-device pipeline and records 'standard'), the constructor's
+        FULL_PIPELINE_PARALLEL shards it as the configuration key's does (in 0.1.0 the constructor normalized the
+        name to PIPELINE_CHUNKED, which has no route, and the run took the one-device loop), and SINGLE_GPU and
+        STREAMING use one. get_num_devices says the route's count."""
+        import json
+        import subprocess
+        import sys
+        tests = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run([sys.executable, '-c', self.ROUTES_SCRIPT.format(tests=tests)],
+                                env=_two_host_devices_env(), capture_output=True, text=True, timeout=900, cwd=tests)
+        assert result.returncode == 0, result.stderr[-3000:]
+        line = [row for row in result.stdout.splitlines() if row.startswith('ROUTES ')][-1]
+        assert json.loads(line[len('ROUTES '):]) == {
+            'full_pipeline_xor': ['SINGLE_GPU', 1, 2, 'standard'],
+            'full_pipeline_64': ['FULL_PIPELINE_PARALLEL', 2, 2, 'standard'],
+            'constructor_full_pipeline_64': ['FULL_PIPELINE_PARALLEL', 2, 2, 'standard'],
+            'single': ['SINGLE_GPU', 1, 1, 'standard'],
+            'streaming': ['STREAMING', 1, 1, 'streaming'],
+            'full_pipeline_xor_offload': ['SINGLE_GPU', 1, 2, 'depth_offload'],
+            'full_pipeline_64_offload': 'REFUSED',
+            'full_pipeline_64_auto': ['FULL_PIPELINE_PARALLEL', 2, 2, 'standard'],
+        }
+
+    def test_streaming_route_reports_the_offload_that_ran(self):
+        """Depth offload replaces the generation even under the STREAMING route (a warning says so); the record says
+        depth_offload, not streaming."""
+        import warnings
+        algorithm = EMRHyperNEAT()
+        config = create_base_config(population_size=8)
+        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        hmr['multi_gpu_strategy'] = 'STREAMING'
+        hmr['execution'] = {'mode': 'depth_offload'}
+        problem = XORProblem()
+        state = algorithm.initialize(algorithm.create_config(config), problem, seed=DEFAULT_SEED)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', UserWarning)
+            result = algorithm.run_until_threshold(state, problem, target_fitness=2.0, max_generations=1)
+        assert (result['route'], result['devices'], result['execution_mode']) == ('STREAMING', 1, 'depth_offload')
+        assert algorithm.generation_execution_mode() == 'depth_offload'
+
+    def test_a_one_device_run_records_its_route(self):
+        algorithm = EMRHyperNEAT()
+        result = run_quick_evolution_multi_gpu(algorithm, create_base_config(population_size=8), XORProblem(),
+                                               generations=1)
+        assert_no_errors(result)
+        assert (result.route, result.devices) == ('SINGLE_GPU', 1)
+        assert algorithm.get_num_devices() == 1
+
+
+class TestUnroutedStrategy:
+    """A strategy name means one route: the constructor maps names as the configuration key does
+    (STRATEGY_NAME_MAP), and names this class has no route for raise at construction. In 0.1.0 the
+    constructor normalized several names to strategies without a route, which ran the one-device
+    loop under the requested name on any number of devices. run_until_threshold still refuses an
+    unrouted strategy on two or more devices, which only an assignment by hand can reach now."""
+
+    SCRIPT = r'''
+import sys
+sys.path.insert(0, {tests!r})
+import jax
+from conftest import EMRHyperNEAT, MultiGPUStrategy, XORProblem, create_base_config
+assert len(jax.devices()) == 2, jax.devices()
+algorithm = EMRHyperNEAT()
+problem = XORProblem()
+state = algorithm.initialize(algorithm.create_config(create_base_config(population_size=8)), problem, seed=42)
+algorithm.strategy = MultiGPUStrategy.PIPELINE_CHUNKED
+try:
+    algorithm.run_until_threshold(state, problem, target_fitness=2.0, max_generations=1)
+except ValueError as error:
+    print('REFUSED', error)
+else:
+    print('RAN')
+'''
+
+    def test_constructor_names_follow_the_configuration(self):
+        from emr_hyperneat.emrhyperneat import STRATEGY_NAME_MAP
+        for name, routed in STRATEGY_NAME_MAP.items():
+            assert EMRHyperNEAT(strategy=MultiGPUStrategy[name]).strategy == routed, name
+            algorithm = EMRHyperNEAT()
+            config = create_base_config()
+            config['algorithm_params']['emrhyperneat']['emr_hyperneat']['multi_gpu_strategy'] = name
+            algorithm.create_config(config)
+            assert algorithm.strategy == routed, name
+        assert EMRHyperNEAT().strategy == MultiGPUStrategy.SINGLE_GPU
+        assert (EMRHyperNEAT(strategy=MultiGPUStrategy.SINGLE_GPU_PYTHON_LOOP).strategy
+                == MultiGPUStrategy.SINGLE_GPU_PYTHON_LOOP)
+
+    @pytest.mark.parametrize('name', ['HYBRID', 'ISLAND_MODEL', 'ISLAND_MODEL_V2', 'SHARD_MAP',
+                                      'POPULATION_PMAP', 'POSITION_PMAP', 'POSITION_SHARDING',
+                                      'POPULATION_PARALLEL'])
+    def test_names_without_a_route_raise(self, name):
+        with pytest.raises(ValueError, match='has no route in EMRHyperNEAT'):
+            EMRHyperNEAT(strategy=MultiGPUStrategy[name])
+
+    def test_unrouted_strategy_refused_on_two_devices(self):
+        import subprocess
+        import sys
+        tests = os.path.dirname(os.path.abspath(__file__))
+        result = subprocess.run([sys.executable, '-c', self.SCRIPT.format(tests=tests)],
+                                env=_two_host_devices_env(), capture_output=True, text=True, timeout=600)
+        assert result.returncode == 0, result.stderr[-2000:]
+        assert 'REFUSED' in result.stdout and 'has no route in run_until_threshold' in result.stdout
+
+    @pytest.mark.parametrize('key', ['position_config', 'island_config', 'hybrid_config', 'pmap_config'])
+    def test_sharding_configurations_are_refused(self, key):
+        """They configure base-class strategies this class has no route for; 0.1.0 kept them and
+        never read them."""
+        with pytest.raises(ValueError, match=f'{key} configure base-class strategies'):
+            EMRHyperNEAT(**{key: object()})
+
+    @pytest.mark.skipif(len(jax.devices()) >= 2, reason='the one-device fallback needs one device')
+    def test_one_device_runs_and_says_so(self, capsys):
+        algorithm = EMRHyperNEAT(strategy=MultiGPUStrategy.DATA_PARALLEL)
+        assert algorithm.strategy == MultiGPUStrategy.FULL_PIPELINE_PARALLEL
+        problem = XORProblem()
+        state = algorithm.initialize(
+            algorithm.create_config(create_base_config(population_size=8)), problem, seed=DEFAULT_SEED)
+        algorithm.run_until_threshold(state, problem, target_fitness=2.0, max_generations=1)
+        assert 'FULL_PIPELINE_PARALLEL requested but only 1 GPU available' in capsys.readouterr().out
+
+
+class TestFixedHiddenToHiddenRunnerIsRefused:
+    """The fixed h->h runner discovered each population slot's hidden-to-hidden connections
+    once, from the generation-0 population, so after the first reproduction a genome was scored
+    with the connections discovered for another genome. The runner and the argument that
+    configured it are refused; recurrence is the configuration's recurrence block."""
+
+    def test_recurrence_config_is_refused(self):
+        from emr_hyperneat.emrhyperneat_base import EMRHyperNEATMultiGPU, RecurrenceConfig
+        with pytest.raises(ValueError, match="recurrence_config configured only "
+                                             "run_until_threshold_with_fixed_hh"):
+            EMRHyperNEATMultiGPU(recurrence_config=RecurrenceConfig())
+        EMRHyperNEATMultiGPU()
+
+    def test_the_fixed_runner_is_refused(self):
+        algorithm = EMRHyperNEAT()
+        problem = XORProblem()
+        config = create_config_with_recurrence('hidden_only', population_size=8)
+        state = algorithm.initialize(algorithm.create_config(config), problem, seed=DEFAULT_SEED)
+        with pytest.raises(NotImplementedError,
+                           match="run_until_threshold_with_fixed_hh is refused"):
+            algorithm.run_until_threshold_with_fixed_hh(state, problem, target_fitness=0.9,
+                                                        max_generations=2)

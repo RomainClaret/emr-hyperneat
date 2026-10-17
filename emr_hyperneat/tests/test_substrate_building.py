@@ -230,25 +230,33 @@ class TestActivationConfiguration:
 
     @pytest.mark.parametrize("hidden_act", ['tanh', 'sigmoid', 'relu'])
     def test_hidden_activations(self, algorithm, xor_problem, hidden_act):
-        """Verify different hidden activations work."""
+        """substrate.hidden_activation is dynamic_functions mode 'global''s default, as in HMR's dynamic-functions
+        variant. In 0.1.0 this test set it with dynamic functions disabled, where EMR ignored it, so all three
+        cases ran tanh; that configuration now raises."""
         config = create_base_config()
         config['algorithm_params']['emrhyperneat']['substrate']['hidden_activation'] = hidden_act
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {'mode': 'global'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result, f"Hidden activation {hidden_act} failed")
         assert_positive_fitness(result)
+        assert algorithm.df_hidden_activation == hidden_act
 
     @pytest.mark.parametrize("output_act", ['sigmoid', 'tanh', 'identity'])
     def test_output_activations(self, algorithm, xor_problem, output_act):
-        """Verify different output activations work."""
+        """substrate.output_activation applies where the evaluation is not plain (here global tanh); the plain
+        evaluation applies a sigmoid, so there another output raises (0.1.0 ran sigmoid)."""
         config = create_base_config()
         config['algorithm_params']['emrhyperneat']['substrate']['output_activation'] = output_act
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {
+            'mode': 'global', 'hidden_activation': 'tanh'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         # Some activations may not work well for XOR, but should not error
         assert_no_errors(result, f"Output activation {output_act} failed")
+        assert algorithm.df_output_activation == output_act
 
 
 class TestSubstrateWithFeatures:

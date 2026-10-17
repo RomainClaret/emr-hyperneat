@@ -29,16 +29,24 @@ print(metrics.best_fitness)
 | `create_config` | `create_config(params: dict)` | an opaque config object. Pass it straight to `initialize`, don't introspect it |
 | `initialize` | `initialize(config, problem, seed=42)` | the initial `state` you thread through the loop |
 | `run_generation` | `run_generation(state, problem, verbose=True)` | `(new_state, metrics)`. Feed `new_state` into the next call |
-| `run_until_threshold` | `run_until_threshold(state, problem, target_fitness, max_generations, collect_history=False)` | a dict with `generations`, `best_fitness`, `state`, and `history` (if requested) |
+| `run_until_threshold` | `run_until_threshold(state, problem, target_fitness, max_generations, collect_history=False)` | a dict with `generations`, `best_fitness`, `state`, `history` (if requested), and the run's `route` (the strategy route it took), `devices` (the devices it used) and `execution_mode` |
 | `run_generation_multitask` | `run_generation_multitask(state, problems, neurotransmitters=None, aggregation_method='mean')` | `(new_state, metrics)`. Requires neuromodulation in `true_neuromodulation` mode |
+| `population_substrates` | `population_substrates(state)` | the substrates of the population, as the generation loop builds them: `W1`, `W2`, the hidden-node `mask`, per-node function indices, and the hidden-to-hidden connections under per-genome discovery. Run them with `substrate_forward(substrate, inputs)` |
+| `substrate_config` | `substrate_config()` | the `SubstrateConfig` the loop uses, for building substrates from CPPN outputs of your own (`substrate_queries`, `build_substrate`, `hh_query_rows`, `build_recurrent_substrate`). Raises for configurations outside the standard path the API describes |
 
 ### The metrics object
 
 `run_generation` returns an `AlgorithmMetrics` with at least: `generation`, `best_fitness`,
-`mean_fitness`, `min_fitness`, `max_fitness`, `std_fitness`, `evaluations`, `time_elapsed`, and a
-`custom_metrics` dict. For EMR the useful `custom_metrics` keys are `total_positions` (the candidate
-grid size), `avg_hidden_nodes` / `max_hidden_nodes` (how many survived variance masking), and
-`position_utilization` (the sparse fraction).
+`mean_fitness`, `min_fitness`, `max_fitness`, `std_fitness` (the last three over the finite
+fitness values), `evaluations`, `time_elapsed`, the evaluated population's CPPN species as
+TensorNEAT assigned them (`num_species`, `species_sizes`, `species_fitness`, the best fitness of
+each), its topology (`hidden_nodes_mean` / `_std`, the active positions, and `connections_mean` /
+`_std`, the nonzero input and output weights plus the h->h connections), and a `custom_metrics`
+dict. For EMR the useful `custom_metrics` keys are `total_positions` (the candidate grid size),
+`num_levels` and `variance_threshold`, `avg_hidden_nodes` / `max_hidden_nodes` (how many survived
+variance masking), `position_utilization` (the sparse fraction), and `nan_fitness_count`.
+**Changed in 0.2.0:** 0.1.0 reported no species on the standard path, one species holding the whole
+population on the multi-task and depth-offload paths, and no topology.
 
 Those three keys are also your substrate diagnostics — they feed straight back into the two knobs
 that shape the substrate: if `position_utilization` sits near zero and `avg_hidden_nodes` is tiny,
@@ -171,7 +179,11 @@ contrast is the subject of one of the papers.
 - **The first generation compiles.** JAX JIT-compiles the substrate pipeline, so the first
   `run_generation` pauses a few seconds and the algorithm prints `initializing` / `initializing
   finished`. That is normal, not a hang; later generations are fast.
-- **Runs are deterministic.** The same `seed` and config produce identical results every time.
+- **Runs are deterministic on a CPU.** The same `seed` and config produce identical results every
+  time. On a GPU, a sum taken with a scatter-add accumulates in no fixed order, so a configuration
+  that sums that way does not repeat bit for bit. Dynamic h→h aggregation (`hh_aggregation_mode:
+  dynamic`) sums that way: on an RTX 2080 Ti, two evaluations of one generation put a genome's
+  fitness up to 8.9e-4 apart, which can change which genomes are selected.
 - **Fitness is in `[0, 1]`** (1.0 = a perfect solution). In a `run_generation` loop, "solved" is
   your own check, `best_fitness >= fitness_threshold` — the loop above decides when to stop. If you
   would rather hand that decision to the algorithm, `run_until_threshold(state, problem,

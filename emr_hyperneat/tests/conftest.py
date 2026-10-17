@@ -254,6 +254,10 @@ class TestResult:
     num_hidden_positions: int = 0
     num_hh_connections: int = 0
 
+    # The route run_until_threshold took and the devices it used (run_quick_evolution_multi_gpu)
+    route: Optional[str] = None
+    devices: Optional[int] = None
+
     # Error tracking
     error: Optional[str] = None
 
@@ -375,7 +379,10 @@ DYNAMIC_FUNCTION_PRESETS = {
     'cppn_output_4': {'mode': 'cppn_output', 'num_activations': 4},
     'cppn_output_6': {'mode': 'cppn_output', 'num_activations': 6},
     'weight_interp_sign': {'mode': 'weight_interpretation', 'num_activations': 4, 'interpretation': 'sign'},
-    'weight_interp_magnitude': {'mode': 'weight_interpretation', 'num_activations': 6, 'interpretation': 'magnitude'},
+    # 'magnitude_bio': in 0.1.0 this preset was 'weight_interp_magnitude' with interpretation 'magnitude',
+    # an HMR name EMR never implemented, so it ran magnitude_bio under another name
+    'weight_interp_magnitude_bio': {'mode': 'weight_interpretation', 'num_activations': 6,
+                                    'interpretation': 'magnitude_bio'},
     'weight_interp_variance': {'mode': 'weight_interpretation', 'num_activations': 6, 'interpretation': 'variance'},
     'random_fixed': {'mode': 'random_fixed', 'num_activations': 6},
     'random_generation': {'mode': 'random_generation', 'num_activations': 6},
@@ -385,11 +392,11 @@ DYNAMIC_FUNCTION_PRESETS = {
 # Aggregation presets
 AGGREGATION_PRESETS = {
     'disabled': {'mode': 'disabled'},
-    'global_sum': {'mode': 'global', 'global_aggregation': 'sum'},
-    'global_mean': {'mode': 'global', 'global_aggregation': 'mean'},
-    'global_max': {'mode': 'global', 'global_aggregation': 'max'},
-    'global_min': {'mode': 'global', 'global_aggregation': 'min'},
-    'global_product': {'mode': 'global', 'global_aggregation': 'product'},
+    'global_sum': {'mode': 'global', 'global_function': 'sum'},
+    'global_mean': {'mode': 'global', 'global_function': 'mean'},
+    'global_max': {'mode': 'global', 'global_function': 'max'},
+    'global_min': {'mode': 'global', 'global_function': 'min'},
+    'global_product': {'mode': 'global', 'global_function': 'product'},
     'weight_interp': {'mode': 'weight_interpretation', 'num_aggregations': 4},
 }
 
@@ -400,13 +407,11 @@ NEUROMODULATION_PRESETS = {
     'static_gating': {
         'enabled': True,
         'mode': 'static_gating',
-        'gate_from_cppn': True,
         'gate_scaling': 'sigmoid',
     },
     'context_gating': {
         'enabled': True,
         'mode': 'context_gating',
-        'gate_from_cppn': True,
         'context_dim': 4,
         'context_influence': 0.5,
     },
@@ -432,11 +437,12 @@ NEUROMODULATION_PRESETS = {
 # Geometry seeding presets
 GEOMETRY_SEEDING_PRESETS = {
     'disabled': {'enabled': False},
-    'default': {'enabled': True, 'seed_weight': -1.0, 'use_7d_inputs': True},
-    'positive_weight': {'enabled': True, 'seed_weight': 1.0, 'use_7d_inputs': True},
-    'zero_weight': {'enabled': True, 'seed_weight': 0.0, 'use_7d_inputs': True},
-    '5d_inputs': {'enabled': True, 'seed_weight': -1.0, 'use_7d_inputs': False},
+    'default': {'enabled': True, 'seed_weight': -1.0},
+    'positive_weight': {'enabled': True, 'seed_weight': 1.0},
+    'zero_weight': {'enabled': True, 'seed_weight': 0.0},
 }
+# In 0.1.0 the presets carried use_7d_inputs (True, and False in a '5d_inputs' preset): nothing read the
+# key, so '5d_inputs' ran 7-D inputs. Geometry seeding means 7-D CPPN rows; 'disabled' gives the 5-D rows.
 
 
 def create_config_with_recurrence(
@@ -470,7 +476,7 @@ def create_config_with_dynamic_functions(
     recurrence_preset: str = 'feedforward',
     max_depth: int = DEFAULT_MAX_DEPTH,
     population_size: int = DEFAULT_POPULATION,
-    hh_activation_mode: str = 'initial_only',
+    hh_activation_mode: Optional[str] = None,
     **overrides,
 ) -> Dict[str, Any]:
     """Create configuration for specific dynamic functions mode."""
@@ -486,7 +492,8 @@ def create_config_with_dynamic_functions(
         hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     df_config = DYNAMIC_FUNCTION_PRESETS[mode].copy()
-    df_config['hh_activation_mode'] = hh_activation_mode
+    if hh_activation_mode is not None:
+        df_config['hh_activation_mode'] = hh_activation_mode
     df_config.update(overrides)
     hmr['dynamic_functions'] = df_config
 
@@ -593,6 +600,7 @@ def create_config_with_multi_task(
     fitness_aggregation: str = 'min',
     max_depth: int = DEFAULT_MAX_DEPTH,
     population_size: int = DEFAULT_POPULATION,
+    recurrence_preset: str = 'hidden_only',
 ) -> Dict[str, Any]:
     """Create configuration for multi-task learning.
 
@@ -600,7 +608,7 @@ def create_config_with_multi_task(
     """
     config = create_config_with_neuromodulation(
         mode=neuromod_mode,
-        recurrence_preset='hidden_only',
+        recurrence_preset=recurrence_preset,
         max_depth=max_depth,
         population_size=population_size,
     )
@@ -826,6 +834,8 @@ def run_quick_evolution_multi_gpu(
         result.final_fitness = evolution_result.get('best_fitness', 0.0)
         result.best_fitness = evolution_result.get('best_fitness', 0.0)
         result.fitness_history = evolution_result.get('history', [])
+        result.route = evolution_result.get('route')
+        result.devices = evolution_result.get('devices')
         result.solved = result.best_fitness >= target_fitness
         result.generations_to_solve = evolution_result.get('generations', generations)
         result.total_time = elapsed
@@ -1109,9 +1119,13 @@ def exact_backend() -> bool:
     choices: they hand the same per-genome arithmetic to XLA in different array layouts
     and reduction extents. XLA:CPU emits the same instruction sequence for that arithmetic
     whatever the layout, so on CPU the variants agree bitwise and the tests assert
-    equality. GPU kernels are selected by shape (tiling, fusion, the tree order of a
-    reduction), so on a GPU the same arithmetic differs in the last float32 bits between
-    variants, and the tests assert agreement to float32 rounding instead.
+    equality. One exception, on x86: a sum over a padded length can group its terms
+    differently, so bucketed compaction (`compaction_bucket: auto`) can move a fitness by a
+    float32 ulp or two against `exact` there; the comparisons with depth offload, which
+    evaluates exact shapes, run both modes exact. GPU kernels are selected by shape
+    (tiling, fusion, the tree order of a reduction), so on a GPU the same arithmetic
+    differs in the last float32 bits between variants, and the tests assert agreement to
+    float32 rounding instead.
     """
     return jax.default_backend() == 'cpu'
 

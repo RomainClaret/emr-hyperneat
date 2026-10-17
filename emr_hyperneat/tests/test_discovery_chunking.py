@@ -26,8 +26,11 @@ def _run(gens: int = 3, seed: int = 13):
     algo = EMRHyperNEAT()
     config = create_config_with_recurrence("hidden_only")
     # Fresh discovery every generation so every generation exercises the wrapper.
-    config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"].setdefault(
-        "recurrence", {})["hh_cache_enabled"] = False
+    rec = config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"].setdefault("recurrence", {})
+    rec["hh_cache_enabled"] = False
+    # The population chunking under test belongs to the union path (the per-genome route, the default
+    # since 0.2.0, takes the whole population in one call); pin union or the test runs vacuously.
+    rec["hh_discovery_mode"] = "union"
     cfg = algo.create_config(config)
     problem = XORProblem()
     state = algo.initialize(cfg, problem, seed=seed)

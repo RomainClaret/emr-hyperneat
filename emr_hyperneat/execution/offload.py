@@ -18,8 +18,8 @@ generation path here.
 The consequence is worth stating plainly, because it is what went wrong before: a
 separate generation path does not automatically pick up features added to the main
 loop. This code previously lived in a subclass, and by the time it was unified it
-had silently missed locality_radius, LEO and geometry seeding. Anything added to
-the standard loop has to be considered here too.
+had silently missed locality_radius and geometry seeding. Anything added to the
+standard loop has to be considered here too.
 
 Every function takes the algorithm instance as its first argument. That is honest
 about the coupling -- these read 34 distinct attributes of it -- and it is what
@@ -55,8 +55,12 @@ from emr_hyperneat.emrhyperneat import (  # noqa: E501
     compute_single_level_variance,
     compute_single_level_variance_chunked,
     discover_sparse_hh_vectorized_multi_hop,
+    fitness_statistics,
+    legacy_level0_variance,
     get_hierarchical_grid,
     safe_matmul,
+    sanitize_fitness,
+    species_summary,
 )
 
 from .chunking import population_chunk_for_query, recurrent_chunk_sizes
@@ -336,6 +340,24 @@ def estimate_memory_requirements(
 # Generation strategy
 # ==========================================================================
 
+def _evaluates_hidden_to_hidden(algo) -> bool:
+    """Whether a generation discovers and settles hidden-to-hidden connections.
+
+    The standard path's rule: the forward mode the configuration resolves to
+    (`resolve_recurrence`, which follows ``allow_hidden_to_hidden``) and a recurrence
+    configuration that allows the connections. In 0.1.0 this path also required
+    ``enabled`` and ``iteration_level > 0``, so it ran feed-forward two configurations the
+    standard path ran recurrent: ``enabled: false`` with ``allow_hidden_to_hidden: true``,
+    which the configuration refuses since 0.2.0, and iteration level 0, which discovers
+    direct connections only, as level 1 does.
+    """
+    return (
+        algo._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH
+        and algo._recurrence_config is not None
+        and algo._recurrence_config.allow_hidden_to_hidden
+    )
+
+
 def run_generation_offload(
     algo,
     state,
@@ -363,8 +385,13 @@ def run_generation_offload(
     Returns:
         Tuple of (new_state, metrics)
     """
+    # On a GPU, execution.mode 'auto' can select this path at run time
+    algo.refuse_depth_offload()
     step_timings = {}
     algo._gpu_transfers_count = 0
+    # This path records no champion, so evaluate_on_data refuses rather than score an
+    # earlier generation's
+    algo._last_eval = None
 
     # =====================================================================
     # STEP 0: CPPN ask + transform (same as standard)
@@ -441,6 +468,8 @@ def run_generation_offload(
     level_variances = []
     level_reached = []
     level_reached.append(np.ones((pop_size, 4), dtype=bool))  # Level 0 always reached
+    # variance_rule legacy: set at level 0, read where level 1's reach is derived
+    legacy_v0 = None
 
     # Per-level reached counts. A level stuck at 0 means the substrate stopped short
     # of the requested max_depth -- there was no observable for that at all, which is
@@ -512,7 +541,8 @@ def run_generation_offload(
         else:
             # Compute reached from previous level's subdivision
             prev_reached = level_reached[level - 1]
-            prev_variance = level_variances[level - 1]
+            prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
+                             else level_variances[level - 1])
             # Canonical ES-HyperNEAT subdivides on two clauses (naive/eshyperneat/eshyperneat.py:441):
             #   (level < initial_depth) or (variance > threshold)
             # The eager path kept only the variance clause, so initial_depth was parsed,
@@ -535,6 +565,14 @@ def run_generation_offload(
         # pre-zeroed buffer. Opt-in: it changes cost, not results.
         if algo._skip_dead_levels and _reached_count == 0:
             break
+
+        if level == 0 and algo._legacy_level0_variance:
+            # variance_rule legacy: level 0's own variance (four positions, one extra query)
+            legacy_v0 = np.asarray(legacy_level0_variance(query_level_positions_chunked(
+                state, cppns_transformed, input_coords, level_positions,
+                True, algo._jitted_cppn_forward, pop_chunk_size, pos_chunk_size_w1,
+                geometry_seeding_enabled=algo.geometry_seeding_enabled,
+            )[:, 0, :]))
 
         # Check if this level is too large for standard processing
         use_streaming_for_level = num_level_positions > algo._max_lookahead_positions
@@ -739,12 +777,7 @@ def run_generation_offload(
     # =====================================================================
     t5 = time.perf_counter()
 
-    is_recurrent = (
-        algo._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH and
-        algo._recurrence_config is not None and
-        algo._recurrence_config.enabled and
-        algo._recurrence_config.iteration_level > 0
-    )
+    is_recurrent = _evaluates_hidden_to_hidden(algo)
 
     if is_recurrent:
         # Recurrent mode: Need full weights on GPU for h→h discovery
@@ -767,7 +800,7 @@ def run_generation_offload(
         )
         step_timings['mode'] = 'feedforward_depth_offload'
 
-    fitnesses = jnp.where(jnp.isnan(fitnesses), -jnp.inf, fitnesses)
+    fitnesses, nan_fitness_count = sanitize_fitness(fitnesses)
 
     step_timings['step5_network_evaluation'] = time.perf_counter() - t5
 
@@ -792,6 +825,8 @@ def run_generation_offload(
     # =====================================================================
     time_elapsed = time.perf_counter() - t0
 
+    # The evaluated population's species: state is the state before tell.
+    num_species, species_sizes, species_fitness = species_summary(state.species, fitnesses)
     if skip_metrics:
         best_fitness = float(jnp.max(fitnesses))
         generation = int(new_state.generation)
@@ -803,22 +838,23 @@ def run_generation_offload(
             min_fitness=0.0,
             max_fitness=best_fitness,
             std_fitness=0.0,
-            num_species=1,
-            species_sizes=[pop_size],
-            species_fitness=[0.0],
+            num_species=num_species,
+            species_sizes=species_sizes,
+            species_fitness=species_fitness,
             evaluations=pop_size,
             time_elapsed=time_elapsed,
-            custom_metrics={'mode': 'depth_offload', 'skip_metrics': True},
+            custom_metrics={'mode': 'depth_offload', 'skip_metrics': True,
+                            'nan_fitness_count': nan_fitness_count},
         )
     else:
-        best_fitness = float(jnp.max(fitnesses))
-        mean_fitness = float(jnp.mean(fitnesses))
-        min_fitness = float(jnp.min(fitnesses))
-        std_fitness = float(jnp.std(fitnesses))
+        best_fitness, mean_fitness, min_fitness, std_fitness = fitness_statistics(
+            fitnesses, nan_fitness_count)
         generation = int(new_state.generation)
 
         custom_metrics = {
             'mode': 'depth_offload',
+            'nan_fitness_count': nan_fitness_count,
+            'variance_threshold': algo.variance_threshold,
             'total_positions': total_positions,
             'num_levels': num_levels,
             'cpu_memory_gb': algo._cpu_memory_peak_gb,
@@ -833,9 +869,9 @@ def run_generation_offload(
             min_fitness=min_fitness,
             max_fitness=best_fitness,
             std_fitness=std_fitness,
-            num_species=1,
-            species_sizes=[pop_size],
-            species_fitness=[mean_fitness],
+            num_species=num_species,
+            species_sizes=species_sizes,
+            species_fitness=species_fitness,
             evaluations=pop_size,
             time_elapsed=time_elapsed,
             custom_metrics=custom_metrics,
@@ -939,12 +975,7 @@ def _run_generation_population_chunked(
         print(f"  [PopChunking] Processing {num_chunks} chunks of {pop_chunk_size} genomes")
         print(f"  [PopChunking] Position chunks: W1={pos_chunk_size_w1:,}, W2={pos_chunk_size_w2:,}")
 
-    is_recurrent = (
-        algo._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH and
-        algo._recurrence_config is not None and
-        algo._recurrence_config.enabled and
-        algo._recurrence_config.iteration_level > 0
-    )
+    is_recurrent = _evaluates_hidden_to_hidden(algo)
 
     # Track whether any chunk used memmap
     any_chunk_used_memmap = False
@@ -1044,6 +1075,8 @@ def _run_generation_population_chunked(
         level_variances = []
         level_reached = []
         level_reached.append(np.ones((actual_chunk_size, 4), dtype=bool))
+        # variance_rule legacy: set at level 0, read where level 1's reach is derived
+        legacy_v0 = None
 
         cached_next_input_weights = None
 
@@ -1064,7 +1097,8 @@ def _run_generation_population_chunked(
                 current_reached_mask = level_reached[0]
             else:
                 prev_reached = level_reached[level - 1]
-                prev_variance = level_variances[level - 1]
+                prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
+                                 else level_variances[level - 1])
                 # Canonical ES-HyperNEAT subdivides on two clauses (naive/eshyperneat/eshyperneat.py:441):
                 #   (level < initial_depth) or (variance > threshold)
                 # The eager path kept only the variance clause, so initial_depth was parsed,
@@ -1086,6 +1120,14 @@ def _run_generation_population_chunked(
             # pre-zeroed buffer. Opt-in: it changes cost, not results.
             if algo._skip_dead_levels and _reached_count == 0:
                 break
+
+            if level == 0 and algo._legacy_level0_variance:
+                # variance_rule legacy: level 0's own variance (four positions, one extra query)
+                legacy_v0 = np.asarray(legacy_level0_variance(query_level_positions_chunked(
+                    state, chunk_cppns, input_coords, level_positions,
+                    True, algo._jitted_cppn_forward, cppn_pop_chunk, pos_chunk_size_w1,
+                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
+                )[:, 0, :]))
 
             use_streaming_for_level = num_level_positions > algo._max_lookahead_positions
 
@@ -1320,7 +1362,7 @@ def _run_generation_population_chunked(
 
     # Concatenate all fitnesses
     fitnesses = jnp.concatenate(all_fitnesses, axis=0)
-    fitnesses = jnp.where(jnp.isnan(fitnesses), -jnp.inf, fitnesses)
+    fitnesses, nan_fitness_count = sanitize_fitness(fitnesses)
 
     # Selection (tell)
     t6 = time.perf_counter()
@@ -1339,6 +1381,8 @@ def _run_generation_population_chunked(
     # Build metrics
     time_elapsed = time.perf_counter() - t0
 
+    # The evaluated population's species: state is the state before tell.
+    num_species, species_sizes, species_fitness = species_summary(state.species, fitnesses)
     if skip_metrics:
         best_fitness = float(jnp.max(fitnesses))
         generation = int(new_state.generation)
@@ -1350,22 +1394,23 @@ def _run_generation_population_chunked(
             min_fitness=0.0,
             max_fitness=best_fitness,
             std_fitness=0.0,
-            num_species=1,
-            species_sizes=[pop_size],
-            species_fitness=[0.0],
+            num_species=num_species,
+            species_sizes=species_sizes,
+            species_fitness=species_fitness,
             evaluations=pop_size,
             time_elapsed=time_elapsed,
-            custom_metrics={'mode': 'population_chunked', 'skip_metrics': True},
+            custom_metrics={'mode': 'population_chunked', 'skip_metrics': True,
+                            'nan_fitness_count': nan_fitness_count},
         )
     else:
-        best_fitness = float(jnp.max(fitnesses))
-        mean_fitness = float(jnp.mean(fitnesses))
-        min_fitness = float(jnp.min(fitnesses))
-        std_fitness = float(jnp.std(fitnesses))
+        best_fitness, mean_fitness, min_fitness, std_fitness = fitness_statistics(
+            fitnesses, nan_fitness_count)
         generation = int(new_state.generation)
 
         custom_metrics = {
             'mode': 'population_chunked',
+            'nan_fitness_count': nan_fitness_count,
+            'variance_threshold': algo.variance_threshold,
             'total_positions': total_positions,
             'num_levels': num_levels,
             'cpu_memory_gb': algo._cpu_memory_peak_gb,
@@ -1382,9 +1427,9 @@ def _run_generation_population_chunked(
             min_fitness=min_fitness,
             max_fitness=best_fitness,
             std_fitness=std_fitness,
-            num_species=1,
-            species_sizes=[pop_size],
-            species_fitness=[mean_fitness],
+            num_species=num_species,
+            species_sizes=species_sizes,
+            species_fitness=species_fitness,
             evaluations=pop_size,
             time_elapsed=time_elapsed,
             custom_metrics=custom_metrics,
@@ -1569,8 +1614,8 @@ def _evaluate_recurrent_chunked(
     algo._gpu_transfers_count += 1
     step_timings['recurrent_transfer_time'] = time.perf_counter() - t_transfer
 
-    # h->h connections: explicit cache first (the HMR-era pass-through this
-    # entry dropped at unification -- fixed_hh callers hand one in), then the
+    # h->h connections: an explicit set first (a pass-through for a caller that
+    # holds one; nothing in the package passes one), then the
     # cache manager under the same should_refresh contract as the hybrid path,
     # then discovery.
     t_hh = time.perf_counter()
