@@ -198,8 +198,10 @@ strategies) keep their own inline discovery of direct connections, at `iteration
 since 0.2.0 it applies the connection class like the standard path, and both pmap runners refuse a
 level above 1 and the features their tanh/sum evaluation drops on entry (in 0.1.0 a level-2 preset
 ran there as level 1 while `effective_iteration_level` recorded 0), recording `effective_iteration_level`
-1. The check runs at dispatch because the same configuration falls back to the standard path on one
-device or on a dataset under 16 rows per device, where level 2 is computed.
+1. Level 0 runs there as level 1, as on the standard path; 0.2.0 passed it on as 0, which these
+pipelines read as feed-forward (no hidden-to-hidden connection) while recording level 1. The check
+runs at dispatch because the same configuration falls back to the standard path on one device or on
+a dataset under 16 rows per device, where level 2 is computed.
 
 ### Why the three execution modes compute the same thing
 

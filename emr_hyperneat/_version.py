@@ -4,4 +4,4 @@ Kept in its own module with no imports so setuptools can read it statically
 (``[tool.setuptools.dynamic]`` in pyproject.toml) without importing JAX.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"

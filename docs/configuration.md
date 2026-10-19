@@ -16,13 +16,18 @@ You can omit almost everything and rely on defaults. The tables below list both 
 **Default** (what you get when the key is absent) and the **Recommended** value (what the papers
 use) — where they differ, set the key explicitly.
 
-A key the engine does not read raises an error that names the right key when the mistake is a
-known one (`emr_hyperneat.activate_time`: the settling steps are `recurrence.activate_time` or
-`substrate.activate_time`) and lists the block's settings otherwise. So do an unknown name (an
-activation, aggregation, interpretation, mode or preset) and a contradiction between keys. In 0.1.0
-such a key or value was ignored, and the run went ahead without it. The check covers
-`emr_hyperneat` and its blocks; the top level, `substrate`, `neat`, `swarm` and `cppn` are not
-checked this way, and the `neat_*` blocks have their own check.
+A key the engine does not read in `emr_hyperneat` or one of its blocks raises an error that names
+the right key when the mistake is a known one (`emr_hyperneat.activate_time`: the settling steps
+are `recurrence.activate_time` or `substrate.activate_time`) and lists the block's settings
+otherwise. So do an unknown name (an activation, aggregation, interpretation, mode or preset) and a
+contradiction between keys. In 0.1.0 such a key or value was ignored, and the run went ahead
+without it. The `neat_*` blocks raise on an unknown setting too. Outside these, at the top level and
+in `algorithm_params`, `algorithm_params.emrhyperneat`, `substrate`, `neat`, `swarm` and `cppn`
+(with its `genome` and `activation` blocks), such a key warns (`UserWarning`) with the same kind of
+message and is ignored; 0.2.0 ignored it without a word. These levels warn rather than raise so
+that a configuration 0.2.0 ran still runs. `neat.species_size` is accepted without a warning
+([below](#keys-that-parse-but-do-not-act)). A configuration without its `emr_hyperneat` block warns
+that every setting takes its default and is not checked further.
 
 ## `substrate`
 
@@ -80,7 +85,7 @@ impactful feature for parity/periodic problems.
 | `global` | All hidden nodes use one activation: set `"hidden_activation": "sin"` (or any name below). |
 | `cppn_output` | The CPPN emits a per-node activation index from a palette: it becomes a multi-output network, one channel for the weight and one for the index. Set `num_activations` (e.g. 4 or 6) or a `palette` (below). |
 | `weight_interpretation` | Per-node activation derived from the incoming weights (`interpretation`: `magnitude_bio`, the default, from their mean magnitude; `sign`; or `variance`; another name raises, which 0.1.0 ran as `magnitude_bio`), from `num_activations` or a `palette`. **Changed in 0.2.0:** with a palette, every node computes a palette function; 0.1.0 left the decoded position unmapped, so a node whose position was not itself a palette member output 0. |
-| `random_fixed` / `random_generation` | Random per-node activation, fixed at init / re-rolled each generation (controls/baselines). `random_scope: genome` (the default) draws each population slot from the run's key, or from `random_seed` when set; `random_scope: shared` is 0.1.0's draw, one assignment for every genome and every run, kept to reproduce such runs. The aggregation block's random modes take the same `random_scope`. |
+| `random_fixed` / `random_generation` | Random per-node activation, fixed at init / re-rolled each generation (controls/baselines). `random_fixed` keeps a function per population slot and grid position, also when hidden-to-hidden connections narrow the evaluation to each generation's active positions (0.1.0 and 0.2.0 failed there once the active count changed). `random_scope: genome` (the default) draws each population slot from the run's key, or from `random_seed` when set; `random_scope: shared` is 0.1.0's draw, one assignment for every genome and every run, kept to reproduce such runs. The aggregation block's random modes take the same `random_scope`, and its `random_fixed` keeps a function per slot and position in the same way. |
 
 **The 18 activations** (`ACTIVATION_LIST`, indexable by position):
 
@@ -155,7 +160,7 @@ hops the multi-hop expansion adds (the mechanism: [architecture](architecture.md
 A pre-registered study of the level (1,650 runs) found level 2 better in one (problem, preset) cell of 25
 and worse in 11 of its 60 tests (Holm p < 0.05), so the presets discover direct connections only; set
 `iteration_level: 2` to compose them, or to reproduce a 0.1.0 run. Level 0 discovers the direct
-connections as level 1 does (the multi-device pipelines run it feed-forward).
+connections as level 1 does, on every path (0.2.0's multi-device pipelines ran it feed-forward).
 `multi_hop_second_factor` (default `masked`) sets the right operand of every multi-hop product.
 `masked` composes the genome's existing direct connections, so composite connections stay within
 its own positions, and the result is intersected with the preset's connection class (a forward edge
@@ -264,7 +269,7 @@ feature is required by `run_generation_multitask`.
 | `mode` | What it does |
 |---|---|
 | `disabled` | No modulation. |
-| `static_gating` | The CPPN emits a per-connection gate in `[0, 1]`. |
+| `static_gating` | Each hidden node's activity is multiplied by a gate in `[0, 1]`, derived from the node's own input weights: `tanh(2 * mean(abs(w)))`, then `gate_scaling` (`sigmoid` by default, with `gate_hardness` and `gate_threshold`). In 0.1.0 and 0.2.0 this page said the CPPN emits a per-connection gate; EMR never did. |
 | `context_gating` | A task context vector modulates the gates (XdG-style). |
 | `modulatory_neurons` | A dedicated modulatory neuron type (Soltoggio-style): `mod_neuron_ratio` (0.1) of each genome's own active positions, at least one, those of highest input-weight variance, whose mean activity scales the genome's nodes (EMR has no plasticity for it to gate, unlike Soltoggio's). In 0.1.0 every genome took the same positions, that fraction of every grid position. |
 | `true_neuromodulation` | Neurotransmitter vectors `[DA, 5HT, NE, ACh]` + receptor densities. This is the mode the multi-task path uses; `num_nt_types` is usually 4. |
@@ -471,19 +476,21 @@ the defaults shown; an unknown setting raises:
 ```
 
 **Changed in 0.2.0.** 0.1.0 applied these defaults whatever a configuration set; drop the blocks to
-reproduce a 0.1.0 run that set them. Other NEAT settings, such as `species_size` in the `neat` block,
-are not read.
+reproduce a 0.1.0 run that set them. Any other key in the `neat` block is not read: it warns and is
+ignored (an operator setting placed there names its block), except `species_size`, which the
+per-node paper's runners carry and which is accepted without a warning.
 
 ## Keys that parse but do not act
 
 The keys below are accepted and change nothing, or accepted only at the value that changes nothing;
 they are listed so silence is never mistaken for effect. Every other key the engine does not read
-raises.
+raises in `emr_hyperneat` and its blocks, and warns and is ignored at the levels outside them
+([above](#configuration-reference)).
 When in doubt, copy a config from a paper runner under `papers/*/scripts/` — those are known-good.
 
 | Key | Where it sits | Status |
 |---|---|---|
-| `species_size` | `neat` | Not read; the NEAT operators read `neat_mutation`, `neat_species` and `neat_selection` ([above](#neat--population)). |
+| `species_size` | `neat` | Not read, and accepted without a warning; the NEAT operators read `neat_mutation`, `neat_species` and `neat_selection` ([above](#neat--population)). |
 | `palette_evolution: {enabled: false}` | `dynamic_functions` | Accepted for the per-node paper's runners; any other value raises. |
 | `critical_periods` (`phase1_end`, `phase2_end`, `min_plasticity`), `enabled: false` | `dynamic_functions` | Parsed and stored, read by nothing; `enabled: true` raises. The critical periods of the palette paper are part of its strategies (`papers/emr-dynamic-functions-bio-inspired/scripts/palette_strategies/`). |
 | `modular` and its `sparsity` | `dynamic_functions` | Mode `modular` warns that it is not implemented; under another mode the block raises. |

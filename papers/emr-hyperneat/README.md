@@ -10,9 +10,9 @@ Romain Claret, Michael O'Neill, Paul Cotofrei, Kilian Stoffel, GECCO 2026.
 This is the paper that introduces **EMR-HyperNEAT** itself: replacing ES-HyperNEAT's
 sequential, CPU-bound quadtree with eager tensor evaluation on a pre-computed
 hierarchical grid plus variance masking, so substrate discovery `vmap`s across a whole
-population on the GPU. It reports the resulting speedups over ES-HyperNEAT (PUREPLES)
-across substrate depths and population sizes, the depth/recurrence-preset studies, and
-the JIT-vs-steady-state timing breakdown.
+population on the GPU. It reports the resulting speedups over ES-HyperNEAT (a feed-forward
+Python port of PUREPLES's algorithm) across substrate depths and population sizes, the
+depth/recurrence-preset studies, and the JIT-vs-steady-state timing breakdown.
 
 ## What this paper adds to the algorithm
 
@@ -31,7 +31,7 @@ no GPU and no evolution run required. Every runtime number is a measured 30-gene
 # Runtime IQR bands + speedups, from the real 30-generation runs (scripts/analysis/):
 python scripts/analysis/extract_gpu_iqr.py                 # GPU total-runtime IQR band (depths 1-13)
 python scripts/analysis/extract_cpu_iqr.py                 # CPU total-runtime IQR band (depths 1-7)
-python scripts/analysis/extract_eshn_iqr.py                # ES-HyperNEAT (PUREPLES) baseline band
+python scripts/analysis/extract_eshn_iqr.py                # ES-HyperNEAT (port) baseline band
 python scripts/analysis/extract_gpu_iqr_extended.py        # GPU runtime broken down by population
 python scripts/analysis/extract_gpu_jit_times.py           # GPU JIT/construction overhead per depth
 python scripts/analysis/extract_gpu_jit_times_extended.py  # GPU JIT overhead by population
@@ -49,9 +49,7 @@ for f in fig_lazy_vs_eager fig_total_runtime; do
 done
 ```
 
-Headline: at depth 7 (pop=1000) EMR-HyperNEAT is **~34x faster per generation** than
-ES-HyperNEAT, and its **total-runtime speedup over 30 generations is ~59-81x** (IQR
-midpoint to true-median ratio); on CPU the total-runtime speedup is ~11x.
+The paper reports the speedups with the settings they were measured under.
 
 ### Data the scripts consume (in `data/`, from the data release)
 

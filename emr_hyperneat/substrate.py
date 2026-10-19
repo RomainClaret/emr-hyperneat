@@ -491,6 +491,7 @@ def query_substrate(
             state, cppns_transformed, positions, cppn_forward,
             num_cppn_outputs=config.num_cppn_outputs,
             geometry_seeding_enabled=config.geometry_seeding,
+            device_id=device_id,
         )
     return input_outputs, output_outputs, self_outputs
 

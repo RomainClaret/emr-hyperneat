@@ -1269,6 +1269,147 @@ class TestNoSilentDrops:
         assert algorithm.geometry_seeding_enabled
 
 
+def _silently(config):
+    """create_config with every UserWarning an error."""
+    import warnings
+    algorithm = EMRHyperNEAT()
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', UserWarning)
+        algorithm.create_config(config)
+    return algorithm
+
+
+class TestUnknownKeysOutsideEmrHyperneatWarn:
+    """The levels outside emr_hyperneat (the top level, algorithm_params,
+    algorithm_params.emrhyperneat, substrate, swarm, neat, cppn) warn about a key nothing reads, and
+    ignore it. 0.2.0 ignored it without a word; a warning, not an error, so that every configuration
+    0.2.0 ran still runs."""
+
+    @pytest.mark.parametrize('level, key, hint', [
+        ('', 'neat', 'EMR reads algorithm_params.emrhyperneat.neat'),
+        ('', 'emr_hyperneat', 'EMR reads algorithm_params.emrhyperneat.emr_hyperneat'),
+        ('', 'bogus', 'the settings of the top level are'),
+        ('algorithm_params', 'population_size',
+         'EMR reads algorithm_params.emrhyperneat.population_size'),
+        ('algorithm_params', 'generations', "run_until_threshold's max_generations"),
+        ('algorithm_params', 'hmrhyperneat', "the frozen HMR engine's block"),
+        ('algorithm_params.emrhyperneat', 'pop_size', 'population_size here, or neat.pop_size'),
+        ('algorithm_params.emrhyperneat', 'hmr_hyperneat', "HMR's block name"),
+        ('algorithm_params.emrhyperneat', 'bogus',
+         'the settings of algorithm_params.emrhyperneat are'),
+    ])
+    def test_outer_levels(self, level, key, hint):
+        config = create_base_config()
+        block = {'': config, 'algorithm_params': config['algorithm_params'],
+                 'algorithm_params.emrhyperneat': config['algorithm_params']['emrhyperneat']}[level]
+        block[key] = {}
+        where = f'{level}.{key}' if level else key
+        with pytest.warns(UserWarning, match=f'^{where} is not a setting and is ignored; .*{hint}'):
+            EMRHyperNEAT().create_config(config)
+
+    @pytest.mark.parametrize('block, key, hint', [
+        ('substrate', 'input_coord', 'the settings of substrate are'),
+        ('swarm', 'agents', 'the settings of swarm are'),
+        ('neat', 'conn_add_prob', 'the setting is neat_mutation.conn_add_prob'),
+        ('neat', 'compatibility_threshold', 'the setting is neat_species.compatibility_threshold'),
+        ('neat', 'survival_threshold', 'the setting is neat_selection.survival_threshold'),
+        ('neat', 'species_threshold',
+         'the speciation threshold is neat_species.compatibility_threshold'),
+        ('cppn', 'genomes', 'the settings of cppn are'),
+    ])
+    def test_blocks(self, block, key, hint):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat'].setdefault(block, {})[key] = 1
+        match = f'^{block}.{key} is not a setting and is ignored; .*{hint}'
+        with pytest.warns(UserWarning, match=match):
+            EMRHyperNEAT().create_config(config)
+
+    @pytest.mark.parametrize('block, key', [('genome', 'num_input'), ('activation', 'option')])
+    def test_cppn_blocks(self, block, key):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['cppn'] = {block: {key: 1}}
+        match = f'^cppn.{block}.{key} is not a setting and is ignored; the settings of cppn.{block}'
+        with pytest.warns(UserWarning, match=match):
+            EMRHyperNEAT().create_config(config)
+
+    def test_the_warning_names_the_other_keys_and_points_at_the_caller(self):
+        config = create_base_config()
+        substrate = config['algorithm_params']['emrhyperneat']['substrate']
+        substrate.update(input_coord=1, output_coord=1)
+        with pytest.warns(UserWarning, match=r"also not settings: \['output_coord'\]") as record:
+            EMRHyperNEAT().create_config(config)
+        assert [w.filename for w in record if 'is not a setting' in str(w.message)] == [__file__]
+
+    def test_flat_configuration(self):
+        """Without algorithm_params.emrhyperneat the top level is that block (both read sites)."""
+        flat = create_base_config()['algorithm_params']['emrhyperneat']
+        _silently(flat)
+        flat['bogus'] = 1
+        match = r"^bogus is not a setting and is ignored; the settings of the top level .*'emr_hy"
+        with pytest.warns(UserWarning, match=match):
+            EMRHyperNEAT().create_config(flat)
+
+    def test_every_key_the_read_sites_read_is_silent(self):
+        config = create_base_config()
+        algo = config['algorithm_params']['emrhyperneat']
+        algo['substrate'].update(activate_time=5)
+        algo['swarm'] = {'enabled': False, 'num_agents': 1, 'team_layout': 'line'}
+        algo['neat'] = {'pop_size': 8, 'population_size': 8, 'species_size': 10}
+        algo['cppn'] = {'genome': {'num_inputs': 5, 'num_outputs': 1},
+                        'activation': {'options': ['tanh', 'sin'], 'default': 'tanh',
+                                       'mutate_rate': 0.5}}
+        algo['neat_species'] = {'compatibility_threshold': 3.0}
+        config['config_file'] = None
+        _silently(config)
+
+    def test_the_suite_configurations_are_silent(self):
+        """Every factory of conftest with every preset it takes."""
+        from conftest import (GEOMETRY_SEEDING_PRESETS, create_config_with_combined_recurrence,
+                              create_config_with_geometry_seeding, create_config_with_multi_task,
+                              create_config_with_streaming)
+        configs = [create_base_config(), create_config_with_streaming(),
+                   create_config_with_streaming(enable_streaming=False),
+                   create_config_with_multi_task(['xor', 'and']),
+                   create_config_with_combined_recurrence()]
+        configs += [create_config_with_recurrence(p) for p in RECURRENCE_PRESETS]
+        configs += [create_config_with_dynamic_functions(p) for p in DYNAMIC_FUNCTION_PRESETS]
+        configs += [create_config_with_aggregation(p) for p in AGGREGATION_PRESETS]
+        configs += [create_config_with_neuromodulation(p) for p in NEUROMODULATION_PRESETS]
+        configs += [create_config_with_geometry_seeding(p) for p in GEOMETRY_SEEDING_PRESETS]
+        for config in configs:
+            _silently(config)
+
+    def test_a_per_node_paper_runner_configuration_is_silent(self):
+        """The shape of emr-dynamic-functions E2 (E1, E7, E8 and E9 alike), which carries the inert
+        neat.species_size."""
+        config = {'algorithm_params': {'emrhyperneat': {
+            'emr_hyperneat': {
+                'extra_randkey_split': True, 'initial_depth': 0, 'variance_rule': 'legacy',
+                'max_depth': 2, 'variance_threshold': 0.03,
+                'dynamic_functions': {'mode': 'global', 'hidden_activation': 'sin', 'palette': [4],
+                                      'palette_evolution': {'enabled': False}},
+            },
+            'substrate': {'input_coords': [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0)],
+                          'output_coords': [(0.0, 1.0)]},
+            'neat': {'pop_size': 150, 'species_size': 10},
+        }}}
+        _silently(config)
+
+    def test_hmr_shaped_configuration_raises_without_a_warning_first(self):
+        """Without an emr_hyperneat block nothing is checked here: the base class refuses the
+        configuration (or warns that every setting takes its default)."""
+        import warnings
+        config = create_base_config()
+        block = config['algorithm_params'].pop('emrhyperneat')
+        block['hmr_hyperneat'] = block.pop('emr_hyperneat')
+        config['algorithm_params']['hmrhyperneat'] = block
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter('always')
+            with pytest.raises(ValueError, match='shaped for the frozen HMR engine'):
+                EMRHyperNEAT().create_config(config)
+        assert not [w for w in record if 'is not a setting' in str(w.message)]
+
+
 class TestOneMinusMseEvaluations:
     """Depth offload, POPULATION_PARALLEL_PROCESS, EVAL_ONLY_PARALLEL and the FULL_PIPELINE_PARALLEL
     pipelines score 1-MSE on weights they build without the locality penalty, and apply no fitness

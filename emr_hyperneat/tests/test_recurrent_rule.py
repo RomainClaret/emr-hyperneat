@@ -471,24 +471,99 @@ def test_the_reused_step_settles_as_a_step_made_per_call(dynamic, return_states)
         _agree(np.asarray(a), np.asarray(b))
 
 
-#: Recurrent configurations whose node function is a registry function: tanh nodes, a global
-#: activation (sin) and input-to-hidden aggregation alone (tanh nodes through the dynamic path).
-REGISTRY_NODE_FUNCTION_CONFIGS = {
+@pytest.mark.parametrize("palette", [None, [4, 11, 5, 0], [12, 13]])
+@pytest.mark.parametrize("dynamic", [False, True])
+@pytest.mark.parametrize("return_states", [False, True])
+def test_a_node_rule_settles_as_the_partial_it_replaces(palette, dynamic, return_states):
+    """Per-node activation settles through a node rule made once, which the reused step gives the
+    genome's indices from its carry; 0.2.0's partial closed over them. Under the evaluation's vmap,
+    the same values (bit for bit on CPU), resonator (12) and osc_adapt (13) included."""
+    rng = np.random.default_rng(11)
+    pop, n_pos = 4, 40
+    nets = [_random_network(seed=20 + g) for g in range(pop)]
+    stack = lambda key: jnp.stack([net[key] for net in nets])  # noqa: E731
+    drive = jnp.stack([net["inputs"] @ net["W1"] for net in nets])
+    options = palette or list(range(6))
+    indices = jnp.asarray(np.asarray(options)[rng.integers(0, len(options), (pop, n_pos))],
+                          dtype=jnp.int32)
+    hh_agg = jnp.asarray(rng.integers(0, 4, (pop, n_pos)).astype(np.int32))
+    pal = None if palette is None else jnp.array(palette, dtype=jnp.int32)
+
+    def settle(d, frm, to, w, valid, idx, agg, as_rule):
+        kwargs = dict(return_states=return_states)
+        if dynamic:
+            kwargs.update(hh_agg_indices=agg, hh_aggregation_mode="dynamic")
+        if as_rule:
+            rule, operands = E.node_activation_rule("every_iteration", idx, jnp.tanh, pal, 6)
+            return E.settle_hidden(d, frm, to, w, valid, 9, rule, node_operands=operands, **kwargs)
+        return E.settle_hidden(d, frm, to, w, valid, 9,
+                               E.node_activation("every_iteration", idx, jnp.tanh, pal, 6), **kwargs)
+
+    args = (drive, stack("frm"), stack("to"), stack("w"), stack("valid"), indices, hh_agg)
+    with_rule = jax.vmap(lambda *a: settle(*a, True))(*args)
+    with_partial = jax.vmap(lambda *a: settle(*a, False))(*args)
+    for a, b in zip(jax.tree_util.tree_leaves(with_rule), jax.tree_util.tree_leaves(with_partial)):
+        _agree(np.asarray(a), np.asarray(b))
+
+
+_TRUE_NEUROMODULATION = {"enabled": True, "mode": "true_neuromodulation", "num_nt_types": 4,
+                         "receptor_from_weight": True, "receptor_derivation": "tanh",
+                         "modulation_strength": 2.0, "modulation_mode": "full"}
+
+#: Recurrent configurations whose node function settles through a step made once: a registry
+#: function (tanh nodes, a global activation (sin), input-to-hidden aggregation alone, tanh nodes
+#: through the dynamic path) or a node rule (per-node activation, from a CPPN output with or
+#: without a palette, from the weights, and with per-node h->h aggregation; each neuromodulation
+#: mode, over tanh nodes or per-node activations).
+EVALUATION_CONFIGS = {
     "plain": {},
     "global_sin": {"dynamic_functions": {"mode": "global", "hidden_activation": "sin",
                                          "output_activation": "sigmoid"}},
     "aggregation_only": {"aggregation": {"mode": "cppn_output", "num_aggregations": 4}},
+    "per_node_cppn_output": {"dynamic_functions": {"mode": "cppn_output", "num_activations": 4}},
+    "per_node_palette": {"dynamic_functions": {"mode": "cppn_output", "num_activations": 4,
+                                               "palette": [4, 11, 5, 0]}},
+    "per_node_weight_interpretation": {"dynamic_functions": {
+        "mode": "weight_interpretation", "num_activations": 6, "interpretation": "variance"}},
+    "per_node_hh_aggregation": {
+        "dynamic_functions": {"mode": "cppn_output", "num_activations": 4},
+        "aggregation": {"mode": "cppn_output", "num_aggregations": 4,
+                        "hh_aggregation_mode": "dynamic"}},
+    "static_gating": {"neuromodulation": {"enabled": True, "mode": "static_gating",
+                                          "gate_scaling": "sigmoid"}},
+    "context_gating": {"neuromodulation": {"enabled": True, "mode": "context_gating",
+                                           "context_dim": 4, "context_influence": 0.5}},
+    "modulatory_neurons": {"neuromodulation": {
+        "enabled": True, "mode": "modulatory_neurons", "mod_neuron_ratio": 0.1,
+        "mod_connection_type": "multiplicative", "mod_decay": 0.9}},
+    "true_neuromodulation": {"neuromodulation": _TRUE_NEUROMODULATION},
+    "true_neuromodulation_hmr_full_gating": {"neuromodulation": dict(
+        _TRUE_NEUROMODULATION, node_rule="hmr_full", modulation_mode="gating_only")},
+    "static_gating_per_node": {
+        "neuromodulation": {"enabled": True, "mode": "static_gating", "gate_scaling": "sigmoid"},
+        "dynamic_functions": {"mode": "cppn_output", "num_activations": 4}},
+    # eval_chunk_size below the population: the scan-chunked plain path, and the chunk loop of the
+    # others
+    "plain_chunked": {"recurrence": {"eval_chunk_size": 7}},
+    "plain_chunked_accuracy": {"recurrence": {"eval_chunk_size": 7}, "fitness_mode": "accuracy"},
+    "per_node_chunked": {"recurrence": {"eval_chunk_size": 7},
+                         "dynamic_functions": {"mode": "cppn_output", "num_activations": 4}},
+    "true_neuromodulation_chunked": {"recurrence": {"eval_chunk_size": 7},
+                                     "neuromodulation": _TRUE_NEUROMODULATION},
 }
 
 
-@pytest.mark.parametrize("name", sorted(REGISTRY_NODE_FUNCTION_CONFIGS))
+@pytest.mark.parametrize("name", sorted(EVALUATION_CONFIGS))
 def test_a_recurrent_generation_compiles_nothing_in_its_evaluation(name, monkeypatch):
-    """hidden_only at iteration level 1 without the h->h cache, with a registry node function: a
-    generation whose evaluation shapes were seen before compiles nothing from `_build_forward`'s
-    return to `sanitize_fitness`, the evaluation stage. With a step made per call it compiled the
-    settling scan, one executable, every generation; a global activation and aggregation alone
-    did so until `node_activation` returned the function itself rather than a partial. A shape
-    counts as seen from generation 1 on: the argument types change once after the first
+    """hidden_only at iteration level 1 without the h->h cache: a generation whose evaluation
+    shapes were seen before compiles nothing from `_build_forward`'s return to
+    `sanitize_fitness`, the evaluation stage. With a step made per call it compiled the settling
+    scan, one executable, every generation: the plain path until 0.2.0, a global activation and
+    aggregation alone until `node_activation` returned the function itself rather than a
+    partial, per-node activation until it settled through a node rule that carries the indices,
+    every neuromodulation mode until its node became a rule that carries its terms, and the
+    scan-chunked evaluation (`eval_chunk_size`) until its chunk loop ran in a cached `jit`. A
+    shape counts as seen from generation 1 on: the argument types change once after the first
     generation."""
     _watch_compiles()
     build_forward = E.EMRHyperNEAT._build_forward
@@ -510,7 +585,9 @@ def test_a_recurrent_generation_compiles_nothing_in_its_evaluation(name, monkeyp
     monkeypatch.setattr(E, "sanitize_fitness", spy_sanitize)
     config = create_config_with_recurrence("hidden_only", max_depth=2, population_size=POP,
                                            iteration_level=1, hh_cache_enabled=False)
-    _hmr(config).update(copy.deepcopy(REGISTRY_NODE_FUNCTION_CONFIGS[name]))
+    overrides = copy.deepcopy(EVALUATION_CONFIGS[name])
+    _hmr(config)["recurrence"].update(overrides.pop("recurrence", {}))
+    _hmr(config).update(overrides)
     algo = EMRHyperNEAT()
     problem = XORProblem()
     state = algo.initialize(algo.create_config(config), problem, seed=SEED)
@@ -529,13 +606,83 @@ def test_a_recurrent_generation_compiles_nothing_in_its_evaluation(name, monkeyp
     assert all(count == 0 for _, count in compiles), compiles
 
 
-def test_a_node_function_made_per_call_is_not_cached():
-    """Per-node activation settles through a partial made on every call: caching its step would
-    keep one entry per call alive. Only registry functions enter the cache."""
-    before = len(E._SETTLE_STEPS)
-    _run(_df("cppn_output_4", "hidden_only"), generations=3)
-    assert len(E._SETTLE_STEPS) == before
-    assert all(any(key[0] is fn for fn in E._STABLE_NODE_FNS) for key in E._SETTLE_STEPS)
+def _generation_compiles(config, generations=6):
+    """Executables compiled by each whole `run_generation` call, generation by generation."""
+    _watch_compiles()
+    algo = EMRHyperNEAT()
+    problem = XORProblem()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        state = algo.initialize(algo.create_config(copy.deepcopy(config)), problem, seed=SEED)
+    counts = []
+    for _ in range(generations):
+        _COMPILES["count"] = 0
+        _COMPILES["active"] = True
+        try:
+            state, _ = algo.run_generation(state, problem)
+            jax.block_until_ready(algo._cached_fitnesses)
+        finally:
+            _COMPILES["active"] = False
+        counts.append(_COMPILES["count"])
+    return counts
+
+
+#: Feed-forward configurations that query each genome's CPPN at its self-connections: the
+#: activation or the aggregation from a dedicated CPPN output, and the neuromodulation decode
+#: from the self-connection query. Feed-forward shapes never change, so every generation after
+#: the first two can be checked.
+SELF_CONNECTION_CONFIGS = {
+    "activation_cppn_output": lambda: _df("cppn_output_4"),
+    "aggregation_cppn_output": lambda: _agg_cppn("feedforward"),
+    "neuromodulation_self_connection_query": lambda: create_config_with_neuromodulation(
+        "true_neuromodulation_4nt", recurrence_preset="feedforward",
+        use_self_connection_query=True, **KW),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SELF_CONNECTION_CONFIGS))
+def test_the_self_connection_query_compiles_once(name):
+    """A whole generation compiles nothing once its shapes were seen. 0.2.0 ran the CPPN forward
+    eagerly for the self-connection query; the forward takes the state as a static argument, which
+    hashes by identity, so every generation's new state compiled it again, one executable per
+    generation. The query now runs through the weight queries' cached population query."""
+    counts = _generation_compiles(SELF_CONNECTION_CONFIGS[name]())
+    assert all(count == 0 for count in counts[2:]), counts
+
+
+@pytest.mark.parametrize("chunk", [0, 7])
+def test_the_self_connection_query_equals_its_eager_form(chunk):
+    """The cached population query traces the state; 0.2.0 vmapped the CPPN forward eagerly with
+    the state static. Same outputs, bit for bit on CPU, chunked or not."""
+    algo, states, _, _ = _run(_df("cppn_output_4", "hidden_only"), generations=2)
+    positions = E.get_hierarchical_grid(algo.max_depth).all_positions
+    rows = E.self_connection_rows(positions)
+    forward = algo._jitted_cppn_forward
+    for state in states:
+        cppns = algo._compiled_transform_batch(state, algo._compiled_ask(state))
+        eager = jax.vmap(lambda c: jax.vmap(lambda x: forward(state, c, x))(rows),  # noqa: B023
+                         in_axes=((0, 0, 0, 0),))(tuple(cppns))
+        cached = E.batch_query_population_self_connections(state, cppns, positions, forward, 2,
+                                                           pop_chunk_size=chunk)
+        assert cached.shape == eager.shape == (POP, positions.shape[0], 2)
+        _agree(np.asarray(cached), np.asarray(eager))
+
+
+def test_only_functions_made_once_enter_the_step_cache():
+    """Registry functions and node rules, made once per setting, enter the step cache, and a
+    second run of a configuration adds nothing to it. A node function made per call (a lambda, a
+    partial) does not: caching its step would keep one entry per call alive."""
+    _run(_df("cppn_output_4", "hidden_only", palette=[4, 11, 5, 0]), generations=2)
+    steps, rules = len(E._SETTLE_STEPS), len(E._NODE_RULES)
+    _run(_df("cppn_output_4", "hidden_only", palette=[4, 11, 5, 0]), generations=3)
+    assert (len(E._SETTLE_STEPS), len(E._NODE_RULES)) == (steps, rules)
+    assert all(E._is_stable_node_fn(key[0]) for key in E._SETTLE_STEPS)
+    net = _random_network(seed=9)
+    args = (net["inputs"] @ net["W1"], net["frm"], net["to"], net["w"], net["valid"], 5)
+    E.settle_hidden(*args, lambda x: jnp.tanh(x))
+    indices = jnp.asarray(np.arange(net["n_pos"]) % 4, dtype=jnp.int32)
+    E.settle_hidden(*args, E.node_activation("every_iteration", indices))
+    assert len(E._SETTLE_STEPS) == steps
 
 
 def test_without_indices_the_node_function_is_the_configured_function():
@@ -551,3 +698,246 @@ def test_without_indices_the_node_function_is_the_configured_function():
            np.asarray(E.hidden_activation(pre, None, sin)))
     indices = jnp.array([0, 1, 2, 3, 0, 1])
     assert isinstance(E.node_activation("every_iteration", indices, sin), partial)
+
+
+def test_a_node_rule_is_made_once_per_setting():
+    """`node_activation_rule` gives the function itself without indices (or under 'tanh'), and
+    with indices the per-node activation made once per palette and number of activations, the
+    indices as its operand: the same rule for every genome and generation, so its settling step
+    is made once."""
+    sin = E.ACTIVATION_FUNCTIONS["sin"]
+    indices = jnp.array([0, 1, 2, 3, 0, 1])
+    assert E.node_activation_rule("every_iteration", None, sin) == (sin, ())
+    assert E.node_activation_rule("tanh", indices, sin) == (jnp.tanh, ())
+    rule, operands = E.node_activation_rule("every_iteration", indices, sin, None, 4)
+    assert len(operands) == 1 and operands[0] is indices and E._is_stable_node_fn(rule)
+    assert E.node_activation_rule("every_iteration", indices + 0, jnp.tanh, None, 4)[0] is rule
+    palette = jnp.array([4, 11, 5, 0], dtype=jnp.int32)
+    on_palette = E.node_activation_rule("every_iteration", indices, sin, palette, 4)[0]
+    assert on_palette is not rule
+    assert E.node_activation_rule("every_iteration", indices, sin, [4, 11, 5, 0], 4)[0] is on_palette
+    pre = jnp.linspace(-3.0, 3.0, 24, dtype=jnp.float32).reshape(4, 6)
+    _agree(np.asarray(rule(pre, indices)),
+           np.asarray(E.node_activation("every_iteration", indices, sin, None, 4)(pre)))
+    with pytest.raises(ValueError, match="hh_activation_mode"):
+        E.node_activation_rule("initial_only", indices)
+
+
+def _tnm_node_0_2_0(act_fn, receptors, base_gains, nt, s, num_nt, mode, rule):
+    """0.2.0's true_neuromodulation_node_fn, a closure over its terms: the reference."""
+    k = min(3, num_nt)
+    m = receptors[:, :k] @ nt[:k]
+    if rule == "hmr_full":
+        gains, gates = base_gains + s * m, jax.nn.sigmoid(m * 5.0)
+        if mode == "gating_only":
+            return lambda pre: act_fn(pre) * gates
+        if mode == "gain_bias_only":
+            return lambda pre: act_fn(gains * pre)
+        return lambda pre: act_fn(gains * pre) * gates
+    if mode == "gating_only":
+        gates = jax.nn.sigmoid(m * s)
+        return lambda pre: act_fn(pre) * gates
+    gains = jnp.clip(base_gains + s * m, 0.1, 5.0)
+    gains = jnp.where(jnp.isnan(gains), 1.0, gains)
+    bias = m * s
+    if mode == "gain_bias_only":
+        return lambda pre: act_fn(gains * pre + bias)
+    gates = jax.nn.sigmoid(m)
+    return lambda pre: act_fn(gains * pre + bias) * gates
+
+
+def _modulated_0_2_0(act_fn, mod_w, mask, mod_type, mod_decay):
+    """0.2.0's modulatory-neuron node in `_build_forward`, a closure: the reference."""
+    def node(pre):
+        h = act_fn(pre)
+        mod_activity = jnp.sum(h * mask, axis=1, keepdims=True) / jnp.maximum(jnp.sum(mask), 1)
+        mod_signal = jnp.tanh(mod_activity) * mod_decay
+        if mod_type == "multiplicative":
+            return h * (1.0 + mod_signal * mod_w)
+        if mod_type == "additive":
+            return h + mod_signal * mod_w
+        return h * jax.nn.sigmoid(mod_signal * mod_w)
+    return node
+
+
+NEUROMODULATED_CASES = (["gated"] + [f"modulatory_{t}" for t in ("multiplicative", "additive", "gated")]
+                        + [f"tnm_{rule}_{mode}" for rule in ("paper", "hmr_full")
+                           for mode in ("full", "gating_only", "gain_bias_only")])
+
+
+@pytest.mark.parametrize("per_node", [False, True])
+@pytest.mark.parametrize("case", NEUROMODULATED_CASES)
+def test_a_neuromodulated_rule_settles_as_the_closure_it_replaces(case, per_node):
+    """Each neuromodulation mode settles through a node rule made once, whose terms (gates, gains,
+    bias, modulatory weights and neurons) and activation indices the reused step carries; 0.2.0
+    closed a new function over them on every call. Under the evaluation's vmap, the same values
+    (bit for bit on CPU), over tanh nodes and over per-node activations with resonator."""
+    rng = np.random.default_rng(31)
+    pop, n_pos = 4, 40
+    nets = [_random_network(seed=40 + g) for g in range(pop)]
+    stack = lambda key: jnp.stack([net[key] for net in nets])  # noqa: E731
+    f32 = lambda a: jnp.asarray(a.astype(np.float32))  # noqa: E731
+    palette = jnp.array([4, 11, 12, 5], dtype=jnp.int32)
+    per_genome = dict(
+        drive=jnp.stack([net["inputs"] @ net["W1"] for net in nets]),
+        frm=stack("frm"), to=stack("to"), w=stack("w"), valid=stack("valid"),
+        idx=jnp.asarray(np.asarray(palette)[rng.integers(0, 4, (pop, n_pos))], dtype=jnp.int32),
+        gates=f32(rng.uniform(size=(pop, n_pos))),
+        mod_w=f32(rng.normal(size=(pop, n_pos))),
+        mask=jnp.asarray(rng.uniform(size=(pop, n_pos)) < 0.2),
+        receptors=f32(rng.uniform(-1, 1, size=(pop, n_pos, 4))),
+        gains=f32(rng.uniform(0.5, 1.0, size=(pop, n_pos))),
+    )
+    nt = jnp.array([0.9, 0.1, 0.5, 1.0])
+
+    def settle(a, as_rule):
+        idx = a["idx"] if per_node else None
+        if as_rule:
+            act = E.node_activation_rule("every_iteration", idx, jnp.tanh, palette, 4)
+            if case == "gated":
+                node_fn, operands = E.gated_node_rule(act, a["gates"])
+            elif case.startswith("modulatory"):
+                node_fn, operands = E.modulatory_neuron_rule(act, a["mod_w"], a["mask"],
+                                                             case.split("_")[1], 0.9)
+            else:
+                rule, mode = case[4:].split("_", 1) if case.startswith("tnm_paper") else \
+                    ("hmr_full", case[len("tnm_hmr_full_"):])
+                node_fn, operands = E.true_neuromodulation_node_rule(
+                    act, a["receptors"], a["gains"], nt, 2.0, 4, mode, rule)
+        else:
+            act_fn = E.node_activation("every_iteration", idx, jnp.tanh, palette, 4)
+            operands = ()
+            if case == "gated":
+                node_fn = lambda p: act_fn(p) * a["gates"]  # noqa: E731
+            elif case.startswith("modulatory"):
+                node_fn = _modulated_0_2_0(act_fn, a["mod_w"], a["mask"], case.split("_")[1], 0.9)
+            else:
+                rule, mode = case[4:].split("_", 1) if case.startswith("tnm_paper") else \
+                    ("hmr_full", case[len("tnm_hmr_full_"):])
+                node_fn = _tnm_node_0_2_0(act_fn, a["receptors"], a["gains"], nt, 2.0, 4, mode, rule)
+        return E.settle_hidden(a["drive"], a["frm"], a["to"], a["w"], a["valid"], 9, node_fn,
+                               node_operands=operands)
+
+    with_rule = jax.vmap(lambda a: settle(a, True))(per_genome)
+    with_closure = jax.vmap(lambda a: settle(a, False))(per_genome)
+    _agree(np.asarray(with_rule), np.asarray(with_closure))
+
+
+def test_a_neuromodulated_rule_is_made_once_per_setting():
+    """A neuromodulated rule is kept per form and activation (and for modulatory neurons per
+    connection type and decay), so every genome and generation shares it; over an activation
+    made per call (a partial) it is made per call and not kept."""
+    tanh = (jnp.tanh, ())
+    gates = jnp.ones(6)
+    assert E.gated_node_rule(tanh, gates)[0] is E.gated_node_rule(tanh, gates * 2)[0]
+    mod = E.modulatory_neuron_rule(tanh, gates, gates > 0, "additive", 0.9)[0]
+    assert mod is E.modulatory_neuron_rule(tanh, gates, gates > 0, "additive", 0.9)[0]
+    assert mod is not E.modulatory_neuron_rule(tanh, gates, gates > 0, "additive", 0.7)[0]
+    rules = len(E._NODE_RULES)
+    partial = E.node_activation("every_iteration", jnp.arange(6) % 4)
+    assert E.gated_node_rule((partial, ()), gates)[0] is not E.gated_node_rule((partial, ()), gates)[0]
+    assert len(E._NODE_RULES) == rules
+
+
+@pytest.mark.parametrize("per_task_activation", [False, True])
+def test_a_multitask_generation_compiles_nothing(per_task_activation):
+    """A recurrent multi-task generation (XOR and AND, true neuromodulation) compiles nothing once
+    its shapes were seen; multi-task evaluation keeps every position, so they repeat from the
+    first generations on. 0.2.0 made new evaluators every generation, whose settling compiled
+    again for the first task's single-task evaluation and for each task: 1 + T executables."""
+    _watch_compiles()
+    tasks = ["xor", "and"]
+    config = create_config_with_multi_task(tasks, max_depth=2, population_size=POP)
+    rec = _hmr(config)["recurrence"]
+    rec.update(iteration_level=1, hh_cache_enabled=False)
+    if per_task_activation:
+        _hmr(config)["multitask"]["per_task_activation"] = {"xor": "sin", "and": "tanh"}
+    algo = EMRHyperNEAT()
+    problems = [MultiTaskProblem(t) for t in tasks]
+    nts = [jnp.array(E.NT_TASK_PRESETS[t]) for t in tasks]
+    state = algo.initialize(algo.create_config(config), problems[0], seed=SEED)
+    counts = []
+    for _ in range(6):
+        _COMPILES["count"] = 0
+        _COMPILES["active"] = True
+        try:
+            state, _ = algo.run_generation_multitask(state, problems=problems, neurotransmitters=nts,
+                                                     aggregation_method="min")
+            jax.block_until_ready(state)
+        finally:
+            _COMPILES["active"] = False
+        counts.append(_COMPILES["count"])
+    assert all(count == 0 for count in counts[2:]), counts
+
+
+def test_the_multitask_evaluators_are_made_once_per_setting():
+    """The multi-task evaluator is kept per setting it closes over; an activation made per call
+    gives a new evaluator on every call, which is not kept."""
+    algo = EMRHyperNEAT()
+    algo.create_config(_neuromod("true_neuromodulation_4nt", "hidden_only"))
+    make = algo._create_eval_population_true_neuromodulated
+    sin = E.ACTIVATION_FUNCTIONS["sin"]
+    assert make(has_hh=True, activate_time=5, hidden_act_fn=sin) is make(
+        has_hh=True, activate_time=5, hidden_act_fn=sin)
+    assert make(has_hh=True, activate_time=5, hidden_act_fn=sin) is not make(
+        has_hh=True, activate_time=6, hidden_act_fn=sin)
+    assert make(has_hh=False) is make(has_hh=True, activate_time=0)
+    kept = len(E._MULTITASK_EVALUATORS)
+    assert make(has_hh=True, activate_time=5, hidden_act_fn=lambda x: jnp.sin(x)) is not make(
+        has_hh=True, activate_time=5, hidden_act_fn=lambda x: jnp.sin(x))
+    assert len(E._MULTITASK_EVALUATORS) == kept
+
+
+def test_the_union_multi_hop_expansion_is_kept_per_setting():
+    """The union discovery's multi-hop expansion is one `jit(vmap(...))` per device and setting,
+    a setting keyed with its type."""
+    device = jax.devices()[0]
+    get = E._get_union_multi_hop_fn
+    expand = get(device, "matrix_power", 0.3, 2, 0.8, 3.0, "masked")
+    assert get(device, "matrix_power", 0.3, 2, 0.8, 3.0, "masked") is expand
+    assert get(device, "fori_loop", 0.3, 2, 0.8, 3.0, "masked") is not expand
+    assert get(device, "matrix_power", 0.3, 3, 0.8, 3.0, "masked") is not expand
+    assert get(device, "matrix_power", 0.3, 2, 0.8, 3.0, "raw") is not expand
+    assert get(device, "matrix_power", 0.3, 2, 0.8, 3, "masked") is not expand
+
+
+@pytest.mark.parametrize("second_factor", ["masked", "raw"])
+def test_a_union_discovery_compiles_nothing_for_a_union_seen_before(second_factor, monkeypatch):
+    """`hh_discovery_mode: union` at iteration level 2 (with `raw`, the setting that reproduces a
+    0.1.0 recurrent run): a discovery over a union of active positions whose size was seen before
+    compiles nothing. 0.2.0 built the multi-hop expansion, `jit(vmap(expand_single_genome))`, on
+    every call, and compiled it on every discovery."""
+    _watch_compiles()
+    discover = E.discover_sparse_hh_vectorized_multi_hop
+    calls = []
+
+    def spy(state, cppns, h_grid, masks_A, *args, **kwargs):
+        union = int(np.asarray(masks_A).any(axis=0).sum())
+        _COMPILES["count"] = 0
+        _COMPILES["active"] = True
+        try:
+            result = discover(state, cppns, h_grid, masks_A, *args, **kwargs)
+            jax.block_until_ready(result.weights)
+        finally:
+            _COMPILES["active"] = False
+        calls.append((union, _COMPILES["count"]))
+        return result
+
+    monkeypatch.setattr(E, "discover_sparse_hh_vectorized_multi_hop", spy)
+    config = create_config_with_recurrence("hidden_only", max_depth=3, population_size=POP,
+                                           iteration_level=2, hh_cache_enabled=False)
+    _hmr(config)["recurrence"].update(hh_discovery_mode="union",
+                                      multi_hop_second_factor=second_factor)
+    algo = EMRHyperNEAT()
+    problem = XORProblem()
+    state = algo.initialize(algo.create_config(config), problem, seed=SEED)
+    for _ in range(10):
+        state, _ = algo.run_generation(state, problem)
+    seen, checked = set(), []
+    for call, (union, count) in enumerate(calls):
+        if call >= 2 and union in seen:
+            checked.append(count)
+        if call >= 1:
+            seen.add(union)
+    assert len(checked) >= 2, f"the union size changed at every discovery: {calls}"
+    assert all(count == 0 for count in checked), calls

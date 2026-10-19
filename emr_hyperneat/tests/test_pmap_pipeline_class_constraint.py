@@ -5,8 +5,10 @@ In 0.1.0, `_full_pipeline_with_hh_core` (FULL_PIPELINE_PARALLEL, data- and popul
 connections as ``|w| > band & active & active & not self`` with no `allow_backward`, `allow_lateral`
 or `allow_self_loops`, so every preset ran as full recurrence without self loops there. They now take
 the three flags as static arguments and apply `_hh_class_mask_rows`, the rule of
-`_get_constraint_mask_fn`. On one CPU device the population-parallel path runs as a one-shard pmap,
-so its per-generation connection count and fitness can be checked against the standard path.
+`_get_constraint_mask_fn`. On one CPU device both paths run as a one-shard pmap, so their
+per-generation connection count and fitness can be checked against the standard path, at iteration
+levels 0 and 1: level 0 discovers the direct connections, as level 1 does, where 0.2.0 ran it
+feed-forward on both pmap paths.
 """
 
 import jax.numpy as jnp
@@ -16,6 +18,7 @@ import pytest
 from conftest import (
     EMRHyperNEAT,
     XORProblem,
+    assert_trajectories_agree,
     create_config_with_recurrence,
     DEFAULT_SEED,
 )
@@ -41,6 +44,19 @@ def _pmap_pop_parallel(preset, level=1):
     return int(algo._last_pmap_hh_count), float(result['best_fitness'])
 
 
+def _data_parallel_full(preset, level=1):
+    cfg = create_config_with_recurrence(preset, max_depth=3, population_size=8, iteration_level=level,
+                                        hh_cache_enabled=False)
+    algo = EMRHyperNEAT()
+    state = algo.initialize(algo.create_config(cfg), XORProblem(), seed=DEFAULT_SEED)
+    result = algo._run_until_threshold_data_parallel_full(state, XORProblem(), target_fitness=2.0,
+                                                          max_generations=1, collect_history=True)
+    return int(algo._last_pmap_hh_count), float(result['best_fitness'])
+
+
+_RUNNERS = {'pop_parallel': _pmap_pop_parallel, 'data_parallel_full': _data_parallel_full}
+
+
 class TestClassMaskRows:
     def test_rules(self):
         y = jnp.asarray([0.0, 0.5, 1.0, 1.0])
@@ -63,29 +79,24 @@ class TestClassMaskRows:
 
 
 class TestPmapPipelineClassConstraint:
+    @pytest.mark.parametrize('level', [0, 1])
     @pytest.mark.parametrize('preset', ['hidden_only', 'with_backward', 'full_recurrent'])
-    def test_pop_parallel_matches_standard_path_at_level_one(self, preset):
-        std_count, std_fit = _standard(preset)
-        pmap_count, pmap_best = _pmap_pop_parallel(preset)
-        # Same population (same seed, generation 0), same discovery rule: same connection count.
-        assert pmap_count == std_count, (preset, pmap_count, std_count)
-        assert abs(pmap_best - float(std_fit.max())) < 1e-4, (preset, pmap_best, float(std_fit.max()))
+    def test_both_pipelines_match_standard_path(self, preset, level):
+        """Level 0 discovers the direct connections, as level 1 does on the standard path. In 0.2.0
+        both pmap pipelines ran level 0 feed-forward: no h->h connection, the dense evaluation."""
+        std_count, std_fit = _standard(preset, level)
+        for runner, run in _RUNNERS.items():
+            pmap_count, pmap_best = run(preset, level)
+            # Same population (same seed, generation 0), same discovery rule: same connection count.
+            assert pmap_count == std_count, (runner, preset, level, pmap_count, std_count)
+            assert abs(pmap_best - float(std_fit.max())) < 1e-4, (runner, preset, level, pmap_best,
+                                                                  float(std_fit.max()))
 
     def test_hidden_only_is_not_full_recurrence(self):
         # Before the fix every preset gave the full-recurrence count here.
         h_count, _ = _pmap_pop_parallel('hidden_only')
         f_count, _ = _pmap_pop_parallel('full_recurrent')
         assert h_count < f_count
-
-
-def _data_parallel_full(preset, level=1):
-    cfg = create_config_with_recurrence(preset, max_depth=3, population_size=8, iteration_level=level,
-                                        hh_cache_enabled=False)
-    algo = EMRHyperNEAT()
-    state = algo.initialize(algo.create_config(cfg), XORProblem(), seed=DEFAULT_SEED)
-    result = algo._run_until_threshold_data_parallel_full(state, XORProblem(), target_fitness=2.0,
-                                                          max_generations=1, collect_history=True)
-    return int(algo._last_pmap_hh_count), float(result['best_fitness'])
 
 
 class TestPmapPipelineRefusesWhatItCannotCompute:
@@ -96,18 +107,33 @@ class TestPmapPipelineRefusesWhatItCannotCompute:
 
     @pytest.mark.parametrize('runner', ['pop_parallel', 'data_parallel_full'])
     def test_level_two_is_refused(self, runner):
-        run = _pmap_pop_parallel if runner == 'pop_parallel' else _data_parallel_full
         with pytest.raises(ValueError, match='iteration_level'):
-            run('hidden_only', level=2)
+            _RUNNERS[runner]('hidden_only', level=2)
 
-    def test_level_one_runs_and_records_the_effective_level(self):
+    @pytest.mark.parametrize('level', [0, 1])
+    @pytest.mark.parametrize('runner', ['pop_parallel', 'data_parallel_full'])
+    def test_levels_zero_and_one_record_the_level_computed(self, runner, level):
+        """Both record `effective_iteration_level` 1 with the direct connections discovered. In
+        0.2.0 level 0 recorded 1 with no connection discovered."""
         cfg = create_config_with_recurrence('hidden_only', max_depth=3, population_size=8,
-                                            iteration_level=1, hh_cache_enabled=False)
+                                            iteration_level=level, hh_cache_enabled=False)
         algo = EMRHyperNEAT()
         state = algo.initialize(algo.create_config(cfg), XORProblem(), seed=DEFAULT_SEED)
-        algo._run_until_threshold_pop_parallel(state, XORProblem(), target_fitness=2.0,
-                                               max_generations=1, collect_history=True)
+        run = (algo._run_until_threshold_pop_parallel if runner == 'pop_parallel'
+               else algo._run_until_threshold_data_parallel_full)
+        run(state, XORProblem(), target_fitness=2.0, max_generations=1, collect_history=True)
         assert algo._extended_metrics.effective_iteration_level == 1
+        assert algo._extended_metrics.hidden_to_hidden_connections == algo._last_pmap_hh_count > 0
+
+    @pytest.mark.parametrize('runner', ['pop_parallel', 'data_parallel_full'])
+    def test_level_zero_runs_as_level_one(self, runner):
+        """Level 0 reaches the pipeline as level 1: the same connections, and the same fitness (bit
+        for bit on a CPU)."""
+        (count0, best0), (count1, best1) = (_RUNNERS[runner]('with_backward', level=level)
+                                            for level in (0, 1))
+        assert count0 == count1 > 0, (runner, count0, count1)
+        assert_trajectories_agree({'level 0': [best0], 'level 1': [best1]},
+                                  f'{runner}: level 0 against level 1')
 
     def test_strategy_key_on_one_device_falls_back_to_the_standard_path_at_level_two(self):
         """With one device the FULL_PIPELINE_PARALLEL key takes the standard path, where level 2

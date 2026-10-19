@@ -15,7 +15,9 @@ from conftest import (
     EMRHyperNEAT,
     create_config_with_dynamic_functions,
     create_config_with_combined_recurrence,
+    create_config_with_recurrence,
     create_base_config,
+    assert_trajectories_agree,
     run_quick_evolution,
     assert_no_errors,
     assert_fitness_above,
@@ -361,6 +363,76 @@ class TestRandomScopes:
             'mode': 'random_fixed', 'random_scope': 'population'}
         with pytest.raises(ValueError, match='random_scope must be one of'):
             EMRHyperNEAT().create_config(config)
+
+
+def _recurrent_random_fixed(block, preset, depth, generations):
+    """A recurrent run with random_fixed activation (or aggregation), XOR, population 20: the
+    algorithm, its last state, and per generation the evaluated position count, the evaluated
+    positions (None: all) and the indices the evaluation used."""
+    config = create_config_with_recurrence(preset, max_depth=depth, population_size=20,
+                                           iteration_level=1, hh_cache_enabled=False)
+    config['algorithm_params']['emrhyperneat']['emr_hyperneat'][block] = (
+        {'mode': 'random_fixed', 'num_activations': 6} if block == 'dynamic_functions'
+        else {'mode': 'random_fixed', 'num_aggregations': 4})
+    algorithm = EMRHyperNEAT()
+    state = algorithm.initialize(algorithm.create_config(config), XORProblem(), seed=DEFAULT_SEED)
+    rows = []
+    for _ in range(generations):
+        state, metrics = algorithm.run_generation(state, XORProblem())
+        used = (algorithm._cached_act_indices if block == 'dynamic_functions'
+                else algorithm._cached_ih_agg_indices)
+        rows.append((metrics.custom_metrics['total_positions'],
+                     algorithm._last_eval['eval_positions'], np.asarray(used)))
+    return algorithm, state, rows
+
+
+class TestRandomFixedWithRecurrence:
+    """random_fixed keeps a function per population slot and grid position. With hidden-to-hidden
+    connections a generation evaluates its active positions only, a count that changes between
+    generations. In 0.1.0 and 0.2.0 the fixed draw had generation 0's count and was reused whole, so
+    the run failed at the first generation whose count differed ("Incompatible shapes for
+    broadcasting"). It is now drawn over the whole position axis and gathered at the positions
+    evaluated; a feed-forward run evaluates the whole axis, so its draw is unchanged."""
+
+    @pytest.mark.parametrize('block', ['dynamic_functions', 'aggregation'])
+    @pytest.mark.parametrize('preset', ['hidden_only', 'full_recurrent'])
+    @pytest.mark.parametrize('depth', [2, 3])
+    def test_a_recurrent_run_survives_a_changing_active_count(self, depth, preset, block):
+        _, _, rows = _recurrent_random_fixed(block, preset, depth, generations=4)
+        counts = [count for count, _, _ in rows]
+        assert len(set(counts)) > 1, counts  # the case that failed
+        for count, _, used in rows:
+            assert used.shape == (20, count)
+
+    @pytest.mark.parametrize('block', ['dynamic_functions', 'aggregation'])
+    def test_a_position_keeps_its_function_across_generations(self, block):
+        algorithm, _, rows = _recurrent_random_fixed(block, 'hidden_only', 3, generations=4)
+        drawn = np.asarray(algorithm._random_fixed_indices if block == 'dynamic_functions'
+                           else algorithm._random_fixed_agg_indices)
+        assert drawn.shape == (20, algorithm._cached_W1.shape[2])  # every grid position
+        by_position = {}
+        for _, positions, used in rows:
+            positions = np.arange(drawn.shape[1]) if positions is None else np.asarray(positions)
+            np.testing.assert_array_equal(used, drawn[:, positions])
+            for column, position in enumerate(positions.tolist()):
+                by_position.setdefault(position, []).append(used[:, column])
+        repeated = [columns for columns in by_position.values() if len(columns) > 1]
+        assert repeated
+        for columns in repeated:
+            for column in columns[1:]:
+                np.testing.assert_array_equal(column, columns[0])
+
+    def test_the_champion_is_rescored_with_its_generation_s_functions(self):
+        """evaluate_on_data re-runs the last generation's champion with the indices gathered at
+        that generation's active positions."""
+        algorithm, state, rows = _recurrent_random_fixed('dynamic_functions', 'hidden_only', 3,
+                                                         generations=4)
+        assert len({count for count, _, _ in rows}) > 1
+        result = algorithm.evaluate_on_data(state, algorithm._cached_inputs,
+                                            algorithm._cached_targets)
+        assert_trajectories_agree({'rescored': [result['fitness']],
+                                   'selected': [float(np.max(algorithm._cached_fitnesses))]},
+                                  'recurrent random_fixed champion')
 
 
 class TestHHActivationModes:

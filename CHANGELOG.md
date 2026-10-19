@@ -3,6 +3,95 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## 0.2.1
+
+A patch on 0.2.0. Every configuration that ran on 0.2.0 gives the same results, bit for bit on a CPU, except two
+(below): a recurrent `random_fixed` run, which failed on 0.2.0 at its first generation whose active count changed,
+and a run at iteration level 0 on the `full_pipeline_parallel` pipeline, which now discovers the direct
+hidden-to-hidden connections that 0.2.0 skipped there.
+Recurrent runs with per-node functions, neuromodulation, multi-task evaluation or `eval_chunk_size`, and the
+self-connection query, no longer compile again every generation.
+
+Measured on one core of a Xeon E5-2683 v4 (XOR, depth 3, population 100, `hidden_only` at iteration level 1, h->h
+cache off, 300 generations, jax 0.6.1):
+- Per-node activation (`cppn_output`): a generation takes 1.53 s against 3.05 s in 0.2.0, and the process holds
+  1,387 MiB after 300 generations against 4,899 MiB. Memory grows 0.4 MiB per generation against 10.5.
+- `true_neuromodulation`: 1.13 s against 1.25 s, with memory flat at 1,479 MiB against 2,596 MiB.
+- The best fitness is the same in every generation.
+
+### Fixed
+
+- **`random_fixed` runs with hidden-to-hidden connections**, in `dynamic_functions` and in
+  `aggregation`: the fixed draw covers the whole position axis and each generation takes it at the
+  positions it evaluates, so a grid position keeps its function from one generation to the next.
+  In 0.1.0 and 0.2.0 the draw had the length of generation 0's active positions (a recurrent
+  generation evaluates its active positions only) and was reused whole, so the run failed with
+  "Incompatible shapes for broadcasting" at the first generation whose active count differed.
+  Feed-forward runs, which evaluate every position, and `random_generation` give the same results
+  as before; a recurrent `random_fixed` run draws differently from generation 0. No runner in
+  `papers/` uses a random mode.
+- **The self-connection query no longer compiles again every generation** (`cppn_output` activation
+  or aggregation, and `neuromodulation.use_self_connection_query`). It ran the CPPN forward eagerly,
+  and the forward takes TensorNEAT's state as a static argument, which hashes by identity, so each
+  generation's new state compiled it again: one executable per generation. It now runs through the
+  weight queries' cached population query, with the same outputs, bit for bit on a CPU.
+- **Per-node activation no longer compiles its settling loop again every generation** on the
+  recurrent path (`dynamic_functions` modes `cppn_output`, `weight_interpretation` and the random
+  modes). The settling step closed over a partial made per call; the node function is now a rule
+  made once per palette and number of activations (`node_activation_rule`), and the step carries
+  the genome's activation indices (`settle_hidden(..., node_operands=...)`). Same values, bit for
+  bit on a CPU.
+- **Neuromodulation no longer compiles its settling loop again every generation** on the
+  recurrent path, in each mode (`static_gating`, `context_gating`, `modulatory_neurons`,
+  `true_neuromodulation`). The neuromodulated node was a closure made per call; it is now a rule
+  made once per setting (`gated_node_rule`, `modulatory_neuron_rule`,
+  `true_neuromodulation_node_rule`), and the settling step carries its gates, gains, bias,
+  modulatory weights and neurons. Same values, bit for bit on a CPU.
+- **Multi-task evaluation no longer compiles again every generation** (`run_generation_multitask`
+  with hidden-to-hidden connections). It made new evaluators every generation, whose settling
+  compiled for the first task's single-task pass and again for each task: 1 + T executables per
+  generation for T tasks. The evaluators are kept per setting and settle through the
+  neuromodulated node rule. Same values, bit for bit on a CPU.
+- **`eval_chunk_size` no longer compiles its chunk loop again every generation** on the plain
+  recurrent path. `lax.map` builds its body on every call, so the eager chunk loop compiled
+  every generation; it now runs inside a `jax.jit` kept per forward and fitness mode
+  (`chunked_forward_eval`), on a forward made once per number of settling steps. The other paths
+  chunk in a Python loop, which compiles once per shape since their settling does. Same values,
+  bit for bit on a CPU.
+- **The union h->h discovery at iteration level 2 or more no longer compiles its multi-hop
+  expansion on every discovery** (`hh_discovery_mode: union`, the setting that reproduces a 0.1.0
+  recurrent run). The `jit(vmap(...))` was built on every call (once per multi-hop chunk); it is
+  kept per device and setting. Same values, bit for bit on a CPU.
+- **Iteration level 0 discovers the direct connections on the `full_pipeline_parallel` pipeline**,
+  as level 1 does and as the standard mode and `depth_offload` do: a level-0 run passes level 1 to
+  the pipeline, so it compiles and computes exactly the level-1 run, and level 1 is unchanged. In
+  0.2.0 the pipeline ran level 0 feed-forward, with no hidden-to-hidden connection, while recording
+  `effective_iteration_level` 1; so did the population-parallel pmap runner, which no strategy
+  routes to. The pipeline runs only under an explicit `multi_gpu_strategy`, on two or more devices
+  and a dataset that is not exhaustive and has at least 16 rows per device; no runner in `papers/`
+  or `scripts/` sets a strategy, so no published result changes.
+- **A key nothing reads outside `emr_hyperneat` warns** (`UserWarning`) and is ignored: at the top
+  level and in `algorithm_params`, `algorithm_params.emrhyperneat` (the top level of a flat
+  configuration), `substrate`, `swarm`, `neat` and `cppn` with its `genome` and `activation`
+  blocks. The message names the right key when the mistake is a known one, as the refusals inside
+  `emr_hyperneat` do: a NEAT operator setting placed in `neat` (`neat.conn_add_prob`) names its
+  `neat_mutation`, `neat_species` or `neat_selection` block, which 0.2.0 reads; a block one level
+  too high names its place. In 0.2.0 such a key was ignored without a word. It warns rather than
+  raises so that a configuration 0.2.0 ran still runs; `neat.species_size`, which the per-node
+  paper's runners carry, is accepted without a warning, so no runner in `papers/` warns.
+- `papers/emr-hyperneat/README.md` no longer restates speedups without the settings they were measured
+  under; the paper reports them. It names the ES-HyperNEAT baseline as what it is, a feed-forward Python
+  port of PUREPLES's algorithm.
+- `docs/configuration.md` describes `static_gating` as the engine computes it: one gate per hidden node,
+  derived from the node's own input weights (`tanh(2 * mean(abs(w)))`, then `gate_scaling`). In 0.1.0 and
+  0.2.0 the page said the CPPN emits a per-connection gate, which EMR never did.
+
+### Known limitations
+
+- As in 0.2.0, on a GPU, dynamic h->h aggregation (`hh_aggregation_mode: dynamic`) does not repeat bit for bit.
+- As in 0.2.0, a runner that sets `agg_palette` between generations changes nothing: no engine in the package
+  reads it, and an `aggregation.palette` setting raises as an unknown key.
+
 ## 0.2.0
 
 Results of recurrent runs change: one settling rule, a multi-hop expansion within each genome's own
