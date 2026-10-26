@@ -3,11 +3,14 @@
 Implements cross-domain discovery triggers: when sin is discovered, extreme_agg
 exploration probability increases, and vice versa.
 
-Key Mechanism:
-- Discovery of sin triggers +40% exploration probability for extreme aggs
-- Discovery of extreme agg triggers +40% exploration for sin
+Mechanism:
+- Discovery of sin multiplies the aggregation exploration rate by 1.4 (1 + codiscovery_boost)
+- Discovery of max or min multiplies the activation exploration rate by 1.4
 - Discovery window: boost applies for 10 generations after discovery
-- Initial sin exploration bias ensures early discovery
+- Early exploration bias: +0.15 on the activation exploration rate for 20 generations
+
+By default sin, max and min start active and stay active, so the discovery boosts run in
+generations 0 to 9 only and raise the exploration of the other functions.
 
 Biological Inspiration: Gene co-expression networks where activation of one gene
 triggers expression of related genes in the same pathway.
@@ -34,10 +37,10 @@ class SinExtremeCodeiscoveryDualStrategy(PaletteEvolutionStrategy):
     """Sin-Extreme codiscovery with cross-domain triggers.
 
     Discovery of one domain triggers exploration
-    in the related domain, creating a positive feedback loop.
+    in the related domain.
 
-    Critical innovation: Cross-domain affinity boost when sin OR extreme agg
-    is discovered, encouraging the other to follow.
+    When sin OR an extreme agg is discovered, the other domain's exploration rate is
+    multiplied by 1 + codiscovery_boost for discovery_window generations.
     """
 
     name = "sin_extreme_codiscovery_dual"
@@ -45,31 +48,31 @@ class SinExtremeCodeiscoveryDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === CODISCOVERY PARAMETERS (CORE) ===
+        # CODISCOVERY PARAMETERS (CORE)
         codiscovery_boost: float = 0.4,  # +40% exploration for partner domain
         discovery_window: int = 10,  # Generations after discovery where boost applies
         cross_domain_affinity_rate: float = 0.2,
         initial_sin_exploration_bias: float = 0.15,
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         base_exploration_rate_act: float = 0.08,
         base_exploration_rate_agg: float = 0.10,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_after: int = 6,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -123,7 +126,7 @@ class SinExtremeCodeiscoveryDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin is ALWAYS in initial palette
+        # Ensure sin is ALWAYS in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -385,7 +388,7 @@ class SinExtremeCodeiscoveryDualStrategy(PaletteEvolutionStrategy):
                             codiscovery_events += 1
                         break
 
-        # CRITICAL: Ensure sin and extreme aggs are never removed
+        # Ensure sin and extreme aggs are never removed
         new_act_mask = new_act_mask.at[4].set(1.0)
         for agg in CORE_EXTREME_AGGS:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

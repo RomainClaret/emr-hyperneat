@@ -2,11 +2,15 @@
 """P2c: Full 8-Strategy Topology Sensitivity on Single-Task Parity-4.
 
 Tests all 8 core strategies with full_recurrent topology on single-task P4.
-The feedforward baseline is the existing Table 3 data (seeds 42-71).
-This experiment provides the full_recurrent column for a clean 2-column comparison.
+The feedforward baseline is the existing Table 3 data (seeds 42-71), and this experiment
+provides the full_recurrent column. The two columns differ in more than topology: these
+runs use the eight dual strategies below on the _full engine variant, where pop=500 takes
+effect, and the Table 3 runs used activation-only strategies on the _dynamic_functions
+variant, which ran them at population 150. The paper's topology check paired these runs
+with results/single_task_dual_42_71/ (dual strategies, _dynamic_functions_aggregation
+variant, population 150).
 
-Replaces the current Table 21 (3-strategy dual-domain) with a more comprehensive
-8-strategy single-task table. Directly comparable to Table 3.
+Its 8-strategy single-task table supersedes Table 21 (3-strategy dual-domain).
 
 Design:
     - Strategies: all 8 core dual strategies
@@ -15,6 +19,31 @@ Design:
     - Seeds: 42-71 (N=30, same seeds as feedforward baseline)
     - Target fitness: 0.95
     - Run ONE strategy per invocation (OOM safety)
+
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's full
+variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-dynamic-functions-bio-inspired --release 0.1.0 --` followed
+by a command of Usage without its `papers/emr-dynamic-functions-bio-inspired/` prefix runs the
+original on 0.1.0. The EMR version runs the experiment as it ran where EMR can, on EMR's
+defaults except where noted:
+    - Population 500 (this variant honored pop_size).
+    - full_recurrent at iteration level 2, the level the published runs used (the preset
+      default is 1 from 0.2.0). The published runs settled by HMR's rule (`h = f(x W1)` once, then
+      `h = tanh(h + recurrent input)` at the later steps), kept the hidden-to-hidden connection
+      cache on and composed the multi-hop expansion through the population's union of active
+      positions. EMR settles by its own rule (`h = f(input drive + recurrent input)` at every
+      step), with the cache off and each genome's own connections: its defaults. The 20 settling
+      steps are recurrence.activate_time.
+    - Each node's activation comes from a CPPN output of its own, read from the node's
+      self-connection query. HMR's variant had one CPPN output, so it decoded the activation
+      from the weight channel, and the aggregation block this runner nested in dynamic_functions
+      changed nothing: the EMR version runs no per-node aggregation (aggregation mode disabled),
+      as the published runs did.
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - Results go to results/topology_sensitivity_single_task_emr/, apart from the published runs
+      in results/topology_sensitivity_single_task/.
 
 Usage:
     python papers/emr-dynamic-functions-bio-inspired/scripts/runners/benchmark_bio_topology_full.py --strategy circadian_rhythm_dual
@@ -39,9 +68,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classification_problems import ParityProblem
-from emr_hyperneat._hmr_frozen.hmrhyperneat_unified_extended_dynamic_functions_full import (
-    HMRHyperNEATUnifiedExtendedDynamicFunctions,
-)
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 from palette_strategies.base_strategy import NUM_ACTIVATIONS, ACTIVATION_NAMES
 from palette_strategies.strategy_52_circadian_rhythm_dual import CircadianRhythmDualStrategy
 from palette_strategies.strategy_29_clonal_selection_dual import ClonalSelectionDualStrategy
@@ -105,24 +133,25 @@ def run_single_trial(
 
     algo_config = {
         'algorithm_params': {
-            'hmrhyperneat': {
-                'hmr_hyperneat': {
+            'emrhyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': 0.03,
-                    'activate_time': activate_time,
+                    **hmr_rule_and_split(),
                     'recurrence': {
                         'preset': 'full_recurrent',
+                        'iteration_level': 2,  # as it ran (the preset default is 1 from 0.2.0)
+                        'activate_time': activate_time,
                     },
                     'dynamic_functions': {
                         'mode': 'cppn_output',
                         'palette': current_act_palette,
                         'palette_evolution': {'enabled': False},
-                        'aggregation': {
-                            'mode': 'cppn_output',
-                            'num_aggregations': 6,
-                        },
                     },
+                    # As it ran: the HMR variant's one CPPN output left no aggregation channel,
+                    # so the aggregation block this runner nested never acted.
+                    'aggregation': {'mode': 'disabled'},
                 },
                 'substrate': {
                     'input_coords': input_coords,
@@ -136,7 +165,7 @@ def run_single_trial(
         }
     }
 
-    algo = HMRHyperNEATUnifiedExtendedDynamicFunctions()
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(algo_config)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -231,7 +260,8 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[3]
-    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'topology_sensitivity_single_task'
+    output_dir = (Path(__file__).resolve().parents[2] / 'results'
+                  / 'topology_sensitivity_single_task_emr')
     os.makedirs(output_dir, exist_ok=True)
 
     result_file = output_dir / f'{args.strategy}_full_recurrent.json'

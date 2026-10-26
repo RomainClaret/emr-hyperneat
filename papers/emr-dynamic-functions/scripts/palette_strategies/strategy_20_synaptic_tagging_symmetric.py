@@ -6,10 +6,10 @@ Extends SynapticTaggingStrategy with symmetric discovery features:
 - Memory cells from captured functions (captured = permanent memory cell)
 - Affinity floors and discovery tracking for both domains
 
-Key mechanisms:
+Mechanisms:
 1. Tag creation: Functions active during local improvement get tagged
 2. Tag decay: Tags weaken over generations
-3. Capture: Global success captures tagged functions (tag → capture = memory cell)
+3. Capture: Global success captures tagged functions (tag -> capture = memory cell)
 4. Cross-domain capture: Success in one domain can trigger capture in other
 5. Memory cells = captured functions with permanent protection
 
@@ -47,7 +47,7 @@ class SynapticTaggingSymmetricStrategy(PaletteEvolutionStrategy):
     Two-stage learning: local tags must be captured by global success.
     Captured functions become permanent memory cells.
 
-    Key innovations:
+    Mechanisms:
     - Dual tagging per domain (activation and aggregation)
     - Cross-domain tagging (success in one domain influences other)
     - Memory cells = captured functions (permanent protection)
@@ -515,11 +515,11 @@ class SynapticTaggingSymmetricStrategy(PaletteEvolutionStrategy):
             if i not in agg_ever_discovered and i not in current_agg_palette
         ]
 
-        # Step 1: Decay existing tags
+        # Decay existing tags
         decayed_act_tags = self._decay_tags(state['act_tags'], state['act_tag_gen'], generation)
         decayed_agg_tags = self._decay_tags(state['agg_tags'], state['agg_tag_gen'], generation)
 
-        # Step 2: Create/strengthen tags with cross-domain boost
+        # Create/strengthen tags with cross-domain boost
         act_cross_boost = self.cross_tag_boost if jnp.sum(state['agg_memory_cells']) > 0 else 0.0
         agg_cross_boost = self.cross_tag_boost if jnp.sum(state['act_memory_cells']) > 0 else 0.0
 
@@ -532,7 +532,7 @@ class SynapticTaggingSymmetricStrategy(PaletteEvolutionStrategy):
             local_improvement, generation, agg_cross_boost
         )
 
-        # Step 3: Attempt capture with cross-domain boost
+        # Attempt capture with cross-domain boost
         act_capture_boost = self.cross_capture_weight * global_improvement if jnp.any(state['agg_memory_cells']) else 0.0
         agg_capture_boost = self.cross_capture_weight * global_improvement if jnp.any(state['act_memory_cells']) else 0.0
 
@@ -545,14 +545,14 @@ class SynapticTaggingSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_mask'], global_improvement, generation, agg_capture_boost, agg_new_candidates
         )
 
-        # Step 4: Update affinity normally
+        # Update affinity normally
         new_act_aff = self._update_affinity(new_act_aff, state['act_mask'], new_act_mem, fitness_signal)
         new_agg_aff = self._update_affinity(new_agg_aff, state['agg_mask'], new_agg_mem, fitness_signal)
 
         # Apply affinity floors
         new_act_aff, new_agg_aff = self._apply_affinity_floors(new_act_aff, new_agg_aff)
 
-        # Step 5: Apply mutation
+        # Apply mutation
         new_act_mask, act_mut_info, act_disc_to_pal = self._mutate_palette(
             k1, state['act_mask'], new_act_aff, new_act_tags, new_act_mem,
             self.act_min_active, self.act_max_active, act_new_candidates

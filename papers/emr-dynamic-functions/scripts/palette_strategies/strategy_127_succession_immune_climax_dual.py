@@ -3,10 +3,10 @@
 Combines Ecological Succession climax (#26) with Immune Memory stabilization (#60).
 Climax triggers synchronized memory consolidation burst.
 
-Key Innovation:
+Mechanism:
 - Climax detection: when fitness plateau is reached (stable high fitness)
 - Climax triggers memory consolidation for ALL active functions
-- Creates strong, synchronized protection for the winning configuration
+- Creates strong, synchronized protection for the configuration active at climax
 - Post-climax mutations are heavily suppressed
 
 Biological basis: In ecology, climax communities are stable endpoints.
@@ -39,7 +39,7 @@ class SuccessionImmuneClimaxDualStrategy(PaletteEvolutionStrategy):
     Climax detection triggers synchronized memory
     consolidation, creating strongly protected stable configurations.
 
-    Critical innovation: Synchronized capture at climax for maximum stability.
+    Synchronized memory consolidation at climax for maximum stability.
     """
 
     name = "succession_immune_climax_dual"
@@ -47,32 +47,32 @@ class SuccessionImmuneClimaxDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Climax detection ===
+        # Climax detection
         climax_detection_threshold: float = 0.95,
         climax_stability_window: int = 5,
         climax_improvement_tolerance: float = 0.01,
-        # === Memory consolidation ===
+        # Memory consolidation
         climax_memory_burst: bool = True,
         climax_protection_strength: float = 0.9,
         climax_mutation_suppression: float = 0.7,
-        # === Pre-climax exploration ===
+        # Pre-climax exploration
         exploration_mutation_rate: float = 0.12,
         post_climax_mutation_rate: float = 0.03,
-        # === Memory parameters ===
+        # Memory parameters
         memory_decay: float = 0.98,
         base_memory_strength: float = 0.3,
-        # === Sin preference ===
+        # Sin preference
         sin_idx: int = 4,
         sin_memory_boost: float = 0.2,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -210,7 +210,7 @@ class SuccessionImmuneClimaxDualStrategy(PaletteEvolutionStrategy):
         stability_counter = state['stability_counter']
         memory_bursts = state['memory_bursts']
 
-        # === CLIMAX DETECTION ===
+        # CLIMAX DETECTION
         if not climax_reached:
             if self._detect_climax(fitness_history, best_fitness):
                 climax_reached = True
@@ -221,7 +221,7 @@ class SuccessionImmuneClimaxDualStrategy(PaletteEvolutionStrategy):
             else:
                 stability_counter = 0
 
-        # === UPDATE MEMORY ===
+        # UPDATE MEMORY
         act_memory = state['act_memory'] * self.memory_decay
         agg_memory = state['agg_memory'] * self.memory_decay
 
@@ -260,13 +260,13 @@ class SuccessionImmuneClimaxDualStrategy(PaletteEvolutionStrategy):
         act_memory = jnp.clip(act_memory, 0.0, 1.0)
         agg_memory = jnp.clip(agg_memory, 0.0, 1.0)
 
-        # === DETERMINE MUTATION RATE ===
+        # DETERMINE MUTATION RATE
         if climax_reached:
             mutation_rate = self.post_climax_mutation_rate
         else:
             mutation_rate = self.exploration_mutation_rate
 
-        # === ACTIVATION MUTATION ===
+        # ACTIVATION MUTATION
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k1) < mutation_rate:
             # Weight by inverse memory (low memory = more likely)
@@ -283,7 +283,7 @@ class SuccessionImmuneClimaxDualStrategy(PaletteEvolutionStrategy):
             new_idx = int(jax.random.choice(k2, jnp.array(candidates), p=probs))
             act_mask = act_mask.at[new_idx].set(1.0)
 
-        # === AGGREGATION MUTATION ===
+        # AGGREGATION MUTATION
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k3) < mutation_rate:
             weights = []

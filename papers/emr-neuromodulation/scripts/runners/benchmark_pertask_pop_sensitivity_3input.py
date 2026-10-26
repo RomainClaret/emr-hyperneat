@@ -8,7 +8,7 @@ At 2-input, per-task achieves 100% across Pop=100-1000 (150 runs).
 At 3-input, per-task is only validated at Pop=750 (30/30, 100%).
 
 Conditions: per-task activation (sin for Parity-3, tanh for rest)
-Pop = {100, 300, 1500} × 30 seeds = 90 runs
+Pop = {100, 300, 1500} x 30 seeds = 90 runs
 (Pop=750 already tested in E-S9 as 100%)
 
 Architecture: MLP + (mu+lambda)-ES, 5 tasks (Parity-3, AND-3, OR-3, NAND-3, NOR-3)
@@ -35,9 +35,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'pertask_pop_sensitivity_3input'
 
@@ -94,9 +92,7 @@ PERTASK_ACTIVATIONS = {
 DEFAULT_POP_SIZES = [100, 300, 1500]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -116,9 +112,7 @@ def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
     return jax.vmap(init_params)(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
@@ -154,9 +148,7 @@ def get_forward_fn(activation_name: str):
     return _FORWARD_CACHE[activation_name]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict) -> Tuple[float, Dict[str, float]]:
     per_task = {}
@@ -179,9 +171,7 @@ def eval_single_multitask(params: Dict) -> Tuple[float, Dict[str, float]]:
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     pop_size: int,
@@ -294,9 +284,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -338,9 +326,7 @@ def summarize_pop(results_dir: Path, pop_size: int):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

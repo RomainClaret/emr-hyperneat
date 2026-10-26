@@ -3,13 +3,14 @@
 Morphogen gradients with sin-extreme coupling: sin source strengthens
 when extreme aggregations (max/min) are active.
 
-Key Innovation:
-- Sin's morphogen source gets +50% boost when max/min are active
-- Creates positive feedback: extreme aggs → stronger sin → sin discovery
+Mechanism:
+- Each generation, sin's morphogen source gains 0.5 per active max/min, scaled by
+  the coupling strength and capped at 3.0
+- Creates positive feedback: extreme aggs -> stronger sin -> sin discovery
 - Minimum sin source floor prevents complete loss
 - Coupling decay rate allows adaptation
 
-This addresses the root cause: sin needs SYNERGISTIC support from
+This addresses the root cause: sin needs support from
 extreme aggregations, not just independent discovery.
 """
 
@@ -34,7 +35,7 @@ class MorphogenExtremeCoupledDualStrategy(PaletteEvolutionStrategy):
     """Morphogen gradients with sin-extreme coupling.
 
     Sin source strengthens when extreme aggs are
-    active, creating synergistic discovery dynamics.
+    active, creating positive feedback on sin discovery.
     """
 
     name = "morphogen_extreme_coupled_dual"
@@ -42,41 +43,41 @@ class MorphogenExtremeCoupledDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === COUPLING PARAMETERS (CRITICAL FIX) ===
+        # COUPLING PARAMETERS
         sin_extreme_coupling_boost: float = 0.5,
         coupling_decay_rate: float = 0.02,
         min_sin_source_strength: float = 1.0,
         base_sin_source: float = 1.5,
         extreme_agg_source: float = 1.8,
-        # === MORPHOGEN PARAMETERS ===
+        # MORPHOGEN PARAMETERS
         morphogen_diffusion_rate: float = 0.3,
         morphogen_decay_rate: float = 0.05,
         gradient_threshold: float = 0.4,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_affinity_coupling: float = 0.5,
-        # === TAGGING ===
+        # TAGGING
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         extreme_tag_boost: float = 1.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Morphogen-Extreme-Coupled strategy."""
-        # COUPLING (CRITICAL)
+        # COUPLING
         self.sin_extreme_coupling_boost = sin_extreme_coupling_boost
         self.coupling_decay_rate = coupling_decay_rate
         self.min_sin_source_strength = min_sin_source_strength

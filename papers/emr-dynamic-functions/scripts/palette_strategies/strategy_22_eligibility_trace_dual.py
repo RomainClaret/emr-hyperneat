@@ -3,7 +3,7 @@
 Extends EligibilityTrace to jointly evolve both activation and aggregation palettes
 with three-factor learning in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Separate eligibility traces for activations and aggregations
 2. Dopamine signal is SHARED (global reward signal)
 3. Cross-domain eligibility tracks act-agg combinations
@@ -15,7 +15,7 @@ Biological rationale:
 - Dopamine is a global signal affecting all circuits equally
 - Cross-modal associations have shared eligibility windows
 
-Expected improvement:
+Intended effects:
 - Better temporal credit assignment in BOTH domains
 - Shared dopamine properly coordinates dual learning
 - Cross-domain eligibility captures act-agg timing relationships

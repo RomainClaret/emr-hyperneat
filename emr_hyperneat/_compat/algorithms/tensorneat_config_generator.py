@@ -6,14 +6,14 @@ Schema-based configuration generator using Pydantic for type safety and validati
 This generator:
 1. Accepts NEATConfig/HyperNEATConfig schemas instead of dicts
 2. Uses Pydantic schemas as single source of truth
-3. Eliminates DEFAULT_VALUES registry (replaced by schema defaults)
+3. Takes its defaults from the schemas (no DEFAULT_VALUES registry)
 4. Uses direct attribute access (type-safe)
-5. Provides better error messages (Pydantic validation)
+5. Reports errors through Pydantic validation
 
 Naming coherence with PUREPLESConfigGenerator pattern.
 """
 
-from typing import Any, Optional, Union
+from typing import Any, Union
 import logging
 
 from emr_hyperneat._compat.schemas import NEATConfig, HyperNEATConfig
@@ -75,7 +75,7 @@ class TensorNEATConfigGenerator:
         Raises:
             ValidationError: If parameters are invalid
         """
-        # FIX: Enhanced HyperNEAT detection with more indicators and better logging
+        # Detect HyperNEAT from several indicators and log the decision
         algorithm = params.get('algorithm', 'neat')
 
         # Check multiple indicators for HyperNEAT configuration
@@ -275,9 +275,9 @@ class TensorNEATConfigGenerator:
         init_hidden = tuple(genome_cfg.init_hidden_layers) if genome_cfg.init_hidden_layers else ()
 
         # Select genome class based on feed_forward config
-        # TensorNEAT uses genome CLASS selection, not a boolean parameter:
-        # - feed_forward=True → DefaultGenome (network_type="feedforward")
-        # - feed_forward=False → RecurrentGenome (network_type="recurrent")
+        # TensorNEAT uses genome class selection, not a boolean parameter:
+        # - feed_forward=True -> DefaultGenome (network_type="feedforward")
+        # - feed_forward=False -> RecurrentGenome (network_type="recurrent")
         GenomeClass = DefaultGenome if genome_cfg.feed_forward else RecurrentGenome
 
         # Create genome configuration
@@ -417,74 +417,3 @@ class TensorNEATConfigGenerator:
         )
 
         return cppn_neat
-
-    def get_substrate_config(self) -> dict:
-        """Get substrate configuration for HyperNEAT.
-
-        Returns:
-            Dictionary of substrate parameters
-
-        Raises:
-            ValueError: If config is not HyperNEATConfig
-        """
-        if not self.is_hyperneat:
-            raise ValueError("get_substrate_config requires HyperNEATConfig")
-
-        substrate_cfg = self.config.substrate
-
-        return {
-            'weight_threshold': substrate_cfg.weight_threshold,
-            'max_weight': substrate_cfg.max_weight,
-            'activate_time': substrate_cfg.activate_time,
-            'output_activation': substrate_cfg.output_activation,
-            'hidden_activation': substrate_cfg.hidden_activation,
-        }
-
-    def summary(self) -> str:
-        """Generate configuration summary for logging.
-
-        Returns:
-            Human-readable configuration summary
-        """
-        algo_type = "HyperNEAT" if self.is_hyperneat else "NEAT"
-        genome_cfg = self.config.genome
-
-        lines = [
-            "TensorNEAT Configuration Summary (Schema-Based V2)",
-            "=" * 60,
-            f"Algorithm: {algo_type}",
-            f"Population Size: {self.config.population_size}",
-            f"Max Generations: {self.config.max_generations}",
-            f"Species Size: {self.config.species.species_size}",
-            f"Network: {genome_cfg.num_inputs} inputs → {genome_cfg.num_outputs} outputs",
-            f"Max Nodes: {genome_cfg.max_nodes}",
-            f"Max Connections: {genome_cfg.max_connections}",
-            "",
-            "Mutation Rates:",
-            f"  Connection Add: {self.config.mutation.conn_add_prob}",
-            f"  Connection Delete: {self.config.mutation.conn_delete_prob}",
-            f"  Node Add: {self.config.mutation.node_add_prob}",
-            f"  Node Delete: {self.config.mutation.node_delete_prob}",
-            f"  Weight Mutate: {genome_cfg.weight.mutate_rate}",
-            f"  Bias Mutate: {genome_cfg.bias.mutate_rate}",
-            "",
-            "Selection:",
-            f"  Genome Elitism: {self.config.selection.genome_elitism}",
-            f"  Species Elitism: {self.config.species.species_elitism}",
-            f"  Survival Threshold: {self.config.selection.survival_threshold}",
-            "=" * 60,
-        ]
-
-        if self.is_hyperneat:
-            lines.extend([
-                "",
-                "HyperNEAT Specific:",
-                f"  CPPN Population: {self.config.cppn.population_size}",
-                f"  CPPN Inputs: {self.config.cppn.genome.num_inputs}",
-                f"  CPPN Outputs: {self.config.cppn.genome.num_outputs}",
-                f"  Weight Threshold: {self.config.substrate.weight_threshold}",
-                f"  Activate Time: {self.config.substrate.activate_time}",
-                "=" * 60,
-            ])
-
-        return "\n".join(lines)

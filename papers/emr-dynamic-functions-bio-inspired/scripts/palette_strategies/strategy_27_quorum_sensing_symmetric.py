@@ -4,9 +4,9 @@ Biological Basis: Bacterial quorum sensing where cells coordinate behavior based
 population-level chemical signaling. When enough bacteria are present (quorum),
 collective behaviors like bioluminescence or virulence are activated.
 
-Key mechanisms for SYMMETRIC discovery:
+Mechanisms for SYMMETRIC discovery:
 1. Dual collective memory for activation and aggregation domains
-2. Population-level voting weighted by fitness
+2. Fitness-weighted voting by the elite's palettes, standing in for the population
 3. Quorum threshold for stable function promotion
 4. Cross-domain consensus: successful activations support related aggregations
 5. Protected indices (0.1% deactivation) for sin and extreme aggregations
@@ -41,11 +41,13 @@ MIN_IDX = 3
 class QuorumSensingSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with population-level quorum sensing.
 
-    Functions in both domains accumulate "votes" from across the population.
+    Functions in both domains accumulate "votes" from the palettes' own active
+    functions, weighted by relative fitness, as a stand-in for population usage
+    (population_data is not read).
     When a quorum is reached, functions are promoted to stable status with
     reduced deactivation rates.
 
-    Key improvements over dual version:
+    Improvements over the dual version:
     - Protected indices for sin and extreme aggregations
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions

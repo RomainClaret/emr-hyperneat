@@ -3,7 +3,7 @@
 Extends DecayingHebbian to jointly evolve activation AND aggregation function
 palettes with activity-dependent decay for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. Hebbian learning for both domains
 2. Activity-dependent decay: inactive functions lose affinity
 3. Recent use tracking: recently used functions decay slower

@@ -27,7 +27,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 def generate_figure_1_system_overview():
     """
-    Figure 1: System Overview -- vertical one-column pipeline (the version used in
+    Figure 1: System Overview, a vertical one-column pipeline (the version used in
     alife_main.tex). Top-down flow:
       Activation Palette (+ Activation Selection) -> selects per node
       -> CPPN Genome -> decode -> Substrate (per-node activations) -> evaluate
@@ -40,7 +40,7 @@ def generate_figure_1_system_overview():
 
     cx = 3.0  # center x for all boxes
 
-    # === 1. Activation Palette (top) ===
+    # 1. Activation Palette (top)
     pal_x, pal_y, pal_w, pal_h = 0.2, 11.8, 3.2, 1.0
     palette_box = FancyBboxPatch((pal_x, pal_y), pal_w, pal_h,
                                  boxstyle="round,pad=0.1",
@@ -51,7 +51,7 @@ def generate_figure_1_system_overview():
     ax.text(pal_x + pal_w / 2, pal_y + 0.25, '(18 functions)',
             fontsize=6.5, ha='center', color=COLORS['gray'])
 
-    # === 2. Activation-selection box (right of palette) ===
+    # 2. Activation-selection box (right of palette)
     meta_x, meta_y, meta_w, meta_h = 4.1, 11.7, 2.6, 1.2
     meta_box = FancyBboxPatch((meta_x, meta_y), meta_w, meta_h,
                               boxstyle="round,pad=0.1",
@@ -67,14 +67,14 @@ def generate_figure_1_system_overview():
                 xytext=(meta_x, meta_y + meta_h / 2),
                 arrowprops=dict(arrowstyle='->', color=COLORS['purple'], lw=1.2))
 
-    # === 3. Arrow: Palette -> CPPN (selects per node) ===
+    # 3. Arrow: Palette -> CPPN (selects per node)
     pal_cx = pal_x + pal_w / 2
     ax.annotate('', xy=(pal_cx, 10.5), xytext=(pal_cx, 11.8),
                 arrowprops=dict(arrowstyle='->', color=COLORS['orange'], lw=1.5))
     ax.text(pal_cx + 0.15, 11.1, 'selects per node', fontsize=5.5, ha='left',
             color=COLORS['orange'], fontstyle='italic')
 
-    # === 4. CPPN Genome box ===
+    # 4. CPPN Genome box
     cppn_x, cppn_y, cppn_w, cppn_h = 0.8, 8.8, 4.4, 1.7
     cppn_box = FancyBboxPatch((cppn_x, cppn_y), cppn_w, cppn_h,
                               boxstyle="round,pad=0.15",
@@ -87,12 +87,12 @@ def generate_figure_1_system_overview():
     ax.text(cppn_x + cppn_w / 2, cppn_y + 0.25, r'$f(x_1,y_1,x_2,y_2)$',
             fontsize=6.5, ha='center')
 
-    # === 5. Arrow: CPPN -> Substrate (decode) ===
+    # 5. Arrow: CPPN -> Substrate (decode)
     ax.annotate('', xy=(cx, 7.8), xytext=(cx, 8.8),
                 arrowprops=dict(arrowstyle='->', color=COLORS['blue'], lw=2))
     ax.text(cx + 0.15, 8.25, 'decode', fontsize=6, ha='left', color=COLORS['blue'])
 
-    # === 6. Substrate box (centerpiece) ===
+    # 6. Substrate box (centerpiece)
     sub_x, sub_y, sub_w, sub_h = 0.5, 3.85, 5.0, 3.95
     substrate_box = FancyBboxPatch((sub_x, sub_y), sub_w, sub_h,
                                    boxstyle="round,pad=0.15",
@@ -101,14 +101,14 @@ def generate_figure_1_system_overview():
     ax.text(sub_x + sub_w / 2, sub_y + sub_h - 0.3, 'Substrate',
             fontsize=9, ha='center', fontweight='bold')
 
-    # -- Input nodes (left column inside substrate) --
+    # Input nodes (left column inside substrate)
     input_x = 1.5
     input_ys = [6.6, 5.7, 4.8]
     for y in input_ys:
         ax.add_patch(Circle((input_x, y), 0.2, facecolor='#DDDDDD', edgecolor='black', lw=1))
     ax.text(input_x, 4.25, 'input', fontsize=5.5, ha='center', color=COLORS['gray'])
 
-    # -- Hidden nodes (center -- per-node activations, 4 nodes) --
+    # Hidden nodes (center: per-node activations, 4 nodes)
     hidden_colors = [COLORS['vermillion'], COLORS['green'], COLORS['blue'], COLORS['purple']]
     hidden_labels = ['sin', 'tanh', 'ReLU', 'gauss']
     hidden_positions = [(2.7, 6.7), (3.5, 6.7), (2.7, 5.2), (3.5, 5.2)]
@@ -116,14 +116,14 @@ def generate_figure_1_system_overview():
         ax.add_patch(Circle((hx, hy), 0.22, facecolor=hcolor, edgecolor='black', lw=1.2, alpha=0.8))
         ax.text(hx, hy - 0.45, hlabel, fontsize=5, ha='center', color=hcolor, fontweight='bold')
 
-    # -- Output nodes (right column inside substrate) --
+    # Output nodes (right column inside substrate)
     output_x = 4.5
     output_ys = [6.3, 5.3]
     for y in output_ys:
         ax.add_patch(Circle((output_x, y), 0.2, facecolor='#DDDDDD', edgecolor='black', lw=1))
     ax.text(output_x, 4.75, 'output', fontsize=5.5, ha='center', color=COLORS['gray'])
 
-    # -- Connections: input -> hidden, hidden -> output --
+    # Connections: input -> hidden, hidden -> output
     for iy in input_ys:
         for (hx, hy) in hidden_positions:
             ax.plot([input_x + 0.2, hx - 0.22], [iy, hy], 'k-', alpha=0.12, lw=0.5)
@@ -131,7 +131,7 @@ def generate_figure_1_system_overview():
         for oy in output_ys:
             ax.plot([hx + 0.22, output_x - 0.2], [hy, oy], 'k-', alpha=0.12, lw=0.5)
 
-    # -- Per-node highlight: dashed box around hidden nodes --
+    # Per-node highlight: dashed box around hidden nodes
     novel_rect = FancyBboxPatch((2.25, 4.55), 1.72, 2.4, boxstyle="round,pad=0.1",
                                 facecolor='none', edgecolor=COLORS['vermillion'],
                                 linewidth=1.2, linestyle='--')
@@ -139,12 +139,12 @@ def generate_figure_1_system_overview():
     ax.text(3.1, 4.25, 'per-node activation', fontsize=5,
             ha='center', color=COLORS['vermillion'], fontstyle='italic')
 
-    # === 7. Arrow: Substrate -> Fitness (evaluate) ===
+    # 7. Arrow: Substrate -> Fitness (evaluate)
     ax.annotate('', xy=(cx, 2.2), xytext=(cx, 3.85),
                 arrowprops=dict(arrowstyle='->', color=COLORS['orange'], lw=2))
     ax.text(cx + 0.15, 3.0, 'evaluate', fontsize=6, ha='left', color=COLORS['orange'])
 
-    # === 8. Fitness box ===
+    # 8. Fitness box
     fit_x, fit_y, fit_w, fit_h = 0.8, 1.5, 4.4, 0.7
     fitness_box = FancyBboxPatch((fit_x, fit_y), fit_w, fit_h,
                                  boxstyle="round,pad=0.15",
@@ -153,7 +153,7 @@ def generate_figure_1_system_overview():
     ax.text(fit_x + fit_w / 2, fit_y + fit_h / 2, 'Fitness',
             fontsize=8, ha='center', va='center', fontweight='bold')
 
-    # === 9. NEAT selection loop (right-side return arrow: Fitness -> CPPN) ===
+    # 9. NEAT selection loop (right-side return arrow: Fitness -> CPPN)
     loop_x = 6.0
     ax.plot([fit_x + fit_w + 0.25, loop_x], [fit_y + fit_h / 2, fit_y + fit_h / 2],
             color=COLORS['black'], lw=1.3, alpha=0.6)

@@ -7,14 +7,16 @@ ES-HyperNEAT discovers where to place neurons by recursively subdividing space w
 a **sequential quadtree** driven by CPPN-output variance. That quadtree is inherently
 serial and CPU-bound, which caps the method at small substrates. EMR-HyperNEAT
 replaces it with **eager tensor evaluation on a pre-computed hierarchical grid** plus
-**post-hoc variance masking**: substrate discovery becomes batch matrix arithmetic
-that `vmap`s across an entire population on the GPU, orders of magnitude faster at
-scale while producing equivalent substrates.
+**post-hoc variance masking** by the same criterion: substrate discovery becomes batch matrix
+arithmetic that `vmap`s across an entire population on the GPU. On XOR at population 1000,
+EMR-HyperNEAT on an RTX 2080 Ti is slower than a feed-forward port of ES-HyperNEAT on an M4 Max
+CPU at depths 1 to 3 and more than an order of magnitude faster per generation at depth 7, with
+the h->h connection cache on or off.
 
 <p align="center">
   <img src="docs/figures/runtime_iqr_comparison.png" width="720" alt="Runtime scaling on XOR: ES-HyperNEAT vs EMR-HyperNEAT across substrate depths, on CPU and GPU">
 </p>
-<p align="center"><em>Wall-clock time to evolve XOR as substrate depth grows. ES-HyperNEAT's sequential quadtree (orange, CPU) becomes intractable past depth 7, while EMR-HyperNEAT's vectorized discovery keeps scaling: on CPU (green) through depth 9 and on GPU (blue) out to depth 13. Bands show the IQR over 30 generations. From the GECCO 2026 paper.</em></p>
+<p align="center"><em>Wall-clock time of 30 generations on XOR as substrate depth grows. ES-HyperNEAT's sequential quadtree (orange, CPU) becomes intractable past depth 7, while EMR-HyperNEAT's vectorized discovery keeps scaling: on CPU (green) through depth 9 and on GPU (blue) out to depth 13. A run's total is its start-up time plus 30 times its steady time per generation. Bands show the interquartile range of each depth's totals over population sizes and seeds; the GPU at depths 1 to 7 and ES-HyperNEAT at depths 1 to 6 have one value per population size. The runs at depths 8 and 9 on the CPU and 8 to 13 on the GPU lasted 10 generations (6 for the population-300 GPU seed that solved XOR), so their totals are projections. The CPU candlesticks at depth 10 project every population from three runs at population 50. The GPU band at depth 7 includes an estimated cell (population 1000) and an interpolated one (population 750); the band at depth 13 includes a seed projected from depth 12. EMR ran h->h connections with the connection cache on, except on the GPU at depths 8 to 13, which ran feed-forward. Adapted from the GECCO 2026 paper's runtime figure, whose CPU band ends at depth 7.</em></p>
 
 This repository packages the EMR-HyperNEAT algorithm as a standalone, installable
 library together with the code to reproduce the experiments from its papers.
@@ -28,9 +30,11 @@ library together with the code to reproduce the experiments from its papers.
 
 On top of the substrate engine, the package makes the substrate's *computation* evolvable along
 four dimensions: **per-node activation functions** (an 18-function palette instead of one fixed
-nonlinearity), **per-node aggregation** (partial — exercised through the bio-inspired palette
-meta-learning), **neuromodulation** (`[DA, 5HT, NE, ACh]` vectors let one substrate serve several
-tasks), and **hidden-to-hidden recurrence** with a connection cache. Deep substrates run through
+nonlinearity), **per-node aggregation** (global, CPPN-assigned or weight-interpreted),
+**neuromodulation** (`[DA, 5HT, NE, ACh]` vectors
+let one substrate serve several tasks), and **hidden-to-hidden recurrence** with an optional
+connection cache (off by default since 0.2.0; see [docs/configuration.md](docs/configuration.md)).
+Deep substrates run through
 memory-bounded execution modes and optional multi-GPU strategies. The mechanism, end to end:
 [docs/architecture.md](docs/architecture.md#how-a-generation-is-computed).
 
@@ -62,7 +66,7 @@ eager, vectorized substrate-discovery pipeline:
 <p align="center">
   <img src="docs/figures/algorithm_comparison.png" width="760" alt="ES-HyperNEAT lazy sequential discovery versus EMR-HyperNEAT eager vectorized discovery">
 </p>
-<p align="center"><em>ES-HyperNEAT discovers nodes lazily, one genome and one position at a time (a quadratic number of sequential CPPN queries). EMR-HyperNEAT pre-computes the candidate grid once, queries every position for every genome in one vectorized pass, then filters by variance, which is what makes substrate discovery GPU-parallel. From the GECCO 2026 paper.</em></p>
+<p align="center"><em>ES-HyperNEAT discovers nodes lazily, one genome and one position at a time (a quadratic number of sequential CPPN queries). EMR-HyperNEAT pre-computes the candidate grid once, queries every position for every genome in one vectorized pass, then filters by variance, which is what makes substrate discovery GPU-parallel. The GECCO 2026 paper's Figure 1 draws the same contrast on the grid itself.</em></p>
 
 The library wraps that pipeline behind one public class, layered on top of TensorNEAT:
 
@@ -95,7 +99,7 @@ results were produced on (JAX 0.6.1); omit it to run on any JAX in the supported
 
 ## Quick start
 
-The whole public API is one class and four calls — a problem is any plain object exposing
+Evolving takes one class and four calls. A problem is any plain object exposing
 `get_data()` and its shapes:
 
 ```python
@@ -107,8 +111,11 @@ state = algo.initialize(cfg, problem, seed=0)    # builds the substrate, JIT-com
 state, metrics = algo.run_generation(state, problem)
 ```
 
-A complete runnable XOR example (a per-node `sin` activation solves it in the first generations),
+A complete runnable XOR example (a global `sin` activation solves it in the first generations),
 the `Problem` interface, and multi-task usage: [docs/writing-experiments.md](docs/writing-experiments.md).
+To inspect what evolved, `algo.population_substrates(state)` returns each genome's feed-forward
+substrate exactly as the generation loop builds it
+([the substrate on its own](docs/architecture.md#the-substrate-on-its-own)).
 
 ## Testing
 
@@ -117,9 +124,10 @@ pip install -e ".[dev]"
 JAX_PLATFORMS=cpu pytest emr_hyperneat/tests -m "not slow" -q   # the non-slow suite (what the nightly runs)
 ```
 
-The suite covers every published feature plus isolation, determinism, and EMR-vs-frozen-HMR
-equivalence guards, and includes paper-validation tests that re-run each paper's simplest
-experiment. Full commands, markers, the Linux `vm.max_map_count` note, and local-CI instructions:
+The suite covers every published feature plus isolation, determinism, and EMR-vs-HMR
+equivalence guards (against values recorded from HMR), and includes paper-validation tests that
+re-run each paper's simplest experiment. Full commands, markers, the Linux `vm.max_map_count` note,
+and local-CI instructions:
 [docs/testing.md](docs/testing.md).
 
 ## The papers
@@ -127,41 +135,60 @@ experiment. Full commands, markers, the Linux `vm.max_map_count` note, and local
 Each subdirectory of [`papers/`](papers/) is self-contained (its own runners, analysis, figures, and
 a README with exact reproduction commands). Each paper adds a capability to the same algorithm core.
 
-| Paper | Venue | Adds | PDF | Publication |
-|-------|-------|------|-----|-------------|
-| [`emr-hyperneat`](papers/emr-hyperneat/README.md) | GECCO 2026 | the base EMR algorithm + GPU speedups | [PDF](https://claret.tech/pdf/claret2026emr) | [10.1145/3795101.3805361](https://doi.org/10.1145/3795101.3805361) |
-| [`emr-dynamic-functions`](papers/emr-dynamic-functions/README.md) | ALIFE 2026 | per-node activation function evolution | [PDF](https://claret.tech/pdf/claret2026activations) | [10.1162/ISAL.a.1042](https://doi.org/10.1162/ISAL.a.1042) |
-| [`emr-dynamic-functions-bio-inspired`](papers/emr-dynamic-functions-bio-inspired/README.md) | PPSN 2026 | bio-inspired palette-evolution strategies | [PDF](https://claret.tech/pdf/claret2026bio) | [10.1007/978-3-032-36217-9_23](https://doi.org/10.1007/978-3-032-36217-9_23) |
-| [`emr-neuromodulation`](papers/emr-neuromodulation/README.md) | ALIFE 2026 | neuromodulation for multi-task learning | [PDF](https://claret.tech/pdf/claret2026neuromodulation) | [10.1162/ISAL.a.968](https://doi.org/10.1162/ISAL.a.968) |
+| Paper | Venue | Release | Adds | PDF | Publication |
+|-------|-------|---------|------|-----|-------------|
+| [`emr-hyperneat`](papers/emr-hyperneat/README.md) | GECCO 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-hyperneat) | the base EMR algorithm + GPU speedups | [PDF](https://claret.tech/pdf/claret2026emr) | [10.1145/3795101.3805361](https://doi.org/10.1145/3795101.3805361) |
+| [`emr-dynamic-functions`](papers/emr-dynamic-functions/README.md) | ALIFE 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-dynamic-functions) | per-node activation function evolution | [PDF](https://claret.tech/pdf/claret2026activations) | [10.1162/ISAL.a.1042](https://doi.org/10.1162/ISAL.a.1042) |
+| [`emr-dynamic-functions-bio-inspired`](papers/emr-dynamic-functions-bio-inspired/README.md) | PPSN 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-dynamic-functions-bio-inspired) | bio-inspired palette-evolution strategies | [PDF](https://claret.tech/pdf/claret2026bio) | [10.1007/978-3-032-36217-9_23](https://doi.org/10.1007/978-3-032-36217-9_23) |
+| [`emr-neuromodulation`](papers/emr-neuromodulation/README.md) | ALIFE 2026 | [0.1.0](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-neuromodulation) | neuromodulation for multi-task learning | [PDF](https://claret.tech/pdf/claret2026neuromodulation) | [10.1162/ISAL.a.968](https://doi.org/10.1162/ISAL.a.968) |
+
+**Each paper names the release its code was published with** (a later paper names the first
+release that contains its folder). `scripts/replicate.py` runs a paper's commands on that release,
+in its own checkout and environment under `.replicate/`:
+
+```bash
+python scripts/replicate.py run emr-dynamic-functions -- python scripts/runners/E1_parity_scaling.py
+```
+
+`--release <version>` picks another release, and `--release current` this checkout. On a CPU,
+0.2.0 gives the per-node paper's runners the same results as 0.1.0; the neuromodulation paper's
+runner departs from 0.1.0's default EMR backend, since 0.2.0 applies its species settings (the
+paper's numbers come from the HMR engine, which release 0.1.0 ships and 0.2.0 does not).
+The tables and figures regenerate from the data release with any release. Details, and the
+plain-git route:
+[docs/reproducing-experiments.md](docs/reproducing-experiments.md#choosing-a-release).
 
 The repository ships **code only**; result data is a separate Zenodo release fetched with
-`python scripts/fetch_results.py`. How to reproduce each paper, and which experiments run on the
-current EMR class vs the frozen HMR module: [docs/reproducing-experiments.md](docs/reproducing-experiments.md).
+`python scripts/fetch_results.py`. How to reproduce each paper, and which published numbers came
+from the current EMR class or the HMR engine: [docs/reproducing-experiments.md](docs/reproducing-experiments.md).
 
 Data archive (all papers' result JSON), on Zenodo: [![Data release DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21383893.svg)](https://doi.org/10.5281/zenodo.21383893)
 
-Some paper runners target the **frozen HMR module** vendored under
-[`emr_hyperneat/_hmr_frozen/`](emr_hyperneat/_hmr_frozen), which reproduces specific published
-tables exactly. It is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned to `variance_rule: legacy` (the package default is `canonical`) and is not part of the
-public API.
+Some published tables came from the **HMR engine**, a frozen module of release 0.1.0, which
+reproduces them exactly; 0.2.0 does not ship it. In 0.2.0 their runners are EMR versions,
+and the tests and the per-node paper's validator compare EMR with values recorded from HMR. HMR
+is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned to `variance_rule: legacy`
+(the package default is `canonical`) and is given no `neat_*` settings.
 
 ### Scope
 
 - **Paper features:** the EMR substrate machinery (GECCO), per-node activations and the
-  18-function palette (ALIFE), palette meta-learning with the partial per-node aggregation (PPSN),
+  18-function palette (ALIFE), palette meta-learning with per-node aggregation (PPSN),
   and neuromodulation with multi-task evaluation (ALIFE).
 - **Infrastructure:** the execution modes, memory budgets, compaction, and multi-GPU strategies
-  make the deep-substrate results runnable; they change cost, never results.
+  make the deep-substrate results runnable; they change cost, and results at most by float32
+  rounding (as compaction does on x86 CPUs and GPUs), except `truncate_variance_lookahead`,
+  off by default, which changes the substrate.
 - **Extras in no paper:** `geometry_seeding` (tested, documented, off by default) and the
   programmatic multi-task options `two_module_mode` / `generalist_bonus_type`. No published result
-  depends on them — see [configuration](docs/configuration.md) for each one's exact status.
+  depends on them. See [configuration](docs/configuration.md) for each one's exact status.
 
 ## Repository layout
 
 ```
-emr_hyperneat/        installable algorithm package (public API: EMRHyperNEAT)
+emr_hyperneat/        installable algorithm package (public API: EMRHyperNEAT, substrate)
+  engine/             the engine's code by concern (internal; emrhyperneat.py re-exports it)
   _compat/            vendored compatibility shim (internal; lets EMR run standalone)
-  _hmr_frozen/        frozen HMR module (reproduction only)
   tests/              test suite incl. paper-validation
 docs/                 documentation (start at docs/README.md)
 third_party/tensorneat  pinned TensorNEAT fork (git submodule)
@@ -171,9 +198,8 @@ scripts/              utilities (e.g. fetch_results.py)
 
 ## Community & Support
 
-Questions, ideas, and experiences are all welcome. Start a thread in
-[GitHub Discussions](https://github.com/RomainClaret/emr-hyperneat/discussions) to ask for help,
-discuss the algorithm and its results, or share what you built or found, and let others learn from it.
+Start a thread in [GitHub Discussions](https://github.com/RomainClaret/emr-hyperneat/discussions)
+to ask for help, discuss the algorithm and its results, or share what you built or found.
 For concrete bugs or problems, open a [GitHub issue](https://github.com/RomainClaret/emr-hyperneat/issues).
 
 ## License
@@ -201,8 +227,8 @@ EMR-HyperNEAT builds directly on prior work:
 The first entry below is **EMR-HyperNEAT itself**, the paper that introduces the
 algorithm. If you use this repository, please cite it. The entries after it are the
 papers that **extend EMR-HyperNEAT** with additional capabilities (per-node activation
-functions, bio-inspired palette meta-learning, …); if you use one of those features,
-please also cite the corresponding paper.
+functions, bio-inspired palette meta-learning and neuromodulation); if you use one of those
+features, please also cite the corresponding paper.
 
 **The EMR-HyperNEAT algorithm** ([PDF](https://claret.tech/pdf/claret2026emr))**:**
 

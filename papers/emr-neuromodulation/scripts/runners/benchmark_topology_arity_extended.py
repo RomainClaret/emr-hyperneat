@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """E-S20: Topology x Arity Extended (4-Input and 5-Input).
 
-Extends E-S12 (topology × arity at 3-input) to 4-input and 5-input arities.
+Extends E-S12 (topology x arity at 3-input) to 4-input and 5-input arities.
 E-S12 showed feedforward 20% vs full_recurrent 80% at 3-input with tanh.
 This tests whether the recurrence advantage persists/widens at higher arity.
 
@@ -42,9 +42,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'topology_arity_extended'
 
@@ -61,9 +59,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Condition parsing
-# ============================================================================
 
 def _parse_condition(condition: str):
     """Parse condition into (topology, n_in)."""
@@ -80,9 +76,7 @@ def _parse_condition(condition: str):
     return topology, n_in
 
 
-# ============================================================================
 # Task generation (dynamic per arity)
-# ============================================================================
 
 def get_task_data(n_in: int):
     """Generate inputs, targets, NT vectors, and task names for given arity."""
@@ -121,9 +115,7 @@ def get_task_data(n_in: int):
     return inputs, targets, nt_vectors, task_names
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array, topology: str, n_in: int) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -158,9 +150,7 @@ def init_population(key: jax.Array, pop_size: int, topology: str, n_in: int) -> 
     return jax.vmap(lambda k: init_params(k, topology, n_in))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       topology: str,
@@ -211,9 +201,7 @@ def get_forward_fn(topology: str):
     return _FORWARD_CACHE[topology]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, topology: str, inputs: jnp.ndarray,
                           targets: Dict, nt_vectors: Dict,
@@ -239,9 +227,7 @@ def eval_single_multitask(params: Dict, topology: str, inputs: jnp.ndarray,
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -365,9 +351,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -421,9 +405,7 @@ def summarize_condition(results_dir: Path, prefix: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

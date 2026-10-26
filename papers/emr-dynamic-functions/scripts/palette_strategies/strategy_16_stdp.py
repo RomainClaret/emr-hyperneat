@@ -2,14 +2,14 @@
 
 Extends CriticalHebbian with temporal order-dependent learning.
 
-Key insight: Current Hebbian strategies track co-occurrence but not SEQUENCE.
+Current Hebbian strategies track co-occurrence but not SEQUENCE.
 Functions that are active BEFORE a fitness improvement matter more than
 those active during or after.
 
 Biological Basis:
 - In real neurons, the timing of pre- and post-synaptic activity matters
-- Pre-before-post → Long-Term Potentiation (LTP, strengthening)
-- Post-before-pre → Long-Term Depression (LTD, weakening)
+- Pre-before-post -> Long-Term Potentiation (LTP, strengthening)
+- Post-before-pre -> Long-Term Depression (LTD, weakening)
 - This captures causality: what CAUSED the improvement?
 
 For palette evolution:
@@ -17,13 +17,13 @@ For palette evolution:
 - Functions consistently present before success get higher affinity
 - Functions that appear after success get weaker boost
 
-Key mechanisms:
+Mechanisms:
 1. Activation history: Track last N generations of active palettes
 2. Temporal affinity: Compute affinity based on position relative to improvement
 3. LTP window: Functions active 1-5 gens before improvement get boost
 4. LTD window: Functions active 1-3 gens after (or never near) get penalty
 
-Expected improvement over Hebbian:
+Intended effects compared with Hebbian:
 - Discovers function SEQUENCES, not just sets
 - Better credit assignment (what caused improvement vs what was along for the ride)
 - More robust to spurious correlations

@@ -10,18 +10,17 @@ Biological Basis:
 - Individual bacteria coordinate through population-level signaling
 - Examples: bioluminescence, biofilm formation, virulence
 
-Key Insight:
+Rationale:
 - Previous strategies focus on individual fitness or pairwise correlations
 - Quorum sensing asks: "What does the POPULATION collectively discover?"
 - A function used by 30% of population at moderate fitness may be more
   valuable than one used by 5% at high fitness
 - Population-level consensus is more robust than individual signals
 
-Quorum Mechanism:
-    # For each function, aggregate population "votes"
-    for each individual in population:
-        if individual uses function[i]:
-            signal[i] += fitness_weight[individual]
+Quorum Mechanism (the code lets the elite's palette stand in for the population):
+    # For each function, the elite's palette casts the "votes"
+    for each function[i] in the palette:
+        signal[i] = fitness_weight / n_active
 
     # Collective memory with decay
     collective[i] = decay * collective[i] + (1-decay) * signal[i]
@@ -37,8 +36,8 @@ Quorum Mechanism:
         # Normal selection pressure
         standard_selection(i)
 
-Expected improvements:
-- Robust consensus (noisy individual signals → clean population signal)
+Intended effects:
+- Robust consensus (noisy individual signals -> clean population signal)
 - Protection of valuable rare functions (minority protection)
 - Faster convergence when population agrees
 - Natural exploration/exploitation balance
@@ -61,9 +60,11 @@ from .base_strategy import (
 class QuorumSensingStrategy(PaletteEvolutionStrategy):
     """Population-level consensus for function selection.
 
-    Functions accumulate "votes" from across the population. When a quorum
-    is reached, the function is promoted to stable status. Minority
-    protection ensures rare but useful functions aren't lost.
+    Functions accumulate "votes", simulated from the elite's contribution: the
+    palette's active functions, weighted by relative fitness, stand in for population
+    usage, and population_data is not read. When a quorum is reached, the function is
+    promoted to stable status. Minority protection ensures rare but useful functions
+    aren't lost.
     """
 
     name = "quorum_sensing"
@@ -173,8 +174,8 @@ class QuorumSensingStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Compute population signal from this individual's contribution.
 
-        In a real population, we'd aggregate across all individuals.
-        Here we simulate by using the elite's contribution weighted by
+        A true population signal would aggregate over all individuals;
+        this approximates it with the elite's contribution weighted by
         relative fitness.
 
         Returns:
@@ -354,20 +355,20 @@ class QuorumSensingStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute population signal from current best
+        # Compute population signal from current best
         new_signal, usage = self._compute_population_signal(
             state['mask'],
             best_fitness,
             new_best,
         )
 
-        # Step 2: Update collective memory
+        # Update collective memory
         new_collective = self._update_collective_memory(
             state['collective_memory'],
             new_signal,
         )
 
-        # Step 3: Update quorum status
+        # Update quorum status
         new_above, new_below, new_stable = self._update_quorum_counts(
             new_collective,
             state['above_quorum_count'],
@@ -375,7 +376,7 @@ class QuorumSensingStrategy(PaletteEvolutionStrategy):
             state['stable_functions'],
         )
 
-        # Step 4: Apply quorum-based mutation
+        # Apply quorum-based mutation
         new_mask, mutation_info = self._apply_quorum_mutation(
             subkey,
             state['mask'],

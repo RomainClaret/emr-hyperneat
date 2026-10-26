@@ -53,7 +53,7 @@ class TestStreamingModeBasic:
         """Verify streaming mode initializes correctly."""
         config = create_config_with_streaming(enable_streaming=True)
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Should complete without error
 
@@ -69,7 +69,7 @@ class TestChunkSizes:
             population_chunk_size=chunk_size
         )
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
     @pytest.mark.parametrize("chunk_size", CHUNK_SIZES)
     def test_chunk_size_runs(self, algorithm, xor_problem, chunk_size):
@@ -237,7 +237,7 @@ class TestStreamingConfigParsing:
             population_chunk_size=100
         )
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Should have streaming enabled
         assert algorithm.enable_streaming == True
@@ -249,7 +249,7 @@ class TestStreamingConfigParsing:
         hmr['population_chunk_size'] = 75
 
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Should have chunk size set
         assert algorithm.population_chunk_size == 75
@@ -285,7 +285,7 @@ class TestStreamingVsNonStreaming:
 
 
 class TestComprehensiveStreaming:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: streaming at several chunk sizes and depths, and under four recurrence presets."""
 
     @pytest.mark.slow
     @pytest.mark.parametrize("chunk_size", [25, 50, 100, 200])
@@ -344,13 +344,13 @@ class TestDonatedLevelAccumulate:
         acc = jax.random.normal(key, (5, 3, 40))
         block = jax.random.normal(key, (5, 3, 12))
         plain = acc.at[:, :, 8:20].set(block)
-        # Copy BEFORE the dispatch call: on a GPU the dispatch routes to the donated
+        # Copy before the dispatch call: on a GPU the dispatch routes to the donated
         # variant, which invalidates `acc` ("Array has been deleted with
         # shape=float32[5,3,40]"). On CPU donation is ignored, which is why the order
         # never mattered there.
         acc_for_donated = jnp.array(acc)
         via_dispatch = _accumulate_level_slice(acc, block, 8, 20)
-        # Donation aliases buffers; it never changes values -- the value contract
+        # Donation aliases buffers; it never changes values: the value contract
         # is what matters on both backends.
         via_donated = _accumulate_level_slice_donated(
             acc_for_donated, block, start=8, end=20)
@@ -359,7 +359,7 @@ class TestDonatedLevelAccumulate:
 
     def test_streaming_generation_unchanged_by_the_dispatch(self):
         from conftest import (
-            EMRHyperNEAT, XORProblem, create_config_with_streaming,
+            create_config_with_streaming,
         )
         algo = EMRHyperNEAT()
         config = create_config_with_streaming()

@@ -3,7 +3,7 @@
 Track which activations appear in high-fitness networks and bias
 mutations toward those functions.
 
-Key improvements over baseline:
+Improvements over baseline:
 1. Track activation usage in top 10% of population
 2. Use EMA to smooth usage statistics
 3. Bias activation probability toward high-usage functions
@@ -149,7 +149,7 @@ class FitnessGuidedStrategy(PaletteEvolutionStrategy):
                 new_weights = state['elite_activation_weights']
         else:
             # No activation data - use fitness to guide (proxy)
-            # Higher fitness → current palette is good → slightly boost current
+            # Higher fitness -> current palette is good -> slightly boost current
             if jnp.max(fitnesses_array) > state['best_fitness_seen']:
                 # Current palette seems good, slightly boost current activations
                 current_mask = state['mask'] > 0.5

@@ -2,13 +2,13 @@
 
 Biological Basis: Hippocampal neurogenesis - new neurons are born, mature through a
 critical period, and survive or die based on contribution to task performance.
-Young neurons have enhanced plasticity, while mature neurons provide stability.
+Young neurons have higher plasticity, while mature neurons provide stability.
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Dual stable/young tracking - separate pools per domain
 2. Coordinated birth - new neurons can be born in both domains
 3. Cross-domain maturation boost - success in partner domain helps survival
-4. Protected indices for sin and extreme aggregations (0.1% deactivation)
+4. Protected indices for sin and extreme aggregations (always kept active)
 5. Affinity floors for guaranteed retention
 6. Memory cell crystallization for proven functions
 7. Initial palettes include critical functions from start
@@ -51,8 +51,8 @@ class AdultNeurogenesisSymmetricStrategy(PaletteEvolutionStrategy):
     Both activation and aggregation functions can be born, mature,
     and survive or be pruned based on their contribution to fitness.
 
-    Key improvements over dual version:
-    - Protected indices for sin and extreme aggregations (0.1% deactivation)
+    Improvements over the dual version:
+    - Protected indices for sin and extreme aggregations (always kept active)
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
     - Initial palettes include sin and max/min from start
@@ -85,7 +85,7 @@ class AdultNeurogenesisSymmetricStrategy(PaletteEvolutionStrategy):
         min_stable_agg: int = 1,
         # Protected function thresholds
         protected_survival_discount: float = 0.5,  # 50% lower threshold for sin/extremes
-        protected_deactivation_prob: float = 0.001,  # 0.1% chance to deactivate
+        protected_deactivation_prob: float = 0.001,  # 0.1% prune chance, then re-added
         # Affinity floors
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
@@ -142,7 +142,7 @@ class AdultNeurogenesisSymmetricStrategy(PaletteEvolutionStrategy):
         self.min_active_act = min_active_act
         self.min_active_agg = min_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 
@@ -584,7 +584,7 @@ class AdultNeurogenesisSymmetricStrategy(PaletteEvolutionStrategy):
             is_activation=False, key=k_mature_agg
         )
 
-        # CRITICAL: Ensure protected indices are in stable sets
+        # Ensure protected indices are in stable sets
         act_stable = self._ensure_protected_in_stable(act_stable, [SIN_IDX], NUM_ACTIVATIONS)
         agg_stable = self._ensure_protected_in_stable(agg_stable, [MAX_IDX, MIN_IDX], NUM_AGGREGATIONS)
 

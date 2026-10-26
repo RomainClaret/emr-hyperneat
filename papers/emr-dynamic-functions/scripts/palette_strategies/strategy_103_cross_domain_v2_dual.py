@@ -7,7 +7,7 @@ Problem with original (Strategy 74):
 - Sin-extreme pairings can still break under domain shifts
 - Cross-affinity decay can undo valuable pairings
 
-Key Innovation:
+Mechanism:
 - MULTIPLICATIVE (not additive) cross-domain affinity updates
 - When sin+extreme co-activate with improvement: multiply affinity by growth factor
 - Sin-extreme multiplier creates especially robust pairings
@@ -45,7 +45,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
     Stronger sin-extreme coupling through multiplicative
     rather than additive cross-domain affinity updates.
 
-    Critical innovation: Multiplicative updates create winner-take-all dynamics.
+    Multiplicative updates create winner-take-all dynamics.
     Successful pairings grow exponentially stronger relative to unsuccessful ones.
     """
 
@@ -54,40 +54,40 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === MULTIPLICATIVE CROSS-DOMAIN PARAMETERS (NEW) ===
+        # MULTIPLICATIVE CROSS-DOMAIN PARAMETERS
         multiplicative_update: bool = True,
         cross_affinity_growth_factor: float = 1.15,   # Multiply on success
         cross_affinity_decay_factor: float = 0.98,    # Multiply on no success
         sin_extreme_multiplier: float = 1.5,          # Extra boost for sin-extreme
         mutual_capture_bonus: float = 0.4,            # Bonus when both domains capture
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         base_cross_learning_rate: float = 0.10,       # Base additive rate (fallback)
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Homeostatic parameters ===
+        # Homeostatic parameters
         target_extreme_ratio: float = 0.60,
         discovery_bonus: float = 0.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Cross-Domain v2 strategy."""
-        # Multiplicative cross-domain (NEW)
+        # Multiplicative cross-domain
         self.multiplicative_update = multiplicative_update
         self.cross_affinity_growth_factor = cross_affinity_growth_factor
         self.cross_affinity_decay_factor = cross_affinity_decay_factor
@@ -239,7 +239,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int, int]:
         """Attempt capture with mutual capture bonus.
 
-        KEY INNOVATION: When both an activation and aggregation capture in the
+        When both an activation and aggregation capture in the
         same window, their cross-affinity gets a multiplicative bonus.
 
         Returns: (new_act_captured, new_agg_captured, new_cross_affinity,
@@ -300,7 +300,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int]:
         """Update affinities with MULTIPLICATIVE cross-domain dynamics.
 
-        KEY INNOVATION: Cross-affinity updates are multiplicative, not additive.
+        Cross-affinity updates are multiplicative, not additive.
         Successful pairs grow exponentially stronger relative to unsuccessful ones.
         """
         growth_events = 0
@@ -453,7 +453,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -464,7 +464,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE WITH MUTUAL BONUS ===
+        # CAPTURE WITH MUTUAL BONUS
         (new_act_captured, new_agg_captured, post_capture_cross,
          capture_count, mutual_capture_count) = self._attempt_capture_with_mutual_bonus(
             new_act_tags, new_agg_tags,
@@ -473,7 +473,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === MULTIPLICATIVE AFFINITY UPDATE ===
+        # MULTIPLICATIVE AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity, growth_events = \
             self._update_affinities_multiplicative(
                 state['act_affinities'], state['agg_affinities'],
@@ -482,7 +482,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
                 post_capture_cross, fitness_delta
             )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags,
             new_cross_affinity, state['agg_mask'],
@@ -540,7 +540,7 @@ class CrossDomainV2DualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Cross-domain metrics (KEY)
+            # Cross-domain metrics
             'sin_max_cross': float(new_cross_affinity[4, 2]),
             'sin_min_cross': float(new_cross_affinity[4, 3]),
             'max_cross_affinity': float(jnp.max(new_cross_affinity)),

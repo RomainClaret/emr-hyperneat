@@ -4,11 +4,11 @@ Biological Basis: Surviving functions' LTP history influences birth probability
 of similar functions. Functions near successful survivors have increased birth
 probability - evolutionary momentum toward successful functional regions.
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Successful high-LTP survivors propagate lineage to nearby functions
 2. Birth probability increased for functions in successful lineages
 3. Similarity defined by index proximity
-4. Protected indices for sin and extreme aggregations (0.1% deactivation)
+4. Protected indices for sin and extreme aggregations (always kept active)
 5. Affinity floors for guaranteed retention
 6. Memory cell crystallization for proven functions
 7. Initial palettes include critical functions from start
@@ -41,12 +41,16 @@ MIN_IDX = 3
 class STDPNeurogenesisLineageSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric STDP-guided lineage selection for both domains.
 
-    Key improvements over dual version:
+    Differences from the dual version:
     - Protected indices for sin and extreme aggregations
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
-    - Lineage boost centered on sin/extremes
-    - Initial lineage strength for critical functions
+    - Sin, max and min spread lineage 1.5x as strongly and keep lineage floors
+    - A larger initial lineage and birth boost for sin, max and min (0.4 each)
+
+    Sin, max and min start active and no line removes a function, so their own lineage,
+    lineage floors and birth boost never change the palettes; only the 1.5x spread to
+    neighbors does.
     """
 
     name = "stdp_neurogenesis_lineage_symmetric"
@@ -54,36 +58,36 @@ class STDPNeurogenesisLineageSymmetricStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters ===
+        # STDP parameters
         ltp_rate: float = 0.20,
         ltd_rate: float = 0.10,
         stdp_decay: float = 0.90,
-        # === Lineage parameters ===
+        # Lineage parameters
         lineage_inheritance: float = 0.3,
         similarity_radius: int = 2,
         lineage_survival_threshold: float = 0.4,
         lineage_decay: float = 0.95,
-        # === Birth parameters ===
+        # Birth parameters
         base_birth_rate: float = 0.12,
         lineage_birth_boost: float = 0.25,
         protected_lineage_boost: float = 0.4,
-        # === Protected function settings ===
+        # Protected function settings
         protected_deactivation_prob: float = 0.001,
-        # === Affinity floors ===
+        # Affinity floors
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
-        # === Memory cell parameters ===
+        # Memory cell parameters
         memory_formation_threshold: float = 0.75,
         memory_formation_count: int = 8,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -125,7 +129,7 @@ class STDPNeurogenesisLineageSymmetricStrategy(PaletteEvolutionStrategy):
         self.max_active_act = max_active_act
         self.max_active_agg = max_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 
@@ -341,7 +345,7 @@ class STDPNeurogenesisLineageSymmetricStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE LTP AND LINEAGE ===
+        # UPDATE LTP AND LINEAGE
         act_ltp = state['act_ltp'] * self.stdp_decay
         agg_ltp = state['agg_ltp'] * self.stdp_decay
         act_lineage = state['act_lineage'] * self.lineage_decay
@@ -392,7 +396,7 @@ class STDPNeurogenesisLineageSymmetricStrategy(PaletteEvolutionStrategy):
         for idx in [MAX_IDX, MIN_IDX]:
             agg_ltp = agg_ltp.at[idx].set(jnp.maximum(agg_ltp[idx], 0.3))
 
-        # === ACTIVATION BIRTH WITH LINEAGE BOOST ===
+        # ACTIVATION BIRTH WITH LINEAGE BOOST
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         sin_missing = SIN_IDX in candidates
         if candidates and (jax.random.uniform(k1) < self.base_birth_rate or sin_missing):
@@ -412,7 +416,7 @@ class STDPNeurogenesisLineageSymmetricStrategy(PaletteEvolutionStrategy):
             if float(act_lineage[new_idx]) > 0.1:
                 lineage_births += 1
 
-        # === AGGREGATION BIRTH WITH LINEAGE BOOST ===
+        # AGGREGATION BIRTH WITH LINEAGE BOOST
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         extremes_missing = any(i in candidates for i in [MAX_IDX, MIN_IDX])
         if candidates and (jax.random.uniform(k3) < self.base_birth_rate or extremes_missing):

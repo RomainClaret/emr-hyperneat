@@ -3,7 +3,7 @@
 Combines Predator-Prey dynamics (#30) with Clonal Selection protection (#91).
 Boom-bust cycles with clonal capture protection during bust.
 
-Key Innovation:
+Mechanism:
 - Boom phase: aggressive exploration, high mutation rates
 - Bust phase: selective pressure, functions must prove worth
 - Clonal capture during boom protects functions during bust
@@ -39,7 +39,7 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
     Boom-bust cycles with clonal protection.
     Aggressive exploration during boom, protection for winners during bust.
 
-    Critical innovation: Dynamic cycles with selective protection.
+    Dynamic cycles with selective protection.
     """
 
     name = "predator_clonal_dual"
@@ -47,32 +47,32 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Cycle parameters ===
+        # Cycle parameters
         cycle_period: int = 20,
         boom_fraction: float = 0.6,
-        # === Boom parameters ===
+        # Boom parameters
         boom_mutation_rate: float = 0.18,
         boom_capture_threshold: float = 0.7,
-        # === Bust parameters ===
+        # Bust parameters
         bust_mutation_rate: float = 0.04,
         bust_protection_strength: float = 0.9,
         bust_survival_threshold: float = 0.3,
-        # === Clonal capture ===
+        # Clonal capture
         capture_affinity_threshold: float = 0.6,
         capture_decay: float = 0.98,
-        # === Sin and extreme priority ===
+        # Sin and extreme priority
         sin_idx: int = 4,
         sin_capture_bonus: float = 0.2,
         extreme_capture_bonus: float = 0.25,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -205,7 +205,7 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
         else:
             phase_generation += 1
 
-        # === UPDATE CAPTURE STATUS ===
+        # UPDATE CAPTURE STATUS
         act_captured = state['act_captured'] * self.capture_decay
         agg_captured = state['agg_captured'] * self.capture_decay
 
@@ -226,7 +226,7 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
             for g in active_aggs:
                 agg_affinities = agg_affinities.at[g].add(self.affinity_lr)
 
-        # === BOOM PHASE: Aggressive exploration + capture ===
+        # BOOM PHASE: Aggressive exploration + capture
         if cycle_phase == 'boom':
             mutation_rate = self.boom_mutation_rate
 
@@ -251,7 +251,7 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
                             agg_captured = agg_captured.at[i].set(1.0)
                             total_captures += 1
 
-        # === BUST PHASE: Low mutation, capture protection ===
+        # BUST PHASE: Low mutation, capture protection
         else:
             mutation_rate = self.bust_mutation_rate
 
@@ -266,7 +266,7 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
                 if float(agg_mask[i]) > 0.5 and float(agg_captured[i]) > 0.5:
                     bust_survivals += 1
 
-        # === ACTIVATION MUTATION ===
+        # ACTIVATION MUTATION
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k1) < mutation_rate:
             # During boom: explore widely
@@ -290,7 +290,7 @@ class PredatorClonalDualStrategy(PaletteEvolutionStrategy):
             new_idx = int(jax.random.choice(k2, jnp.array(candidates), p=probs))
             act_mask = act_mask.at[new_idx].set(1.0)
 
-        # === AGGREGATION MUTATION ===
+        # AGGREGATION MUTATION
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k3) < mutation_rate:
             weights = []

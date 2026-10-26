@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Extract EMR-HyperNEAT GPU total-runtime IQR per depth for the runtime figure.
 
-Reads the real 30-generation measurements in ``data/runs_emr_gpu.json``. Each run
-records ``depth``, ``population``, ``seed``, ``n_generations`` (= 30),
-``total_runtime_s`` (the measured wall-clock for the full 30-generation run), and
-``in_figure_band`` (whether the run belongs to the runtime-figure band). The band
-spans 8 population sizes for depths 1-7 and populations 300/1000 for depths 8-13.
+Reads ``data/runs_emr_gpu.json``. Each run records ``depth``, ``population``, ``seed``,
+``n_generations`` (= 30), ``total_runtime_s`` (the construction time plus 30 times the
+steady per-generation time) and ``in_figure_band`` (whether the run belongs to the runtime-figure
+band). The band spans 8 population sizes for depths 1-7, one value each without a seed, and
+populations 300/1000 for depths 8-13, whose runs lasted 10 generations (6 for population 300,
+seed 123, which solved XOR at depths 8 to 12). At depth 7, population 750 is interpolated and
+population 1000's steady time is an estimate; depth 13's population-1000 seed 456 is projected
+from depth 12 (see the paper README's timing provenance).
 
-Output: per-depth IQR (25th/50th/75th percentile of the real ``total_runtime_s``)
+Output: per-depth IQR (25th/50th/75th percentile of ``total_runtime_s``)
 plus TikZ coordinates for the GPU band in the runtime comparison figure.
 """
 

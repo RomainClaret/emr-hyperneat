@@ -3,7 +3,7 @@
 Extends SeparateGenomeStrategy to jointly evolve BOTH activation AND
 aggregation function palettes using NEAT-style population genetics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual genomes - combined act+agg masks with separate innovation tracking
 2. Cross-domain crossover - paired inheritance of successful combinations
 3. Dual speciation - distance computed across both domains

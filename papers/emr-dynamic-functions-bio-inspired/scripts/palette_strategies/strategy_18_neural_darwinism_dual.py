@@ -3,7 +3,7 @@
 Extends NeuralDarwinism to jointly evolve both activation and aggregation palettes
 with cooperation/antagonism tracking in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Cooperation matrices for both act and agg domains
 2. Antagonism matrices for both domains
 3. Neuronal group detection in each domain
@@ -15,7 +15,7 @@ Biological rationale:
 - Groups that cooperate (act-agg combinations) get stabilized together
 - Cross-modal antagonism detection: certain act-agg pairs may conflict
 
-Expected improvement:
+Intended effects:
 - Discovers function pairs that CONFLICT in either domain
 - Cross-domain antagonism detection (bad act-agg combinations)
 - Better pruning based on conflict rather than just inactivity

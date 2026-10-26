@@ -25,9 +25,7 @@ def fig_architecture_overview():
     ax_net = fig.add_subplot(gs[0])
     ax_eval = fig.add_subplot(gs[1])
 
-    # ================================================================
     # TOP PANEL: Network Architecture
-    # ================================================================
     ax_net.set_xlim(-0.2, 5.2)
     ax_net.set_ylim(-0.8, 5.8)
     ax_net.axis('off')
@@ -105,9 +103,7 @@ def fig_architecture_overview():
     ax_net.text(4.5, 2.07, '1 neuron', fontsize=4.5, ha='center', va='center',
                 color=output_color, fontweight='bold')
 
-    # ================================================================
     # BOTTOM PANEL: 5 Evaluation Modes
-    # ================================================================
     ax_eval.set_xlim(-0.2, 10)
     ax_eval.set_ylim(-0.3, 9.8)
     ax_eval.axis('off')

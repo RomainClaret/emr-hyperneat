@@ -3,13 +3,13 @@
 Extends NeuromodulatedStrategy with symmetric discovery features:
 - Dual neuromodulator channels (separate DA/ACh/NE for act and agg)
 - Cross-domain dopamine coupling (success in one domain influences other)
-- Memory cells from sustained dopamine (high DA → memory status)
+- Memory cells from sustained dopamine (high DA -> memory status)
 - Affinity floors and discovery tracking for both domains
 
-Key mechanisms:
-1. Dopamine (DA): Reward signal → reduce exploration when improving
-2. Acetylcholine (ACh): Uncertainty signal → increase exploration when stagnating
-3. Norepinephrine (NE): Arousal signal → high plasticity early/when challenged
+Mechanisms:
+1. Dopamine (DA): Reward signal -> reduce exploration when improving
+2. Acetylcholine (ACh): Uncertainty signal -> increase exploration when stagnating
+3. Norepinephrine (NE): Arousal signal -> high plasticity early/when challenged
 4. Memory cells: Sustained high DA leads to memory cell status
 
 Biological rationale:
@@ -52,7 +52,7 @@ class NeuromodulatedSymmetricStrategy(PaletteEvolutionStrategy):
     Extends activation-only neuromodulation to discover both activation AND
     aggregation functions through DA/ACh/NE modulation per domain.
 
-    Key innovations:
+    Mechanisms:
     - Dual neuromodulator channels for each domain
     - Cross-domain DA coupling (success in activation helps aggregation)
     - Memory cells from sustained dopamine signaling
@@ -79,8 +79,8 @@ class NeuromodulatedSymmetricStrategy(PaletteEvolutionStrategy):
         # Sticky functions
         deactivate_sticky_rate: float = 0.01,
         # Memory cell parameters - lower threshold, faster formation
-        memory_cell_da_threshold: float = 0.5,  # DA level to become memory candidate (lowered from 0.75)
-        memory_cell_gens: int = 5,  # Reduced from 10 for faster memory formation
+        memory_cell_da_threshold: float = 0.5,  # DA level to become memory candidate
+        memory_cell_gens: int = 5,  # For faster memory formation
         memory_cell_decay_rate: float = 0.05,
         # Affinity floors
         sin_affinity_floor: float = 0.6,
@@ -254,19 +254,19 @@ class NeuromodulatedSymmetricStrategy(PaletteEvolutionStrategy):
     ) -> jnp.ndarray:
         """Update per-function DA levels based on activity and global DA.
 
-        Increased DA gains to ensure memory cells form reliably.
+        The DA gains are set so that memory cells form reliably.
         """
         active = (mask > 0.5).astype(jnp.float32)
 
         # Active functions get DA boost proportional to global DA
-        # Increased from 0.3 to 0.5 for stronger reward signal
+        # Gain of 0.5 on global DA; a larger gain gives a stronger reward signal
         da_boost = active * global_da * 0.5
 
         # Also boost based on affinity (successful functions get more DA)
-        # Increased from 0.2 to 0.35 for faster memory formation
+        # Gain of 0.35 on affinity; a larger gain makes memory cells form faster
         affinity_boost = active * affinity * 0.35
 
-        # Decay inactive (reduced to 0.05 for more stability)
+        # Decay inactive functions slowly (0.05 per generation) for stability
         decay = (1 - active) * 0.05
 
         new_da = da_levels + da_boost + affinity_boost - decay

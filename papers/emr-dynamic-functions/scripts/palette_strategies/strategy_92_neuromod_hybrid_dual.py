@@ -4,9 +4,9 @@ Combines tag_homeostatic_dual with neuromodulation:
 - Base: Strategy 84 (Tag+Homeostatic) - 67% Parity-5 solve, 100% sin retention
 - Extension: Strategy 21 (Multi-Neuromodulatory) - DA/ACh/NE/5-HT adaptive learning
 
-Key innovation: Neuromodulators modulate tagging and capture dynamics:
-- NE (norepinephrine) on stagnation → increases tag sensitivity (exploration)
-- 5-HT (serotonin) on improvement → increases capture protection (retention)
+Neuromodulators modulate tagging and capture dynamics:
+- NE (norepinephrine) on stagnation -> increases tag sensitivity (exploration)
+- 5-HT (serotonin) on improvement -> increases capture protection (retention)
 - DA (dopamine) modulates learning rate for affinity updates
 - ACh (acetylcholine) modulates precision of cross-domain learning
 
@@ -43,11 +43,11 @@ class NeuromodHybridDualStrategy(PaletteEvolutionStrategy):
     - Tag+Homeostatic (84): Tag-and-capture + homeostatic balance
     - Multi-Neuromodulatory (21): DA/ACh/NE/5-HT adaptive modulation
 
-    Critical interaction: Neuromodulators control tagging dynamics:
-    - High NE (stagnation) → more sensitive tagging, faster discovery
-    - High 5-HT (progress) → stronger capture protection
-    - High DA (reward) → faster affinity learning
-    - High ACh (focus) → more precise cross-domain learning
+    Interaction: Neuromodulators control tagging dynamics:
+    - High NE (stagnation) -> more sensitive tagging, faster discovery
+    - High 5-HT (progress) -> stronger capture protection
+    - High DA (reward) -> faster affinity learning
+    - High ACh (focus) -> more precise cross-domain learning
     """
 
     name = "neuromod_hybrid_dual"
@@ -55,7 +55,7 @@ class NeuromodHybridDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Neuromodulator parameters (from strategy 21) ===
+        # Neuromodulator parameters (from strategy 21)
         ach_baseline: float = 0.5,
         da_baseline: float = 0.5,
         ne_baseline: float = 0.5,
@@ -68,37 +68,37 @@ class NeuromodHybridDualStrategy(PaletteEvolutionStrategy):
         da_decay: float = 0.15,
         ne_decay: float = 0.12,
         serotonin_decay: float = 0.05,
-        # === Tagging parameters (from strategy 84/81) ===
+        # Tagging parameters (from strategy 84/81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Neuromodulator effects on tagging (NEW) ===
+        # Neuromodulator effects on tagging
         ne_tag_sensitivity_boost: float = 0.3,  # NE increases tagging
         serotonin_capture_boost: float = 0.2,  # 5-HT increases capture protection
         da_affinity_boost: float = 0.2,  # DA increases affinity learning
         ach_precision_boost: float = 0.3,  # ACh increases cross-domain precision
-        # === Homeostatic parameters (from strategy 84/82) ===
+        # Homeostatic parameters (from strategy 84/82)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         correction_strength: float = 1.8,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         base_cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -560,7 +560,7 @@ class NeuromodHybridDualStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # === NEUROMODULATOR UPDATE ===
+        # NEUROMODULATOR UPDATE
         new_ach, new_da, new_ne, new_serotonin, neuromod_metrics = self._update_neuromodulators(
             state['acetylcholine'],
             state['dopamine'],
@@ -571,7 +571,7 @@ class NeuromodHybridDualStrategy(PaletteEvolutionStrategy):
             improved,
         )
 
-        # === TAGGING (NE-modulated) ===
+        # TAGGING (NE-modulated)
         new_act_tags, new_agg_tags = self._update_tags_neuromodulated(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -583,23 +583,23 @@ class NeuromodHybridDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE (5-HT-modulated) ===
+        # CAPTURE (5-HT-modulated)
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture_neuromodulated(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved, new_serotonin
         )
 
-        # === HOMEOSTATIC TRACKING ===
+        # HOMEOSTATIC TRACKING
         extreme_ratio = self._compute_extreme_ratio(state['agg_mask'])
 
-        # === CROSS-DOMAIN AFFINITY (DA/ACh-modulated) ===
+        # CROSS-DOMAIN AFFINITY (DA/ACh-modulated)
         new_cross_affinity = self._update_cross_affinity_neuromodulated(
             state['cross_affinity'], state['act_mask'], state['agg_mask'],
             improvement, new_da, new_ach
         )
 
-        # === MUTATIONS (NE/5-HT-modulated) ===
+        # MUTATIONS (NE/5-HT-modulated)
         new_act_mask, act_mut_info = self._mutate_act_palette_neuromodulated(
             k_act, state['act_mask'], new_act_captured, new_cross_affinity,
             new_ne, new_serotonin

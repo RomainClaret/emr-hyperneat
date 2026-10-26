@@ -4,7 +4,7 @@ Combines tag_homeostatic_dual with adult neurogenesis:
 - Base: Strategy 84 (Tag+Homeostatic) - 67% Parity-5 solve, 100% sin retention
 - Extension: Strategy 63 (Adult Neurogenesis) - Birth, maturation, survival
 
-Key innovation: Young neurons have higher tagging sensitivity but cannot be
+Young neurons have higher tagging sensitivity but cannot be
 captured until mature. This allows controlled exploration while protecting
 valuable discovered functions through the tag-capture mechanism.
 
@@ -41,7 +41,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
     - Tag+Homeostatic (84): Tag-and-capture + homeostatic balance
     - Adult Neurogenesis (63): Birth, maturation, survival dynamics
 
-    Critical interaction: Young neurons have 2x tagging sensitivity but
+    Interaction: Young neurons have 2x tagging sensitivity but
     cannot be captured until mature. This balances exploration with retention.
     """
 
@@ -50,7 +50,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Neurogenesis parameters (from strategy 63) ===
+        # Neurogenesis parameters (from strategy 63)
         neurogenesis_rate: float = 0.08,
         maturation_period: int = 10,
         young_plasticity: float = 2.0,
@@ -60,30 +60,30 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
         contribution_decay: float = 0.9,
         contribution_boost: float = 0.3,
         cross_survival_boost: float = 0.15,
-        # === Tagging parameters (from strategy 84/81) ===
+        # Tagging parameters (from strategy 84/81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        young_tag_boost: float = 2.0,  # NEW: Young neurons tag more easily
-        # === Homeostatic parameters (from strategy 84/82) ===
+        young_tag_boost: float = 2.0,  # Young neurons tag more easily
+        # Homeostatic parameters (from strategy 84/82)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         correction_strength: float = 1.8,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_stable_act: int = 2,
         min_stable_agg: int = 1,
         max_stable_act: int = 8,
         max_stable_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -473,7 +473,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === CONTRIBUTION UPDATE (neurogenesis) ===
+        # CONTRIBUTION UPDATE (neurogenesis)
         new_act_contrib, act_young = self._update_contributions(
             state['act_contribution'], state['act_mask'],
             state['act_young'], improved, NUM_ACTIVATIONS
@@ -483,7 +483,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
             state['agg_young'], improved, NUM_AGGREGATIONS
         )
 
-        # === TAGGING (with young boost) ===
+        # TAGGING (with young boost)
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -501,7 +501,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
         act_mean_contrib = float(jnp.mean(jnp.array([new_act_contrib[i] for i in act_active]))) if act_active else 0
         agg_mean_contrib = float(jnp.mean(jnp.array([new_agg_contrib[i] for i in agg_active]))) if agg_active else 0
 
-        # === MATURATION (neurogenesis with tag influence) ===
+        # MATURATION (neurogenesis with tag influence)
         act_stable, act_young, new_act_captured, act_survived, act_pruned = self._mature_neurons(
             set(state['act_stable']), act_young, new_act_contrib,
             new_act_tags, state['act_captured'],
@@ -513,7 +513,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
             act_mean_contrib, generation, self.max_stable_agg
         )
 
-        # === CAPTURE (tag-and-capture, excluding young) ===
+        # CAPTURE (tag-and-capture, excluding young)
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             new_act_captured, new_agg_captured,
@@ -521,7 +521,7 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === BIRTH (neurogenesis with preference for sin/extreme) ===
+        # BIRTH (neurogenesis with preference for sin/extreme)
         act_stable, act_young, act_born = self._maybe_birth_neuron(
             act_stable, act_young, new_act_captured, k1, generation,
             self.max_young_act, NUM_ACTIVATIONS, prefer_indices=[4]  # Prefer sin
@@ -531,16 +531,16 @@ class NeurogenesisHybridDualStrategy(PaletteEvolutionStrategy):
             self.max_young_agg, NUM_AGGREGATIONS, prefer_indices=list(CORE_EXTREME_AGGS)
         )
 
-        # === CREATE MASKS ===
+        # CREATE MASKS
         new_act_mask = self._create_mask(act_stable, act_young, NUM_ACTIVATIONS)
         new_agg_mask = self._create_mask(agg_stable, agg_young, NUM_AGGREGATIONS)
 
-        # === CROSS-DOMAIN AFFINITY ===
+        # CROSS-DOMAIN AFFINITY
         new_cross_affinity = self._update_cross_affinity(
             state['cross_affinity'], state['act_mask'], state['agg_mask'], improvement
         )
 
-        # === HOMEOSTATIC TRACKING ===
+        # HOMEOSTATIC TRACKING
         extreme_ratio = self._compute_extreme_ratio(new_agg_mask)
 
         act_changed = not jnp.allclose(state['act_mask'], new_act_mask)

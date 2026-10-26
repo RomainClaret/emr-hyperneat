@@ -12,12 +12,12 @@ Biological rationale:
 - The brain normalizes synaptic strengths to prevent runaway potentiation/depression
 - Homeostasis allows continued learning throughout lifetime
 
-Key mechanisms:
+Mechanisms:
 1. Synaptic scaling: If mean affinity drifts too high/low, scale back toward target
 2. Soft bounds: Instead of hard 0.0/1.0 clipping, asymptotic approach to bounds
 3. Activity-dependent regulation: More active functions get stronger scaling
 
-Expected improvement over CriticalHebbian:
+Intended effects compared with CriticalHebbian:
 - Fewer false protections (affinities don't saturate at 1.0)
 - Better adaptation (affinities can decrease from 1.0 to indicate problems)
 - More robust to early luck (initial high fitness doesn't lock in bad functions)
@@ -72,7 +72,7 @@ class HomeostaticHebbianStrategy(PaletteEvolutionStrategy):
         affinity_protection_threshold: float = 0.55,
         exploration_lr_multiplier: float = 1.5,
         confirmation_lr_multiplier: float = 0.5,
-        # HOMEOSTATIC PARAMETERS (NEW)
+        # HOMEOSTATIC PARAMETERS
         target_mean_affinity: float = 0.5,       # Target for synaptic scaling
         scaling_rate: float = 0.08,              # How fast to scale toward target
         scaling_threshold: float = 0.15,         # Trigger scaling if mean differs by this
@@ -287,7 +287,7 @@ class HomeostaticHebbianStrategy(PaletteEvolutionStrategy):
         else:
             affinity_delta = anti_lr * fitness_signal * active
 
-        # Apply soft bounds (KEY HOMEOSTATIC MECHANISM)
+        # Apply soft bounds (HOMEOSTATIC MECHANISM)
         new_affinity = self._apply_soft_bounds(affinity, affinity_delta)
 
         # Apply synaptic scaling (SECOND HOMEOSTATIC MECHANISM)

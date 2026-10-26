@@ -3,7 +3,7 @@
 Extends SynapticTagging to jointly evolve both activation and aggregation palettes
 with two-stage tag-and-capture learning in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Separate tag systems for activations and aggregations
 2. Capture events affect both domains simultaneously
 3. Cross-domain tags track successful act-agg combinations
@@ -15,7 +15,7 @@ Biological rationale:
 - Global reward signals (dopamine) trigger capture across domains
 - Cross-modal associations can be tagged and captured together
 
-Expected improvement:
+Intended effects:
 - Fewer false positives in BOTH domains
 - Cross-domain capture links successful act-agg combinations
 - More robust to noise in both domains

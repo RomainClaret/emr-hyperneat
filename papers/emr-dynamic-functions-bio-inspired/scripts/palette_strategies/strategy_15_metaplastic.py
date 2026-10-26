@@ -14,13 +14,13 @@ Biological rationale:
 - Success stabilizes plasticity
 - BCM (Bienenstock-Cooper-Munro) theory: sliding threshold
 
-Key mechanisms:
+Mechanisms:
 1. Stagnation-boosted LR: If stuck, increase learning rate
 2. Success-reduced LR: If improving, decrease learning rate
 3. Sliding threshold: Protection threshold adapts to population fitness distribution
 4. Phase-matched plasticity: Different plasticity rules for different phases
 
-Expected improvement over CriticalHebbian:
+Intended effects compared with CriticalHebbian:
 - Faster escape from local optima (stagnation boost)
 - More stable solutions (success reduction)
 - Better adaptation to problem difficulty (sliding threshold)
@@ -51,8 +51,8 @@ class MetaplasticStrategy(PaletteEvolutionStrategy):
     """CriticalHebbian with adaptive learning rates (metaplasticity).
 
     Learning rate adapts to evolutionary state:
-    - Stagnation → boost LR to escape local optima
-    - Success → reduce LR to stabilize
+    - Stagnation -> boost LR to escape local optima
+    - Success -> reduce LR to stabilize
     - Sliding threshold for protection decisions
     """
 
@@ -78,7 +78,7 @@ class MetaplasticStrategy(PaletteEvolutionStrategy):
         base_protection_threshold: float = 0.55,
         exploration_lr_multiplier: float = 1.5,
         confirmation_lr_multiplier: float = 0.5,
-        # METAPLASTIC PARAMETERS (NEW)
+        # METAPLASTIC PARAMETERS
         # Stagnation response
         stagnation_lr_boost: float = 1.5,       # Multiply LR by this when stagnating
         stagnation_threshold_gens: int = 10,    # Gens without improvement = stagnation

@@ -55,9 +55,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'arity_capacity_match'
 
@@ -80,9 +78,7 @@ ALL_CONDITIONS = [
     '5input_20h_2layer_tanh',
 ]
 
-# ============================================================================
 # Task definitions, generated dynamically from arity
-# ============================================================================
 
 def make_inputs(n_in: int) -> jnp.ndarray:
     """Generate all 2^n_in binary input patterns."""
@@ -135,9 +131,7 @@ PERTASK_ACTIVATIONS_5 = {
 }
 
 
-# ============================================================================
 # Condition parsing
-# ============================================================================
 
 def parse_condition(condition: str) -> Dict:
     """Parse condition string into experiment parameters.
@@ -202,9 +196,7 @@ def parse_condition(condition: str) -> Dict:
     }
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array, n_in: int, n_hidden: int,
                 n_layers: int = 1) -> Dict[str, jnp.ndarray]:
@@ -237,9 +229,7 @@ def init_population(key: jax.Array, pop_size: int, n_in: int, n_hidden: int,
     return jax.vmap(lambda k: init_params(k, n_in, n_hidden, n_layers))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       n_layers: int, activation_fn,
@@ -279,9 +269,7 @@ def get_forward_fn(n_layers: int, activation_name: str):
     return _FORWARD_CACHE[key]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, cfg: Dict) -> Tuple[float, Dict[str, float]]:
     """Evaluate one individual on all tasks for the given condition config."""
@@ -322,9 +310,7 @@ def eval_single_multitask(params: Dict, cfg: Dict) -> Tuple[float, Dict[str, flo
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -447,9 +433,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -500,9 +484,7 @@ def summarize_condition(results_dir: Path, condition: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

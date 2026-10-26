@@ -12,7 +12,7 @@ Strategies:
 5. Separate Genome - NEAT-style palette evolution with speciation
 
 Bio-Inspired Strategies:
-6. Exploration Bonus - Fix separate_genome with novelty/curiosity bonuses
+6. Exploration Bonus - separate_genome plus novelty/curiosity bonuses
 7. Neuromodulated - Dynamic rates via DA/ACh/NE neuromodulation
 8. Hebbian - Co-occurrence learning "fire together, stay together"
 9. Critical Period - Developmental windows with phase-specific plasticity
@@ -44,7 +44,7 @@ Advanced Learning Mechanisms:
 
 Behavioral/Spatial and New Bio-Inspired:
 25. IntrinsicPlasticity - Per-function threshold/gain adaptation (neuron excitability)
-26. EcologicalSuccession - Developmental phases (pioneer → climax, generalist → specialist)
+26. EcologicalSuccession - Developmental phases (pioneer -> climax, generalist -> specialist)
 27. QuorumSensing - Population-level consensus (bacterial collective behavior)
 
 Advanced Bio-Inspired Strategies:
@@ -97,7 +97,7 @@ Extended Dual Strategies (Activation + Aggregation):
 16D. STDPDual - Spike-timing plasticity for both domains
 21D. MultiNeuromodulatoryDual - Full 4-neurotransmitter system for both domains
 25D. IntrinsicPlasticityDual - Threshold/gain adaptation for both domains
-26D. EcologicalSuccessionDual - Pioneer→climax phases for both domains
+26D. EcologicalSuccessionDual - Pioneer->climax phases for both domains
 28D. DendriticComputationDual - Zone-based local processing for both domains
 31D. MorphogenGradientDual - Developmental gradients for both domains
 27D. QuorumSensingDual - Population-level voting for both domains
@@ -108,10 +108,11 @@ Extended Dual Strategies (Activation + Aggregation):
 10D. NeuroHebbianDual - Neuromodulation + Hebbian for both domains
 
 Hybrid Strategies:
-67. CircadianClonalDual - Circadian rhythms + clonal selection
-68. CriticalStdpDual - Critical periods + STDP consolidation
-69. ConsolidationClonalDual - Memory consolidation + clonal selection
-70. CircadianCriticalDual - Circadian + critical periods
+67. STDPConsolidationDual - STDP temporal credit + consolidation window memory
+68. CircadianClonalDual - Circadian rhythms + clonal selection
+69. CriticalSTDPDual - Critical periods + STDP temporal credit
+70. ConsolidationClonalDual - Memory consolidation + clonal selection
+71. CircadianCriticalDual - Circadian + critical periods
 
 Aggregation-Focused Strategies:
 72. AggHomeostasisDual - Homeostatic balance between averaging/extreme aggregations
@@ -129,7 +130,7 @@ Aggregation Discovery Strategies:
 82. HomeostaticAggDiscoveryDual - Homeostatic balance with active discovery
 83. STDPAggDiscoveryDual - Temporal credit for act-agg pair discovery
 
-Hybrid Strategies (Combining Winners):
+Hybrid Strategies (Combinations and Variants of Earlier Strategies):
 Part A (Hybrid Combinations):
 84. TagHomeostaticDual - Tag-and-capture + homeostatic balance (81+82)
 85. TagReinforcementDual - Tag-and-capture + cross-domain reinforcement (81+74)
@@ -138,37 +139,40 @@ Part A (Hybrid Combinations):
 88. GRNFixedDual - Fixed GRN with reduced coupling (78 parameter fix)
 89. STDPTagDual - STDP temporal credit + tag-and-capture (83+81)
 
-Part B (Bio-Inspired Extensions on Best Performer tag_homeostatic_dual):
+Part B (Bio-Inspired Extensions of tag_homeostatic_dual):
 90. NeurogenesisHybridDual - Tag+Homeostatic + adult neurogenesis (84+63)
-91. ClonalHybridDual - Tag+Homeostatic + clonal selection (84+29) **BREAKTHROUGH: 100% Parity-5**
+91. ClonalHybridDual - Tag+Homeostatic + clonal selection (84+29) - 100% Parity-5
 92. NeuromodHybridDual - Tag+Homeostatic + multi-neuromodulatory (84+21)
 
 Extended Investigation (12 strategies):
-Full CL sequence validation: XOR → Parity-3 → Parity-4 → Parity-5 → Parity-6
+Full CL sequence validation: XOR -> Parity-3 -> Parity-4 -> Parity-5 -> Parity-6
 
-Direction A (Extend Clonal Winner):
+Direction A (Extensions of ClonalHybridDual):
 93. ClonalPredictiveDual - Clonal + predictive coding (91+24) - 100% sin retention
 94. ClonalDendriticDual - Clonal + zone-based protection (91+28) - 100% sin retention
 95. ClonalRetrogradeDual - Clonal + backward credit cascades (91+37) - 100% sin retention
 96. ClonalBCMDual - Clonal + BCM sliding threshold (91+15) - 100% sin retention
 
-Direction B (Fix STDP Retention):
+Direction B (STDP Variants for Retention):
 97. STDPDomainAwareDual - Domain shift detection, suspend LTD - 100% sin retention
 98. STDPExtendedWindowDual - Longer LTP/LTD windows (8/10) - 100% sin retention
-99. STDPNoTagDual - Pure STDP without tagging - 50% sin (FAILS - confirms tagging isn't issue)
+99. STDPNoTagDual - Pure STDP without tagging - 50% sin (FAILS, so tagging is not the cause)
 100. STDPAdaptiveWindowDual - Dynamic windows adapt to fitness - 100% sin retention
 
-Direction C (Aggregation-First Discovery): **BEST DIRECTION**
-101. AggregationLedDual - Discover aggs first, then activations - 100% sin, 100% stability 🥇
+Direction C (Aggregation-First Discovery):
+101. AggregationLedDual - Discover aggs first, then activations - 100% sin, 100% stability
 102. DualIndependentHomeostasis - Separate homeostatic systems - 100% sin retention
-103. CrossDomainV2Dual - Multiplicative cross-domain coupling - 100% sin, 100% stability 🥇
+103. CrossDomainV2Dual - Multiplicative cross-domain coupling - 100% sin, 100% stability
 104. AggregationAnchorDual - Near-permanent agg anchoring - 100% sin retention
 
-CHAMPIONS (100% sin retention + 100% palette stability):
+Strategies with 100% sin retention and 100% palette stability:
 - aggregation_led_dual (101) - Minimal palette (3 acts, 4 aggs)
 - cross_domain_v2_dual (103) - Minimal palette (4 acts, 2 aggs)
 
-Total strategies: 104 (46 single-domain + 58 dual-domain)
+The list above stops at strategy 104. The folder holds 231 strategy modules: 226
+under 146 strategy numbers (1 to 144, 201 and 210) and 5 unnumbered ones (four
+hybrids and a random baseline). Numbers 1 to 46 are single-domain strategies, many
+with dual or symmetric variants; the later numbers are dual-domain, except 210.
 """
 
 from .base_strategy import PaletteEvolutionStrategy

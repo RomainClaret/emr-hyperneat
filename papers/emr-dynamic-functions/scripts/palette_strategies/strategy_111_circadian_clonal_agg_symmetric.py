@@ -1,12 +1,12 @@
 """Strategy 111S: Circadian Clonal Agg Symmetric (Aggregation-Led Discovery).
 
-Extends CircadianClonalAggDualStrategy to symmetric mode with winning patterns:
+Extends CircadianClonalAggDualStrategy to symmetric mode with:
 - Aggregation-first discovery strategy
 - Protected sin and extreme aggregations
 - Affinity floors applied every generation
 - Memory cell crystallization
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Agg-led discovery - stabilize extreme aggregations first, sin follows
 2. Cross-domain signaling - stable agg triggers activation exploration
 3. Protected propagation - sin/max/min lineages always propagate
@@ -74,7 +74,7 @@ class CircadianClonalAggSymmetricState:
 class CircadianClonalAggSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with aggregation-led discovery.
 
-    Applies winning patterns:
+    Mechanisms:
     - Aggregation-first discovery (stabilize agg, then explore act)
     - Affinity floors (sin=0.6, extreme_agg=0.5)
     - Memory cell crystallization (8 gens sustained)
@@ -96,7 +96,7 @@ class CircadianClonalAggSymmetricStrategy(PaletteEvolutionStrategy):
         lineage_boost_rate: float = 0.15,
         lineage_decay: float = 0.98,
         protected_lineage_priority: float = 1.5,
-        # Protection parameters (winning patterns)
+        # Protection parameters
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
         protected_deactivation_prob: float = 0.001,
@@ -144,7 +144,7 @@ class CircadianClonalAggSymmetricStrategy(PaletteEvolutionStrategy):
         self.min_active_act = min_active_act
         self.min_active_agg = min_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

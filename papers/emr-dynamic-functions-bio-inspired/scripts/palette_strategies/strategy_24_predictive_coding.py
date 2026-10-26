@@ -9,7 +9,7 @@ Biological Basis:
 - Surprise (unexpected outcomes) teaches more than expected outcomes
 - This is accumulating evidence as THE computational principle of the brain
 
-Key Insight:
+Rationale:
 - Current Hebbian strategies: Learn from correlation (active + successful = good)
 - Predictive coding: Learn from prediction error (surprising outcomes teach more)
 - Functions that produce unexpected fitness improvements get strongest updates
@@ -24,7 +24,7 @@ Learning Rule:
     If surprise > threshold: explore more (confused state)
     If surprise < threshold: exploit more (confident state)
 
-Expected improvements:
+Intended effects:
 - Natural novelty detection (unexpected functions get attention)
 - Automatic difficulty adaptation
 - Meta-learning capability (learns to learn)
@@ -80,7 +80,7 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
 
         Args:
             prediction_lr: How fast predictions update based on actual outcomes
-            error_sensitivity: Scale factor for prediction error → affinity update
+            error_sensitivity: Scale factor for prediction error -> affinity update
             error_momentum: EMA momentum for smoothing prediction errors
             surprise_threshold: Above this, system is "confused" and explores
             surprise_exploration_boost: Exploration multiplier when surprised
@@ -225,7 +225,7 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Update affinity based on prediction errors.
 
-        Key insight: Surprising outcomes (large prediction errors) drive
+        Surprising outcomes (large prediction errors) drive
         the strongest learning. Expected outcomes don't change much.
 
         Returns:
@@ -238,8 +238,8 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
         )
 
         # Affinity update driven by smoothed prediction error
-        # Positive error (better than expected) → increase affinity
-        # Negative error (worse than expected) → decrease affinity
+        # Positive error (better than expected) -> increase affinity
+        # Negative error (worse than expected) -> decrease affinity
         delta = self.error_sensitivity * new_smoothed
 
         new_affinity = affinity + delta
@@ -266,8 +266,8 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply mutation with surprise-modulated exploration.
 
-        High surprise → explore more (confused, need to try things)
-        Low surprise → exploit more (confident, stick with what works)
+        High surprise -> explore more (confused, need to try things)
+        Low surprise -> exploit more (confident, stick with what works)
         """
         key1, key2 = jax.random.split(key)
 
@@ -294,7 +294,7 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive: maybe activate
-                # Higher affinity → more likely to activate
+                # Higher affinity -> more likely to activate
                 rate = effective_activate_rate * (0.5 + 0.5 * aff)
                 if activate_probs[i] < rate:
                     new_mask = new_mask.at[i].set(1.0)
@@ -352,7 +352,7 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
             0.1 * best_fitness
         )
 
-        # Step 1: Compute actual contributions for each function
+        # Compute actual contributions for each function
         actuals = self._compute_actual_contributions(
             state['mask'],
             best_fitness,
@@ -360,24 +360,24 @@ class PredictiveCodingStrategy(PaletteEvolutionStrategy):
             state['fitness_baseline'],
         )
 
-        # Step 2: Update predictions and get prediction errors
+        # Update predictions and get prediction errors
         new_predictions, prediction_errors = self._update_predictions(
             state['predictions'],
             actuals,
             state['mask'],
         )
 
-        # Step 3: Update affinity from prediction errors
+        # Update affinity from prediction errors
         new_affinity, new_smoothed_errors = self._update_affinity_from_errors(
             state['function_affinity'],
             prediction_errors,
             state['prediction_errors'],
         )
 
-        # Step 4: Compute global surprise
+        # Compute global surprise
         surprise = self._compute_surprise(new_smoothed_errors)
 
-        # Step 5: Surprise-modulated mutation
+        # Surprise-modulated mutation
         new_mask, mutation_info = self._surprise_modulated_mutation(
             subkey,
             state['mask'],

@@ -4,7 +4,7 @@ Combines Ecological Succession niches (#26) with Immune Memory (#60).
 Separate memory pools for activation and aggregation niches.
 Cross-niche discoveries get bonus memory strength.
 
-Key Innovation:
+Mechanism:
 - Activation niches: oscillatory (sin), nonlinear, other
 - Aggregation niches: extreme (max/min), averaging, other
 - Each niche has its own memory pool with capacity limit
@@ -13,7 +13,7 @@ Key Innovation:
 Biological basis: Memory B cells are organized by antigen type.
 Cross-reactive antibodies that recognize multiple antigens are especially valuable.
 
-Expected: Balanced discovery across niches with strong cross-domain synergy.
+Expected: Balanced discovery across niches with strong cross-domain pairings.
 """
 
 from typing import Dict, Any, List, Optional, Tuple, Set
@@ -39,7 +39,7 @@ class SuccessionImmuneNicheDualStrategy(PaletteEvolutionStrategy):
     Separate memory pools for activation and aggregation
     niches. Cross-niche discoveries get bonus memory strength.
 
-    Critical innovation: Domain-specific memory with cross-niche synergy.
+    Domain-specific memory with a bonus for cross-niche discoveries.
     """
 
     name = "succession_immune_niche_dual"
@@ -47,31 +47,31 @@ class SuccessionImmuneNicheDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Niche memory parameters ===
+        # Niche memory parameters
         niche_memory_capacity: int = 3,
         cross_niche_memory_bonus: float = 0.3,
         base_memory_lifespan: int = 30,
         memory_protection_strength: float = 0.9,
-        # === Succession phases ===
+        # Succession phases
         pioneer_phase_end: int = 15,
         transition_phase_end: int = 40,
         pioneer_mutation_rate: float = 0.15,
         transition_mutation_rate: float = 0.08,
         climax_mutation_rate: float = 0.02,
-        # === Sin index ===
+        # Sin index
         sin_idx: int = 4,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         tag_threshold: float = 0.5,
         tag_decay: float = 0.9,
         captured_protection: float = 0.85,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -274,7 +274,7 @@ class SuccessionImmuneNicheDualStrategy(PaletteEvolutionStrategy):
         active_aggs = set(int(i) for i in jnp.where(agg_mask > 0.5)[0])
         active_acts = set(int(i) for i in jnp.where(act_mask > 0.5)[0])
 
-        # === ACTIVATION UPDATE ===
+        # ACTIVATION UPDATE
         act_affinities = state['act_affinities']
         act_tags = state['act_tags'] * self.tag_decay
         act_captured = state['act_captured']
@@ -318,7 +318,7 @@ class SuccessionImmuneNicheDualStrategy(PaletteEvolutionStrategy):
                 expiry = generation + int(self.base_memory_lifespan * strength)
                 act_niche_memories[niche][new_idx] = (strength, expiry)
 
-        # === AGGREGATION UPDATE ===
+        # AGGREGATION UPDATE
         agg_affinities = state['agg_affinities']
         agg_tags = state['agg_tags'] * self.tag_decay
         agg_captured = state['agg_captured']

@@ -6,10 +6,10 @@ Extends STDPStrategy with symmetric discovery features:
 - Memory cells from sustained positive timing correlation
 - Affinity floors and discovery tracking for both domains
 
-Key mechanisms:
+Mechanisms:
 1. STDP temporal credit assignment: Pre-before-post = strengthen (LTP)
 2. Dual timing scores per domain
-3. Cross-domain timing: Act success → Agg timing boost
+3. Cross-domain timing: Act success -> Agg timing boost
 4. Memory cells for functions with sustained positive timing correlation
 
 Biological rationale:
@@ -54,7 +54,7 @@ class STDPSymmetricStrategy(PaletteEvolutionStrategy):
     Both activation and aggregation functions are learned through temporal
     correlation - functions active BEFORE fitness improvements get boosted.
 
-    Key innovations:
+    Mechanisms:
     - Dual STDP per domain (activation and aggregation)
     - Cross-domain timing (success in one domain influences timing in other)
     - Memory cells from sustained positive timing correlation
@@ -89,7 +89,7 @@ class STDPSymmetricStrategy(PaletteEvolutionStrategy):
         # Cross-domain timing
         cross_timing_lr: float = 0.10,    # How much one domain's timing affects other
         cross_timing_weight: float = 0.25,
-        # Memory cell parameters (sustained positive timing → memory)
+        # Memory cell parameters (sustained positive timing -> memory)
         memory_cell_timing_threshold: float = 0.70,  # Timing score threshold
         memory_cell_gens: int = 8,        # Reduced from 10 for faster formation
         memory_cell_decay_rate: float = 0.05,

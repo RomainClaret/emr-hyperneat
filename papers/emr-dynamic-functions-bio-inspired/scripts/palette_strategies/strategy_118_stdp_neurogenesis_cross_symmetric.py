@@ -4,11 +4,11 @@ Biological Basis: Cross-domain temporal correlation guides mutual survival.
 Act-agg pairs that co-activate before improvement both get survival bonuses.
 Strong pressure for functional pairings through cross-domain LTP.
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Cross-domain LTP tracks act-agg pairs that co-activate before improvement
 2. High cross-LTP pairs get mutual survival bonuses
 3. Sin+extreme pairs receive extra cross-LTP credit
-4. Protected indices for sin and extreme aggregations (0.1% deactivation)
+4. Protected indices for sin and extreme aggregations (always kept active)
 5. Affinity floors for guaranteed retention
 6. Memory cell crystallization for proven functions
 7. Initial palettes include critical functions from start
@@ -41,12 +41,12 @@ MIN_IDX = 3
 class STDPNeurogenesisCrossSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric cross-domain STDP-guided neurogenesis.
 
-    Key improvements over dual version:
+    Differences from the dual version:
     - Protected indices for sin and extreme aggregations
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
     - Initial palettes include sin and max/min from start
-    - Cross-LTP matrix with sin-extreme bias
+    - Cross-LTP matrix starts sin-max and sin-min at 0.3 (the dual starts at 0)
     """
 
     name = "stdp_neurogenesis_cross_symmetric"
@@ -54,37 +54,37 @@ class STDPNeurogenesisCrossSymmetricStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Cross-domain STDP parameters ===
+        # Cross-domain STDP parameters
         cross_ltp_rate: float = 0.15,
         mutual_survival_bonus: float = 0.4,
         cross_ltp_survival_mult: float = 0.6,
         ltp_window: int = 5,
         temporal_decay: float = 0.7,
-        # === Neurogenesis parameters ===
+        # Neurogenesis parameters
         neurogenesis_rate: float = 0.10,
         maturation_period: int = 10,
         base_survival_threshold: float = 0.15,
         max_young: int = 2,
-        # === Sin-extreme boost ===
+        # Sin-extreme boost
         sin_extreme_cross_boost: float = 0.5,
-        # === Protected function settings ===
+        # Protected function settings
         protected_survival_discount: float = 0.5,
         protected_deactivation_prob: float = 0.001,
-        # === Affinity floors ===
+        # Affinity floors
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
-        # === Memory cell parameters ===
+        # Memory cell parameters
         memory_formation_threshold: float = 0.75,
         memory_formation_count: int = 8,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -127,7 +127,7 @@ class STDPNeurogenesisCrossSymmetricStrategy(PaletteEvolutionStrategy):
         self.max_active_act = max_active_act
         self.max_active_agg = max_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 
@@ -384,7 +384,7 @@ class STDPNeurogenesisCrossSymmetricStrategy(PaletteEvolutionStrategy):
         )
         cross_ltp_matrix = cross_ltp_matrix * self.affinity_decay
 
-        # === ACTIVATION UPDATE ===
+        # ACTIVATION UPDATE
         act_mask = state['act_mask'].copy()
         act_affinities = state['act_affinities'] * self.affinity_decay
         young_acts = dict(state['young_acts'])
@@ -429,7 +429,7 @@ class STDPNeurogenesisCrossSymmetricStrategy(PaletteEvolutionStrategy):
                     act_mask = act_mask.at[idx].set(0.0)
                 del young_acts[idx]
 
-        # === AGGREGATION UPDATE ===
+        # AGGREGATION UPDATE
         agg_mask = state['agg_mask'].copy()
         agg_affinities = state['agg_affinities'] * self.affinity_decay
         young_aggs = dict(state['young_aggs'])

@@ -4,11 +4,11 @@ Biological Basis: Combines STDP temporal credit with neurogenesis survival mecha
 Young functions active BEFORE fitness improvement get survival credit boost.
 Functions that PREDICT success survive maturation more easily.
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. STDP LTP window tracks which functions PRECEDE improvement
 2. Young functions with high LTP credit have lowered survival threshold
 3. Cross-domain LTP for sin-extreme pairings
-4. Protected indices for sin and extreme aggregations (0.1% deactivation)
+4. Protected indices for sin and extreme aggregations (always kept active)
 5. Affinity floors for guaranteed retention
 6. Memory cell crystallization for proven functions
 7. Initial palettes include critical functions from start
@@ -41,8 +41,8 @@ MIN_IDX = 3
 class STDPNeurogenesisSurvivalSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric STDP-guided neurogenesis survival for both domains.
 
-    Key improvements over dual version:
-    - Protected indices for sin and extreme aggregations (0.1% deactivation)
+    Differences from the dual version:
+    - Protected indices for sin and extreme aggregations (always kept active)
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
     - Initial palettes include sin and max/min from start
@@ -54,45 +54,45 @@ class STDPNeurogenesisSurvivalSymmetricStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP PARAMETERS ===
+        # STDP PARAMETERS
         ltp_window: int = 5,
         ltd_window: int = 3,
         ltp_rate: float = 0.25,
         ltd_rate: float = 0.10,
         stdp_history_length: int = 10,
         temporal_decay: float = 0.7,
-        # === NEUROGENESIS PARAMETERS ===
+        # NEUROGENESIS PARAMETERS
         neurogenesis_rate: float = 0.10,
         maturation_period: int = 8,
         young_plasticity: float = 2.0,
         base_survival_threshold: float = 0.15,
         max_young_act: int = 2,
         max_young_agg: int = 2,
-        # === STDP-SURVIVAL INTEGRATION ===
+        # STDP-SURVIVAL INTEGRATION
         stdp_survival_multiplier: float = 0.7,
         young_ltp_plasticity: float = 2.5,
         ltp_survival_threshold: float = 0.4,
         sin_extreme_ltp_boost: float = 0.5,
-        # === Protected function settings ===
+        # Protected function settings
         protected_survival_discount: float = 0.5,
         protected_deactivation_prob: float = 0.001,
         ltp_credit_floor: float = 0.3,
-        # === Affinity floors ===
+        # Affinity floors
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
-        # === Memory cell parameters ===
+        # Memory cell parameters
         memory_formation_threshold: float = 0.75,
         memory_formation_count: int = 8,
-        # === Cross-domain ===
+        # Cross-domain
         cross_learning_rate: float = 0.05,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         max_stable_act: int = 6,
         max_stable_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -143,7 +143,7 @@ class STDPNeurogenesisSurvivalSymmetricStrategy(PaletteEvolutionStrategy):
         self.max_stable_act = max_stable_act
         self.max_stable_agg = max_stable_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

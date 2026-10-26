@@ -35,22 +35,22 @@ class RandomBaselineStrategy(PaletteEvolutionStrategy):
         self,
         # NO sin initial seeding
         # NO mechanism
-        # === BASIC EXPLORATION ===
+        # BASIC EXPLORATION
         exploration_rate_act: float = 0.10,
         exploration_rate_agg: float = 0.12,
         prune_threshold_act: float = 0.25,
         prune_threshold_agg: float = 0.30,
         stagnation_prune_after: int = 5,
-        # === BASIC AFFINITY (no floors) ===
+        # BASIC AFFINITY (no floors)
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.12,
         affinity_decay: float = 0.95,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES (DEFAULT - NO SIN) ===
+        # INITIAL PALETTES (DEFAULT - NO SIN)
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):

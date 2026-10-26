@@ -3,7 +3,7 @@
 Extends Intrinsic Plasticity to jointly evolve activation AND aggregation function
 palettes with per-function threshold and gain adaptation for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. Threshold adaptation: Shift activation curves based on activity
 2. Gain adaptation: Scale response magnitude based on activity
 3. Homeostatic target: Maintain functions in optimal operating range
@@ -11,8 +11,8 @@ Key mechanisms:
 
 Biological basis:
 - Neurons regulate their own firing threshold and gain
-- Too much activity → increase threshold, decrease gain
-- Too little activity → decrease threshold, increase gain
+- Too much activity -> increase threshold, decrease gain
+- Too little activity -> decrease threshold, increase gain
 - Applies to both computational and integrative functions
 """
 

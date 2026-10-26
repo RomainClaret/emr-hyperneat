@@ -1,17 +1,18 @@
 """Strategy 131: Quorum-Morphogen Consensus-Driven Spatial Dual.
 
 Combines Quorum Sensing (#27) with Morphogen Gradient (#31).
-Population voting determines morphogen source positions.
+Usage votes of the palette's own active functions decide which emit extra morphogen.
 
-Key Innovation:
-- Population-level function usage creates "votes" for morphogen sources
-- Functions used by many individuals emit stronger morphogen
+Mechanism:
+- Each active palette function gains a "vote" every generation (a stand-in for
+  population usage; population_data is never read), and votes decay over time
+- Functions whose votes reach the quorum threshold emit stronger morphogen
 - Creates consensus-driven spatial exploration
 - Sin and extreme aggs get voting bonuses
 
 Biological basis: In bacterial quorum sensing, population-level signals
-guide individual behavior. Here, collective usage patterns guide which
-functions become morphogen sources, attracting further exploration.
+guide individual behavior. Here, accumulated usage votes guide which
+functions become strong morphogen sources, attracting further exploration.
 
 Expected: Consensus-driven exploration toward population-validated functions.
 """
@@ -36,10 +37,10 @@ from .base_strategy import (
 class QuorumMorphogenDualStrategy(PaletteEvolutionStrategy):
     """Quorum-morphogen consensus-driven strategy for dual palette evolution.
 
-    Population voting creates morphogen sources,
-    guiding exploration toward consensus-validated functions.
+    Votes from the palette's own active functions (a stand-in for population
+    usage) strengthen morphogen sources, guiding exploration toward well-voted functions.
 
-    Critical innovation: Collective usage patterns guide spatial exploration.
+    Accumulated usage votes guide spatial exploration.
     """
 
     name = "quorum_morphogen_dual"
@@ -47,30 +48,30 @@ class QuorumMorphogenDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Quorum parameters ===
+        # Quorum parameters
         quorum_threshold: float = 0.4,
         quorum_vote_weight: float = 0.2,
         quorum_decay: float = 0.90,
-        # === Morphogen parameters ===
+        # Morphogen parameters
         morphogen_decay: float = 0.92,
         source_emission_rate: float = 0.3,
         quorum_source_boost: float = 0.5,
-        # === Sin and extreme bonuses ===
+        # Sin and extreme bonuses
         sin_idx: int = 4,
         sin_vote_bonus: float = 0.25,
         extreme_vote_bonus: float = 0.3,
-        # === Mutation parameters ===
+        # Mutation parameters
         base_mutation_rate: float = 0.10,
         morphogen_mutation_weight: float = 0.3,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -201,7 +202,7 @@ class QuorumMorphogenDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE QUORUM VOTES ===
+        # UPDATE QUORUM VOTES
         act_votes = state['act_votes'] * self.quorum_decay
         agg_votes = state['agg_votes'] * self.quorum_decay
 
@@ -235,7 +236,7 @@ class QuorumMorphogenDualStrategy(PaletteEvolutionStrategy):
         act_votes = jnp.clip(act_votes, 0.0, 1.0)
         agg_votes = jnp.clip(agg_votes, 0.0, 1.0)
 
-        # === UPDATE MORPHOGEN FROM QUORUM ===
+        # UPDATE MORPHOGEN FROM QUORUM
         act_morphogen = state['act_morphogen'] * self.morphogen_decay
         agg_morphogen = state['agg_morphogen'] * self.morphogen_decay
 
@@ -255,7 +256,7 @@ class QuorumMorphogenDualStrategy(PaletteEvolutionStrategy):
             if float(agg_mask[i]) > 0.5:
                 agg_morphogen = agg_morphogen.at[i].add(emission)
 
-        # === ACTIVATION MUTATION (morphogen-weighted) ===
+        # ACTIVATION MUTATION (morphogen-weighted)
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k1) < self.base_mutation_rate:
             # Weight by morphogen + vote
@@ -277,7 +278,7 @@ class QuorumMorphogenDualStrategy(PaletteEvolutionStrategy):
             if float(act_votes[new_idx]) > 0.2:
                 consensus_mutations += 1
 
-        # === AGGREGATION MUTATION ===
+        # AGGREGATION MUTATION
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k3) < self.base_mutation_rate:
             weights = []

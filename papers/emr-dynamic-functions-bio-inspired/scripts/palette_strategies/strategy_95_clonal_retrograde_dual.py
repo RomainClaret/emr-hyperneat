@@ -4,7 +4,7 @@ Combines clonal_hybrid_dual (91) with retrograde signaling (37):
 - Base: Strategy 91 (Clonal+Tag+Homeostatic) - 100% Parity-5, 100% sin retention
 - Extension: Strategy 37 (Retrograde Signaling) - Backward credit assignment
 
-Key innovation: When a function gets captured, retrograde signals boost the
+When a function gets captured, retrograde signals boost the
 "recently co-active" functions, creating capture cascades. This builds stable
 "discovery pathways" that can be reactivated when similar patterns recur.
 
@@ -42,7 +42,7 @@ class ClonalRetrogradeDualStrategy(PaletteEvolutionStrategy):
     - Clonal Hybrid (91): Tag+Homeostatic+Clonal
     - Retrograde Signaling (37): Backward credit through co-activation chains
 
-    Critical interaction: When function captured, retrograde signals boost
+    Interaction: When function captured, retrograde signals boost
     co-active functions, creating cascade captures.
     """
 
@@ -51,12 +51,12 @@ class ClonalRetrogradeDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Retrograde signaling parameters (from strategy 37) ===
+        # Retrograde signaling parameters (from strategy 37)
         trace_decay: float = 0.7,               # Decay per step in chain
         capture_retrograde_boost: float = 0.3,  # Tag boost from capture cascade
         cascade_capture_window: int = 3,        # Generations to look back for cascade
         retrograde_affinity_boost: float = 0.15,  # Affinity boost from retrograde
-        # === Clonal selection parameters (from 91) ===
+        # Clonal selection parameters (from 91)
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
@@ -65,7 +65,7 @@ class ClonalRetrogradeDualStrategy(PaletteEvolutionStrategy):
         hypermutation_strength: float = 0.2,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Tagging parameters (from 91) ===
+        # Tagging parameters (from 91)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -73,21 +73,21 @@ class ClonalRetrogradeDualStrategy(PaletteEvolutionStrategy):
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
         captured_hypermutation_protection: float = 0.9,
-        # === Homeostatic parameters (from 91) ===
+        # Homeostatic parameters (from 91)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -294,7 +294,7 @@ class ClonalRetrogradeDualStrategy(PaletteEvolutionStrategy):
                 agg_captured = agg_captured.at[i].set(1.0)
                 new_agg_captures.append(i)
 
-        # === RETROGRADE CASCADE ===
+        # RETROGRADE CASCADE
         # When a function is captured, boost co-active functions from recent history
         if new_act_captures or new_agg_captures:
             # Look back through history

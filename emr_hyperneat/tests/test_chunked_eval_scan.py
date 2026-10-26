@@ -5,7 +5,9 @@ A depth-5 probe measured the Python chunk loop at +116-126% per generation
 loop into one dispatch. The property pinned here is exactness on XLA:CPU and
 agreement to float32 rounding on a GPU: chunked evaluation must equal the loop
 form at the same chunk size, because each genome's evaluation is independent.
-Against the unchunked vmap it is only close (see the test's comment).
+Against the unchunked vmap it is only close (see the test's comment). The
+generation loop runs the same chunk loop through `chunked_forward_eval`, inside
+a cached `jit`, so it compiles once per shape rather than every generation.
 """
 
 from __future__ import annotations
@@ -23,15 +25,18 @@ from conftest import (
     exact_backend,
 )
 from emr_hyperneat.emrhyperneat import (
+    _eval_single_fitness,
+    _plain_recurrent_forward,
+    chunked_forward_eval,
     chunked_vmap_eval,
 )
 
 
 class TestChunkedVmapEval:
     def test_equals_the_loop_form(self):
-        # The helper's guarantee is exactness AGAINST THE LOOP FORM at the same
+        # The helper's guarantee is exactness against the loop form at the same
         # chunk size (same per-chunk computation, one dispatch). Chunked vs the
-        # FULL vmap is only approximately equal: batched-matmul lowering can
+        # full vmap is only approximately equal: batched-matmul lowering can
         # differ by batch size (chunk=1 demonstrably does), which is float
         # noise, not a logic difference. On a GPU the loop-form guarantee is
         # also to float32 rounding: the lax.map body evaluates every chunk at
@@ -68,6 +73,41 @@ class TestChunkedVmapEval:
                     err_msg=f"chunk={chunk} diverged from the loop form beyond "
                             f"float32 rounding")
             assert bool(jnp.allclose(out, full, atol=1e-6)), f"chunk={chunk} not close to full"
+
+    def test_the_forward_form_equals_the_eager_form(self):
+        """`chunked_forward_eval` runs `chunked_vmap_eval`'s chunk loop inside a `jax.jit` kept per
+        forward and fitness mode, with the inputs and targets as its arguments, so a forward made
+        once compiles it once per shape (`lax.map` builds its body on every call, so the eager
+        loop compiled again every generation). The same values: bit for bit on CPU, to float32
+        rounding on a GPU."""
+        rng = np.random.default_rng(3)
+        pop, n_in, n_pos, n_conn = 23, 3, 30, 50
+        f32 = lambda a: jnp.asarray(a.astype(np.float32))  # noqa: E731
+        arrays = (
+            f32(rng.normal(size=(pop, n_in, n_pos))),
+            f32(rng.normal(size=(pop, n_pos, 1))),
+            jnp.asarray(rng.integers(0, n_pos, (pop, n_conn)).astype(np.int32)),
+            jnp.asarray(rng.integers(0, n_pos, (pop, n_conn)).astype(np.int32)),
+            f32(rng.normal(size=(pop, n_conn))),
+            jnp.asarray(rng.uniform(size=(pop, n_conn)) < 0.8),
+        )
+        inputs = f32(rng.uniform(size=(4, n_in)))
+        targets = f32(rng.uniform(size=(4, 1)))
+        forward = _plain_recurrent_forward(5)
+        assert _plain_recurrent_forward(5) is forward
+        for mode in ("mse", "accuracy"):
+            def eval_one(*args):
+                return _eval_single_fitness(forward(inputs, *args), targets, mode)  # noqa: B023
+
+            for chunk in (4, 7, 23):
+                eager = chunked_vmap_eval(eval_one, chunk, *arrays)
+                cached = chunked_forward_eval(forward, mode, inputs, targets, chunk, *arrays)
+                assert cached.shape == (pop,)
+                if exact_backend():
+                    assert bool(jnp.array_equal(cached, eager)), f"{mode}, chunk {chunk}"
+                else:
+                    np.testing.assert_allclose(np.asarray(cached), np.asarray(eager),
+                                               rtol=GPU_TRAJECTORY_RTOL, atol=0.0)
 
     def test_generation_with_eval_chunking_matches_unchunked(self):
         def run(chunk_size):

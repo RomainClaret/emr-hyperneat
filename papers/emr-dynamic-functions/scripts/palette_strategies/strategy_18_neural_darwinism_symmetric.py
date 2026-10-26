@@ -2,12 +2,12 @@
 
 Extends NeuralDarwinismStrategy with symmetric discovery features:
 - Dual cooperation/antagonism matrices for activation and aggregation
-- Cross-domain cooperation matrix (activation-aggregation synergies)
+- Cross-domain cooperation matrix (activation-aggregation pairs)
 - Memory cell protection for proven groups
 - Affinity floors for sin and extreme aggregations
 - Discovery tracking and boost for both domains
 
-Key mechanisms:
+Mechanisms:
 1. Dual cooperation/antagonism: Track success/conflict patterns per domain
 2. Cross-domain groups: Identify activation-aggregation synergies (sin-max pairs)
 3. Memory cells: Proven cooperative groups become memory cells
@@ -55,7 +55,7 @@ class NeuralDarwinismSymmetricStrategy(PaletteEvolutionStrategy):
     aggregation functions while maintaining retention through memory cells
     and selective stabilization.
 
-    Key innovations:
+    Mechanisms:
     - Dual cooperation/antagonism matrices per domain
     - Cross-domain cooperation tracking (sin-max synergy detection)
     - Memory cells for proven cooperative groups

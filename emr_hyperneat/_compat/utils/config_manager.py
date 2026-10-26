@@ -1,9 +1,8 @@
 """Configuration manager for unified hyperparameter management."""
 
-import os
 import yaml
 import logging
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from ..config.parameter_translator import ParameterTranslator
@@ -65,150 +64,13 @@ class ConfigManager:
             'pureples-jax': 'pureples',
         }
 
-        # Initialize parameter translator for unified schema support
-        # This replaces manual param_mappings with comprehensive bidirectional translation
+        # Initialize the parameter translator for unified schema support (a bidirectional translation)
         try:
             self.translator = ParameterTranslator()
             logger.info("ParameterTranslator initialized successfully")
         except Exception as e:
             logger.warning(f"Failed to initialize ParameterTranslator: {e}. Falling back to legacy mappings.")
             self.translator = None
-
-        # Complete parameter mappings between implementations (LEGACY - being replaced by translator)
-        self.param_mappings = {
-            'pureples_to_tensorneat': {
-                # Connection mutations
-                'conn_add_prob': 'conn_add',
-                'conn_delete_prob': 'conn_delete',
-                
-                # Node mutations
-                'node_add_prob': 'node_add',
-                'node_delete_prob': 'node_delete',
-                
-                # Weight parameters
-                'weight_mutate_rate': 'weight_mutate_rate',
-                'weight_mutate_power': 'weight_mutate_power',
-                'weight_replace_rate': 'weight_replace_rate',
-                'weight_init_mean': 'weight_init_mean',
-                'weight_init_stdev': 'weight_init_std',
-                'weight_max_value': 'weight_upper_bound',
-                'weight_min_value': 'weight_lower_bound',
-                
-                # Bias parameters
-                'bias_mutate_rate': 'bias_mutate_rate',
-                'bias_mutate_power': 'bias_mutate_power',
-                'bias_replace_rate': 'bias_replace_rate',
-                'bias_init_mean': 'bias_init_mean',
-                'bias_init_stdev': 'bias_init_std',
-                'bias_max_value': 'bias_upper_bound',
-                'bias_min_value': 'bias_lower_bound',
-                
-                # Response parameters (gain/slope)
-                'response_mutate_rate': 'response_mutate_rate',
-                'response_mutate_power': 'response_mutate_power',
-                'response_replace_rate': 'response_replace_rate',
-                'response_init_mean': 'response_init_mean',
-                'response_init_stdev': 'response_init_std',
-                
-                # Population parameters
-                'pop_size': 'pop_size',
-                'elitism': 'genome_elitism',
-                'species_elitism': 'species_elitism',
-                'survival_threshold': 'survival_threshold',
-                'min_species_size': 'min_species_size',
-                
-                # Species parameters
-                'compatibility_threshold': 'compatibility_threshold',
-                'max_stagnation': 'max_stagnation',
-                'species_fitness_func': 'species_fitness_func',
-                
-                # Activation parameters
-                'activation_default': 'activation_default',
-                'activation_mutate_rate': 'activation_replace_rate',
-                
-                # Aggregation parameters
-                'aggregation_default': 'aggregation_default',
-                'aggregation_mutate_rate': 'aggregation_replace_rate',
-                
-                # Connection enable/disable
-                'enabled_default': 'enabled_default',
-                'enabled_mutate_rate': 'enabled_mutate_rate',
-                
-                # Network structure
-                'feed_forward': 'feed_forward',
-                'num_hidden': 'init_hidden_layers',
-                'num_inputs': 'num_inputs',
-                'num_outputs': 'num_outputs',
-                
-                # Fitness
-                'fitness_criterion': 'fitness_criterion',
-                'fitness_threshold': 'fitness_threshold',
-            },
-            'tensorneat_to_pureples': {
-                # Connection mutations
-                'conn_add': 'conn_add_prob',
-                'conn_delete': 'conn_delete_prob',
-                
-                # Node mutations
-                'node_add': 'node_add_prob',
-                'node_delete': 'node_delete_prob',
-                
-                # Weight parameters
-                'weight_mutate_rate': 'weight_mutate_rate',
-                'weight_mutate_power': 'weight_mutate_power',
-                'weight_replace_rate': 'weight_replace_rate',
-                'weight_init_mean': 'weight_init_mean',
-                'weight_init_std': 'weight_init_stdev',
-                'weight_upper_bound': 'weight_max_value',
-                'weight_lower_bound': 'weight_min_value',
-                
-                # Bias parameters
-                'bias_mutate_rate': 'bias_mutate_rate',
-                'bias_mutate_power': 'bias_mutate_power',
-                'bias_replace_rate': 'bias_replace_rate',
-                'bias_init_mean': 'bias_init_mean',
-                'bias_init_std': 'bias_init_stdev',
-                'bias_upper_bound': 'bias_max_value',
-                'bias_lower_bound': 'bias_min_value',
-                
-                # Response parameters
-                'response_mutate_rate': 'response_mutate_rate',
-                'response_mutate_power': 'response_mutate_power',
-                'response_replace_rate': 'response_replace_rate',
-                'response_init_mean': 'response_init_mean',
-                'response_init_std': 'response_init_stdev',
-                
-                # Population parameters
-                'pop_size': 'pop_size',
-                'genome_elitism': 'elitism',
-                'species_elitism': 'species_elitism',
-                'survival_threshold': 'survival_threshold',
-                'min_species_size': 'min_species_size',
-                
-                # Species parameters
-                'compatibility_threshold': 'compatibility_threshold',
-                'max_stagnation': 'max_stagnation',
-                'species_fitness_func': 'species_fitness_func',
-                
-                # Activation parameters
-                'activation_default': 'activation_default',
-                'activation_replace_rate': 'activation_mutate_rate',
-                
-                # Aggregation parameters
-                'aggregation_default': 'aggregation_default',
-                'aggregation_replace_rate': 'aggregation_mutate_rate',
-                
-                # Network structure
-                'feed_forward': 'feed_forward',
-                'init_hidden_layers': 'num_hidden',
-                'num_inputs': 'num_inputs',
-                'num_outputs': 'num_outputs',
-                
-                # Fitness
-                'fitness_criterion': 'fitness_criterion',
-                'fitness_threshold': 'fitness_threshold',
-            }
-        }
     
     def load_config(self, algorithm: str = 'neat', implementation: str = 'pureples',
                    preset: str = 'default', config_file: Optional[str] = None,
@@ -231,11 +93,11 @@ class ConfigManager:
 
         Args:
             algorithm: Algorithm name (e.g., 'neat', 'hyperneat')
-                      DEPRECATED: Will be read from config.experiment.algorithm in future
+                      Deprecated: to be read from config.experiment.algorithm instead
             implementation: Implementation name (e.g., 'pureples', 'tensorneat')
-                           DEPRECATED: Will be read from config.experiment.implementation in future
+                           Deprecated: to be read from config.experiment.implementation instead
             preset: Preset configuration name (e.g., 'default', 'high_mutation', 'conservative')
-                   DEPRECATED: Will be read from config.experiment.preset in future
+                   Deprecated: to be read from config.experiment.preset instead
             config_file: Optional path to user configuration file
             overrides: Optional dictionary of runtime overrides (ignored if use_config_params=True)
             validate: Whether to validate configuration
@@ -249,7 +111,7 @@ class ConfigManager:
             ConfigError: If critical configuration issues occur
             ConfigValidationError: If use_config_params=True but required params missing
         """
-        # Step 0: Load user config first to extract algorithm/implementation/preset if present
+        # Load user config first to extract algorithm/implementation/preset if present
         user_config_data = {}
         if config_file:
             config_path = Path(config_file)
@@ -285,14 +147,14 @@ class ConfigManager:
             'overrides_applied': bool(overrides)
         }
 
-        # Load implementation-specific preset configuration (base configs consolidated into impl configs)
-        # Note: Base configs have been consolidated into implementation-specific files
-        # Map implementation variant to config directory (e.g., tensorneat-compiled → tensorneat)
+        # Load the implementation-specific preset configuration; the implementation-specific
+        # files hold the base configs as well
+        # Map implementation variant to config directory (e.g., tensorneat-compiled -> tensorneat)
         config_impl = self.impl_config_map.get(implementation, implementation)
 
         # Extract variant from implementation name for variant-specific config files
-        # e.g., "tensorneat-compiled-eshyperneat" → "compiled"
-        # e.g., "tensorneat-jax-steps-eshyperneat" → "jax_steps" (with underscore for filename)
+        # e.g., "tensorneat-compiled-eshyperneat" -> "compiled"
+        # e.g., "tensorneat-jax-steps-eshyperneat" -> "jax_steps" (with underscore for filename)
         variant = None
         impl_lower = implementation.lower()
         if 'compiled' in impl_lower:
@@ -303,7 +165,7 @@ class ConfigManager:
             variant = 'optimized'
 
         # Try variant-specific config first, then fall back to generic
-        # e.g., eshyperneat_compiled_default.yaml → eshyperneat_default.yaml
+        # e.g., eshyperneat_compiled_default.yaml -> eshyperneat_default.yaml
         impl_config_file = None
         if variant:
             variant_config_file = self.impl_config_path / config_impl / f"{algorithm}_{variant}_{preset}.yaml"
@@ -340,7 +202,7 @@ class ConfigManager:
             for param in deprecated_jax_params:
                 if param in config['tensorneat']:
                     logger.warning(
-                        f"DEPRECATED: 'tensorneat.{param}' should be moved to 'performance.jax.{param}'. "
+                        f"Deprecated: 'tensorneat.{param}' should be moved to 'performance.jax.{param}'. "
                         f"The old location will be ignored in future versions. Please update your config files."
                     )
 
@@ -383,7 +245,7 @@ class ConfigManager:
             logger.debug(f"Hierarchical overrides after conversion: {hierarchical_overrides}")
             print(f"[ConfigManager] Hierarchical override mutation: {hierarchical_overrides.get('mutation', 'NO MUTATION SECTION')}")
             config = self._deep_merge(config, hierarchical_overrides)
-            print(f"[ConfigManager] FINAL mutation after overrides: add={config.get('mutation', {}).get('add_connection_prob')}, delete={config.get('mutation', {}).get('delete_connection_prob')}")
+            print(f"[ConfigManager] Final mutation after overrides: add={config.get('mutation', {}).get('add_connection_prob')}, delete={config.get('mutation', {}).get('delete_connection_prob')}")
             # Store overridden keys for later use in flattening
             config['_overridden_keys'] = overridden_keys
         elif use_config_params:
@@ -555,14 +417,14 @@ class ConfigManager:
         # Raise if errors found
         if errors:
             raise ConfigValidationError(
-                f"Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+                "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
             )
     
     def _validate_tensorneat_topology_evolution(self, config: Dict[str, Any], warnings: List[str]):
         """Validate TensorNEAT topology evolution parameters.
         
-        With smart mutations enabled (default), TensorNEAT can now successfully
-        add connections during evolution.
+        Only warns when use_smart_mutations is set (off by default): nothing in this
+        package or in TensorNEAT implements smart mutations.
         
         Args:
             config: Configuration to validate
@@ -592,145 +454,6 @@ class ConfigManager:
                 # The user chose the recommended approach
                 pass
     
-    def _map_parameters(self, params: Dict[str, Any], from_impl: str, to_impl: str) -> Dict[str, Any]:
-        """Map parameters between different implementations.
-        
-        Args:
-            params: Parameters to map
-            from_impl: Source implementation
-            to_impl: Target implementation
-            
-        Returns:
-            Mapped parameters
-        """
-        mapping_key = f"{from_impl}_to_{to_impl}"
-        
-        if mapping_key not in self.param_mappings:
-            # No mapping needed or available
-            return params.copy()
-        
-        mapping = self.param_mappings[mapping_key]
-        result = params.copy()
-        
-        # Apply mappings
-        for old_key, new_key in mapping.items():
-            if old_key in result:
-                result[new_key] = result.pop(old_key)
-        
-        return result
-    
-    def save_config(self, config: Dict[str, Any], file_path: str):
-        """Save configuration to YAML file.
-        
-        Args:
-            config: Configuration dictionary
-            file_path: Path to save configuration
-        """
-        try:
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, 'w') as f:
-                yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-            logger.info(f"Saved configuration to {file_path}")
-        except Exception as e:
-            logger.error(f"Error saving config to {file_path}: {e}")
-    
-    def list_available_presets(self, algorithm: str, implementation: str) -> List[Dict[str, Any]]:
-        """List available preset configurations for an algorithm/implementation pair.
-
-        Args:
-            algorithm: Algorithm name (e.g., 'neat', 'hyperneat')
-            implementation: Implementation name (e.g., 'pureples', 'tensorneat')
-
-        Returns:
-            List of preset dictionaries with keys: name, file_path, description
-
-        Example:
-            [
-                {
-                    'name': 'default',
-                    'file_path': '.../tensorneat/neat_default.yaml',
-                    'description': 'True TensorNEAT library defaults'
-                },
-                {
-                    'name': 'high_mutation',
-                    'file_path': '.../tensorneat/neat_high_mutation.yaml',
-                    'description': 'High mutation variant configuration'
-                }
-            ]
-        """
-        impl_dir = self.impl_config_path / implementation
-
-        if not impl_dir.exists():
-            logger.warning(f"Implementation directory not found: {impl_dir}")
-            return []
-
-        presets = []
-        pattern = f"{algorithm}_*.yaml"
-
-        for config_file in impl_dir.glob(pattern):
-            preset_name = config_file.stem.replace(f"{algorithm}_", "")
-
-            # Try to extract description from YAML header comment
-            description = ""
-            try:
-                with open(config_file, 'r') as f:
-                    # Read first few lines for description
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('#') and not line.startswith('##'):
-                            # Extract comment text
-                            desc_text = line.lstrip('#').strip()
-                            if desc_text and not description:
-                                description = desc_text
-                                break
-                        elif line and not line.startswith('#'):
-                            # Stop at first non-comment line
-                            break
-            except Exception as e:
-                logger.warning(f"Failed to read description from {config_file}: {e}")
-
-            presets.append({
-                'name': preset_name,
-                'file_path': str(config_file),
-                'description': description or f"{preset_name.replace('_', ' ').title()} configuration"
-            })
-
-        # Sort by name, with 'default' first
-        presets.sort(key=lambda x: (x['name'] != 'default', x['name']))
-
-        return presets
-
-    def get_all_parameters(self) -> Dict[str, Set[str]]:
-        """Get all parameters supported by each implementation.
-
-        Returns:
-            Dictionary mapping implementation names to sets of parameter names
-        """
-        all_params = {
-            'pureples': set(),
-            'tensorneat': set()
-        }
-        
-        # Add all mapped parameters
-        for impl_from, mapping in self.param_mappings.items():
-            source_impl = impl_from.split('_to_')[0]
-            target_impl = impl_from.split('_to_')[1]
-            
-            # Add source parameters
-            all_params[source_impl].update(mapping.keys())
-            # Add target parameters
-            all_params[target_impl].update(mapping.values())
-        
-        # Add common parameters that don't need mapping
-        common_params = {
-            'population_size', 'max_generations', 'seed', 'verbose',
-            'max_nodes', 'max_conns', 'algorithm'
-        }
-        for impl in all_params:
-            all_params[impl].update(common_params)
-        
-        return all_params
-    
     def _flat_to_hierarchical(self, flat_params: Dict[str, Any], implementation: str) -> Dict[str, Any]:
         """Convert flat parameter names to hierarchical structure.
 
@@ -747,7 +470,7 @@ class ConfigManager:
         # Log input for debugging
         logger.debug(f"Converting flat params to hierarchical for {implementation}: {flat_params}")
 
-        # FIX: Detect if input is already hierarchical (e.g., {'quadtree': {'max_weight': 8.0}})
+        # Detect if input is already hierarchical (e.g., {'quadtree': {'max_weight': 8.0}})
         # If so, return as-is instead of trying to translate as flat parameters
         is_hierarchical = any(isinstance(v, dict) for v in flat_params.values())
         if is_hierarchical:
@@ -770,7 +493,7 @@ class ConfigManager:
                         if param in self.translator.deprecated_params:
                             deprecated_info = self.translator.deprecated_params[param]
                             logger.warning(
-                                f"DEPRECATED parameter '{param}': "
+                                f"Deprecated parameter '{param}': "
                                 f"{deprecated_info.get('reason', 'Parameter moved')}. "
                                 f"Migration: {deprecated_info.get('migration', 'Update your config')}"
                             )
@@ -781,7 +504,7 @@ class ConfigManager:
                 logger.error(f"ParameterTranslator failed: {e}. Falling back to legacy mapping.")
                 # Fall through to legacy implementation
 
-        # LEGACY IMPLEMENTATION (fallback if translator unavailable)
+        # Legacy implementation (fallback if the translator is unavailable)
         hierarchical = {}
 
         # Parameter mappings to hierarchical structure
@@ -831,7 +554,7 @@ class ConfigManager:
         # Add implementation-specific mappings
         if implementation == 'tensorneat':
             tensorneat_mappings = {
-                # CRITICAL: Smart mutation parameters must go to tensorneat section
+                # Smart mutation parameters must go to tensorneat section
                 'use_smart_mutations': ('tensorneat', 'use_smart_mutations'),
                 'use_jit': ('tensorneat', 'use_jit'),
                 'use_jit_smart_mutations': ('tensorneat', 'use_jit_smart_mutations'),
@@ -868,181 +591,3 @@ class ConfigManager:
         logger.debug(f"Result of hierarchical conversion: {hierarchical}")
 
         return hierarchical
-    
-    def flatten_config(self, config: Dict[str, Any], implementation: str) -> Dict[str, Any]:
-        """Flatten hierarchical configuration into a single dictionary.
-        
-        Args:
-            config: Hierarchical configuration dictionary
-            implementation: Implementation name ('pureples' or 'tensorneat')
-            
-        Returns:
-            Flattened configuration dictionary
-        """
-        flat = {}
-
-        # Debug logging
-        logger.debug(f"Flattening config for {implementation}")
-        logger.debug(f"Input config sections: {list(config.keys())}")
-
-        # Extract metadata and overridden keys first (don't include in flattened params)
-        metadata = config.pop('_metadata', None)
-        overridden_keys = set(config.pop('_overridden_keys', []))
-
-        # ParameterTranslator is MANDATORY for config flattening
-        if not self.translator:
-            raise ConfigError(
-                "ParameterTranslator is required for config flattening. "
-                "Ensure ConfigManager is properly initialized."
-            )
-
-        # Use ParameterTranslator for all config flattening
-        if self.translator:
-            try:
-                # Make a copy to avoid modifying original
-                config_copy = dict(config)
-
-                # Translate unified schema to implementation-specific flat
-                flat = self.translator.translate_to_implementation(
-                    config_copy,
-                    implementation,
-                    algorithm_context=None  # Auto-detect from params
-                )
-
-                # Restore metadata and overridden keys
-                if metadata:
-                    config['_metadata'] = metadata
-                if overridden_keys:
-                    config['_overridden_keys'] = list(overridden_keys)
-
-                # Clean up internal tracking fields from flattened config
-                tracking_fields = ['_overridden_keys', '_metadata']
-                for field in tracking_fields:
-                    flat.pop(field, None)
-
-                logger.debug(f"Flattened config (via translator): {list(flat.keys())[:20]}...")
-                return flat
-            except Exception as e:
-                # Restore metadata before raising
-                if metadata:
-                    config['_metadata'] = metadata
-                if overridden_keys:
-                    config['_overridden_keys'] = list(overridden_keys)
-
-                logger.error(f"ParameterTranslator failed during flattening: {e}")
-                raise ConfigError(
-                    f"Failed to flatten config using ParameterTranslator: {e}. "
-                    f"Check that your config matches the unified schema."
-                ) from e
-    
-    
-    def get_cppn_config(self, variant: str = 'default', implementation: str = 'tensorneat',
-                       overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Get CPPN-specific configuration using hierarchical loading.
-        
-        Args:
-            variant: CPPN variant ('test', 'default')
-                    Note: 'standard', 'large', 'geenns' are deprecated
-            implementation: Implementation name (default: 'tensorneat')
-            overrides: Additional parameter overrides
-            
-        Returns:
-            CPPN configuration dictionary with metadata
-        """
-        # Handle deprecated variants with warnings
-        deprecated_mappings = {
-            'standard': 'default',
-            'large': 'default',
-            'geenns': 'default'
-        }
-        
-        if variant in deprecated_mappings:
-            logger.warning(
-                f"CPPN variant '{variant}' is deprecated. Using 'default' instead. "
-                f"See docs/experiment_framework/cppn_parameter_rationale.md for why. "
-                f"Apply specific overrides for your use case."
-            )
-            variant = deprecated_mappings[variant]
-        
-        # Validate variant
-        valid_variants = ['test', 'default']
-        if variant not in valid_variants and variant not in deprecated_mappings:
-            raise ConfigValidationError(
-                f"Invalid CPPN variant '{variant}'. Must be one of: {valid_variants} "
-                f"(deprecated variants: {list(deprecated_mappings.keys())})"
-            )
-        
-        # Build config file path for the variant
-        variant_config_file = os.path.join(
-            str(self.impl_config_path),
-            implementation,
-            f'cppn_{variant}.yaml'
-        )
-        
-        # Load hierarchical configuration
-        # 1. Load base CPPN config
-        # 2. Load implementation-specific variant config
-        # 3. Apply user overrides
-        config = self.load_config(
-            algorithm='cppn',  # Special algorithm type for CPPN
-            implementation=implementation,
-            config_file=variant_config_file,
-            overrides=overrides,
-            validate=True
-        )
-        
-        # Add CPPN-specific metadata
-        if '_metadata' in config:
-            config['_metadata']['cppn_variant'] = variant
-        
-        return config
-    
-    def load_hyperneat_config(self, implementation: str = 'tensorneat',
-                             substrate_config: Optional[Dict[str, Any]] = None,
-                             cppn_variant: str = 'standard',
-                             overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Load HyperNEAT configuration with CPPN and substrate settings.
-        
-        Args:
-            implementation: Implementation name
-            substrate_config: Substrate-specific configuration
-            cppn_variant: CPPN variant to use
-            overrides: Additional parameter overrides
-            
-        Returns:
-            Complete HyperNEAT configuration
-        """
-        # Load base HyperNEAT config
-        hyperneat_config = self.load_config(
-            algorithm='hyperneat',
-            implementation=implementation,
-            overrides=overrides
-        )
-        
-        # Load CPPN config for the variant
-        cppn_config = self.get_cppn_config(
-            variant=cppn_variant,
-            implementation=implementation
-        )
-        
-        # Merge configurations
-        # CPPN parameters go under 'cppn' section
-        if 'cppn' not in hyperneat_config:
-            hyperneat_config['cppn'] = {}
-        
-        # Deep merge CPPN config into hyperneat config
-        hyperneat_config['cppn'] = self._deep_merge(
-            hyperneat_config.get('cppn', {}),
-            cppn_config
-        )
-        
-        # Add substrate config if provided
-        if substrate_config:
-            if 'substrate' not in hyperneat_config:
-                hyperneat_config['substrate'] = {}
-            hyperneat_config['substrate'] = self._deep_merge(
-                hyperneat_config.get('substrate', {}),
-                substrate_config
-            )
-        
-        return hyperneat_config

@@ -8,8 +8,9 @@ discovery, while clonal's immune memory (affinity learning + hypermutation)
 is best for retaining useful functions under changing fitness landscapes.
 The sequential composition exploits each mechanism's strength in the right phase.
 
-Compare against the PARALLEL hybrid (strategy_68, circadian+clonal) which
-achieves 89.3% on Parity-4.
+Compare against the PARALLEL hybrid (strategy_68, circadian+clonal), whose mean
+per-stage solve rate is 89.3% on a five-stage Parity-4 benchmark with a persistent
+population (stage fitness targets 0.75 to 0.95, 30 seeds).
 """
 
 from typing import Dict, Any, List, Optional, Tuple

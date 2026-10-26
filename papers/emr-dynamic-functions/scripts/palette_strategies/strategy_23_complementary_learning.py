@@ -7,7 +7,7 @@ Biological Basis:
 - Neocortex: Slow learning, stable storage, resistant to interference
 - Sleep consolidation: Replay transfers hippocampal traces to cortex
 
-Key Insight:
+Rationale:
 - Strategy 19 (ConsolidationWindow) has periodic consolidation
 - Complementary Learning makes dual systems EXPLICIT with continuous operation
 - Fast system rapidly discovers new functions
@@ -66,7 +66,7 @@ class ComplementaryLearningStrategy(PaletteEvolutionStrategy):
         slow_weight: float = 0.7,              # Contribution to effective affinity
         # Consolidation
         consolidation_interval: int = 12,      # Every N gens
-        consolidation_rate: float = 0.25,      # Transfer rate fast → slow
+        consolidation_rate: float = 0.25,      # Transfer rate fast -> slow
         consolidation_threshold: float = 0.55, # Min fast affinity to transfer
         replay_boost: float = 1.3,             # Strengthen successful during consolidation
         fast_reset_factor: float = 0.5,        # How much to reset fast after consolidation
@@ -358,21 +358,21 @@ class ComplementaryLearningStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update fast system (hippocampus)
+        # Update fast system (hippocampus)
         new_fast = self._update_fast_system(
             state['fast_affinity'],
             state['mask'],
             fitness_signal,
         )
 
-        # Step 2: Update slow system (cortex)
+        # Update slow system (cortex)
         new_slow = self._update_slow_system(
             state['slow_affinity'],
             state['mask'],
             fitness_signal,
         )
 
-        # Step 3: Check for consolidation
+        # Check for consolidation
         consolidation_metrics = {}
         gens_since_consolidation = generation - state['last_consolidation']
         did_consolidate = False
@@ -388,13 +388,13 @@ class ComplementaryLearningStrategy(PaletteEvolutionStrategy):
             last_consolidation = state['last_consolidation']
             consolidation_count = state['consolidation_count']
 
-        # Step 4: Compute effective affinity
+        # Compute effective affinity
         effective_affinity = self._get_effective_affinity(new_fast, new_slow)
 
-        # Step 5: Compute protection (primarily from slow system)
+        # Compute protection (primarily from slow system)
         protection = self._compute_protection(effective_affinity, new_slow)
 
-        # Step 6: Apply mutation
+        # Apply mutation
         new_mask, mutation_info = self._mutate_palette(
             subkey,
             state['mask'],

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Extended-generation confirmation on the INDIRECT (EMR-HyperNEAT) encoding.
 
-Reviewer 4 (ALIFE 2026) asked whether the uniform-tanh multi-task barrier survives a
-10x generation budget. The HEADLINE 0/54 barrier in this paper is the *indirect*
-EMR-HyperNEAT (CPPN-generated substrate) encoding -- NOT the direct-encoded MLP control
+Tests whether the uniform-tanh multi-task barrier survives a 10x generation budget, a question
+from the ALIFE 2026 review. The HEADLINE 0/54 barrier in this paper is the *indirect*
+EMR-HyperNEAT (CPPN-generated substrate) encoding, NOT the direct-encoded MLP control
 (which has a much weaker barrier: ~76.7% at 5-task). The longest prior indirect run is
 the 200-generation component ablation (still 0/30, XOR plateaued at 0.75).
 
@@ -51,7 +51,7 @@ def run_one(seed: int, generations: int, population: int):
     t0 = time.time()
     result = run_multihead_palette_experiment(
         task_names=TASKS,
-        palette_mode='uniform',      # all tanh -- the barrier condition
+        palette_mode='uniform',      # all tanh: the barrier condition
         blend_mode='fixed',
         aggregation='product',       # product fitness, as in the main 5-task benchmark
         seed=seed,

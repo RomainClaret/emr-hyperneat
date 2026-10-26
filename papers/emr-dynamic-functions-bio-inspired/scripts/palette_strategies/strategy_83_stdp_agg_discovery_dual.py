@@ -4,13 +4,13 @@ Bio inspiration: Spike-timing-dependent plasticity - temporal order matters.
 When an aggregation was active BEFORE a fitness improvement, it gets credit.
 Extended to cross-domain: track activation-aggregation temporal relationships.
 
-Key innovation:
+Mechanism:
 - LTP (Long-Term Potentiation) for pairs active before improvement
 - LTD (Long-Term Depression) for pairs active but no improvement
 - Extreme aggregation LTP multiplier (1.4x)
 - Cross-domain temporal credit assignment
 
-Expected: Better temporal credit for activation-aggregation synergies.
+Expected: Better temporal credit for activation-aggregation pairs.
 """
 
 from typing import Dict, Any, List, Optional, Tuple

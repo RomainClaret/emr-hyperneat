@@ -3,7 +3,7 @@
 Extends Metaplastic strategy to jointly evolve activation AND aggregation
 function palettes with adaptive learning rates for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. Stagnation-boosted LR: If stuck, increase learning rate
 2. Success-reduced LR: If improving, decrease learning rate
 3. Sliding threshold: Protection threshold adapts to fitness distribution

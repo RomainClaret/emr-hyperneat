@@ -2,7 +2,7 @@
 
 Implements Edelman's Neural Darwinism theory for palette evolution.
 
-Key insight: Standard Hebbian only tracks cooperation (functions that succeed
+Standard Hebbian only tracks cooperation (functions that succeed
 together). But understanding ANTAGONISM is equally important - which functions
 conflict and hurt each other's performance?
 
@@ -18,13 +18,13 @@ For palette evolution:
 - Antagonism: Functions that fail together (or succeed when other removed) conflict
 - Selection: Cooperating groups get protected, antagonistic pairs get separated
 
-Key mechanisms:
+Mechanisms:
 1. Cooperation matrix: Track pairwise success correlation
 2. Antagonism matrix: Track pairwise failure correlation
 3. Neuronal group detection: Identify clusters of cooperating functions
 4. Selective stabilization: Protect cooperative groups, prune antagonists
 
-Expected improvement over Hebbian:
+Intended effects compared with Hebbian:
 - Discovers function pairs that CONFLICT
 - Avoids keeping antagonistic functions together
 - Better function pruning (remove based on conflict, not just inactivity)
@@ -442,7 +442,7 @@ class NeuralDarwinismStrategy(PaletteEvolutionStrategy):
             use_protection = True
             use_selective_death = False  # Too late for pruning
 
-        # First, apply selective death for antagonistic functions
+        # Apply selective death to antagonistic functions first; the loop below skips them
         if use_selective_death:
             for idx in functions_to_prune:
                 if mask[idx] > 0.5 and death_probs[idx] < self.selective_death_rate:
@@ -530,7 +530,7 @@ class NeuralDarwinismStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update cooperation and antagonism matrices
+        # Update cooperation and antagonism matrices
         new_cooperation, new_antagonism = self._update_cooperation_antagonism(
             state['cooperation_matrix'],
             state['antagonism_matrix'],
@@ -539,7 +539,7 @@ class NeuralDarwinismStrategy(PaletteEvolutionStrategy):
             phase,
         )
 
-        # Step 2: Basic affinity update
+        # Basic affinity update
         new_affinity = self._update_affinity(
             state['function_affinity'],
             state['mask'],
@@ -547,11 +547,11 @@ class NeuralDarwinismStrategy(PaletteEvolutionStrategy):
             phase,
         )
 
-        # Step 3: Detect neuronal groups and antagonistic pairs
+        # Detect neuronal groups and antagonistic pairs
         groups = self._detect_neuronal_groups(new_cooperation, state['mask'])
         antagonistic_pairs = self._detect_antagonistic_pairs(new_antagonism, state['mask'])
 
-        # Step 4: Apply selection
+        # Apply selection
         new_affinity, functions_to_prune = self._apply_selection(
             new_affinity,
             new_cooperation,

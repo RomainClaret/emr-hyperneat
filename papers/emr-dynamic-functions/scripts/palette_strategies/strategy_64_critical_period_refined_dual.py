@@ -3,7 +3,7 @@
 Extends CriticalPeriodRefinedStrategy to jointly evolve BOTH activation AND
 aggregation function palettes with overlapping critical periods.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual period tracking - separate periods for act and agg domains
 2. Cross-domain reopening - success can reopen periods in both domains
 3. Synchronized developmental stages - coordinated openness dynamics

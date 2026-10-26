@@ -4,7 +4,7 @@ Combines tag_homeostatic_dual with clonal selection:
 - Base: Strategy 84 (Tag+Homeostatic) - 67% Parity-5 solve, 100% sin retention
 - Extension: Strategy 29 (Clonal Selection) - Immune-inspired affinity learning
 
-Key innovation: Captured functions are protected from hypermutation. The immune
+Captured functions are protected from hypermutation. The immune
 diversity pool provides exploration while tagging protects valuable discoveries.
 
 Bio inspiration: Immune system maintains a diverse repertoire of antibodies
@@ -40,7 +40,7 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
     - Tag+Homeostatic (84): Tag-and-capture + homeostatic balance
     - Clonal Selection (29): Immune-inspired affinity and hypermutation
 
-    Critical interaction: Captured functions are protected from hypermutation,
+    Interaction: Captured functions are protected from hypermutation,
     creating a stable core while the rest of the repertoire explores.
     """
 
@@ -49,7 +49,7 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Clonal selection parameters (from strategy 29) ===
+        # Clonal selection parameters (from strategy 29)
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
@@ -58,29 +58,29 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
         hypermutation_strength: float = 0.2,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Tagging parameters (from strategy 84/81) ===
+        # Tagging parameters (from strategy 84/81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        captured_hypermutation_protection: float = 0.9,  # NEW: Captured = no hypermutation
-        # === Homeostatic parameters (from strategy 84/82) ===
+        captured_hypermutation_protection: float = 0.9,  # Captured = no hypermutation
+        # Homeostatic parameters (from strategy 84/82)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
         # Alias for compatibility with test scripts
@@ -413,7 +413,7 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -424,14 +424,14 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE WITH HYPERMUTATION ===
+        # AFFINITY UPDATE WITH HYPERMUTATION
         new_act_aff, new_agg_aff, new_cross_affinity, hypermut_count = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], state['agg_mask'],
@@ -439,7 +439,7 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
             state['cross_affinity'], fitness_delta, k1
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_palette_by_affinity(
             new_act_aff, new_act_captured, new_act_tags,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -452,7 +452,7 @@ class ClonalHybridDualStrategy(PaletteEvolutionStrategy):
             prefer_indices=list(CORE_EXTREME_AGGS)
         )
 
-        # === HOMEOSTATIC TRACKING ===
+        # HOMEOSTATIC TRACKING
         extreme_ratio = self._compute_extreme_ratio(new_agg_mask)
 
         act_changed = not jnp.allclose(state['act_mask'], new_act_mask)

@@ -10,15 +10,15 @@ keeping the experiment activation-only (the aggregation palette is NOT evolved h
     a_i >= 0.75 for 10 consecutive generations  =>  permanent memory cell
 
 Memory cells are decay-resistant (lose at most 5% per generation), exempt from
-hypermutation, and guaranteed inclusion in the palette -- a ratchet that locks in
+hypermutation, and guaranteed inclusion in the palette: a ratchet that locks in
 proven functions. This reproduces the activation-side memory-cell logic of
 ``strategy_29_clonal_selection_symmetric`` WITHOUT its aggregation-domain coupling,
 its sin-specific affinity floor, or its discovery boost (those would bias discovery
 toward the known answer and are absent from both the paper's description and the
 original non-memory dual clonal).
 
-Use with the activation-only EMR module (``hmrhyperneat_dynamic_functions``),
-where the runner reads only ``get_active_palette`` and aggregation is fixed at sum.
+Use with per-node activation functions only (no aggregation block), where the runner
+reads only ``get_active_palette`` and aggregation is fixed at sum.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -174,7 +174,7 @@ class ClonalSelectionMemcellStrategy(PaletteEvolutionStrategy):
             new_affinities,
         )
 
-        # Hypermutation -- but memory cells are stable (exempt)
+        # Hypermutation, but memory cells are stable (exempt)
         mutation_probs = jax.random.uniform(key1, (NUM_ACTIVATIONS,))
         mutation_amounts = jax.random.normal(key2, (NUM_ACTIVATIONS,)) * self.hypermutation_strength
         hypermutation_mask = mutation_probs < self.hypermutation_rate

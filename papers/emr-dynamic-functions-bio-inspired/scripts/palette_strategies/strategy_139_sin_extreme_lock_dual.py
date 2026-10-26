@@ -3,7 +3,7 @@
 Implements coexistence locking: once sin AND max (or min) co-exist for N
 generations, both become "locked" - highly resistant to removal.
 
-Key Mechanism:
+Mechanism:
 - Track generations of sin+extreme coexistence
 - After 5 generations of coexistence, pairs become "locked"
 - Locked pairs have 0.9 protection strength
@@ -36,7 +36,7 @@ class SinExtremeLockDualStrategy(PaletteEvolutionStrategy):
     Once sin and extreme aggs coexist for multiple
     generations, they become locked together - highly resistant to removal.
 
-    Critical innovation: Temporal coexistence tracking with lock formation.
+    Temporal coexistence tracking with lock formation.
     """
 
     name = "sin_extreme_lock_dual"
@@ -44,32 +44,32 @@ class SinExtremeLockDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === LOCK PARAMETERS (CORE) ===
+        # LOCK PARAMETERS (CORE)
         coexistence_lock_threshold: int = 5,  # Gens of coexistence to lock
         lock_protection_strength: float = 0.9,
         lock_pairs: List[Tuple[int, int]] = None,  # (sin, max), (sin, min)
         unlock_fitness_drop_required: float = 0.2,  # 20% fitness drop to unlock
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         exploration_rate_act: float = 0.08,
         exploration_rate_agg: float = 0.10,
         lock_exploration_boost: float = 0.3,  # Locked pairs boost exploration
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_after: int = 6,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -124,7 +124,7 @@ class SinExtremeLockDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin is ALWAYS in initial palette
+        # Ensure sin is ALWAYS in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -278,7 +278,7 @@ class SinExtremeLockDualStrategy(PaletteEvolutionStrategy):
                 act_protection = act_protection.at[act_idx].set(self.lock_protection_strength)
                 agg_protection = agg_protection.at[agg_idx].set(self.lock_protection_strength)
 
-        # CRITICAL: Sin always has base protection
+        # Sin always has base protection
         act_protection = act_protection.at[4].set(max(0.7, float(act_protection[4])))
         # Extreme aggs always have base protection
         for agg in CORE_EXTREME_AGGS:
@@ -388,7 +388,7 @@ class SinExtremeLockDualStrategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > agg_protection[j]:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure sin and extreme aggs are never removed
+        # Ensure sin and extreme aggs are never removed
         new_act_mask = new_act_mask.at[4].set(1.0)
         for agg in CORE_EXTREME_AGGS:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

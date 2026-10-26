@@ -10,8 +10,8 @@ abstract: >-
 type: software
 license: GPL-3.0-or-later
 repository-code: "https://github.com/RomainClaret/emr-hyperneat"
-version: 0.1.0
-date-released: "2026-09-12"
+version: 0.2.0
+date-released: "2026-10-26"
 authors:
   - family-names: Claret
     given-names: Romain

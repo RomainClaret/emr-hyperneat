@@ -1,8 +1,8 @@
 """Tests for EMR-HyperNEAT Depth Offloading and Sharding.
 
 Tests the `depth_offload` execution mode, which enables ultra-deep substrates
-(depth 9+) by offloading completed levels to CPU RAM. It was previously a separate
-class, EMRHyperNEATDepthOffload; it is now a mode of the one algorithm.
+(depth 9+) by offloading completed levels to CPU RAM. It is a mode of the one
+algorithm, not a separate class.
 
 Key features tested:
 - Depth offloading configuration (threshold, chunk sizes)
@@ -18,17 +18,14 @@ import os
 from conftest import (
     create_base_config,
     MultiGPUStrategy,
-    run_quick_evolution,
-    assert_no_errors,
-    assert_positive_fitness,
     XORProblem,
     DEFAULT_SEED,
     QUICK_GENERATIONS,
 )
 
 # Depth offload is a mode of the one algorithm class, not a separate variant.
-# It used to be EMRHyperNEATDepthOffload, a subclass that forked the
-# whole generation loop and silently missed features added to the main one.
+# A subclass that forked the whole generation loop would silently miss features
+# added to the main one.
 try:
     from emr_hyperneat.emrhyperneat import (
         EMRHyperNEAT,
@@ -45,9 +42,8 @@ except ImportError:
 def depth_offload_algorithm():
     """Algorithm set to choose its execution mode by depth.
 
-    `auto` is the faithful equivalent of the old subclass, which was always
-    offload-enabled and decided per run by comparing max_depth against the
-    threshold. Setting `depth_offload` outright would instead force the path at
+    `auto` keeps offload enabled and decides per run by comparing max_depth against
+    the threshold. Setting `depth_offload` outright would instead force the path at
     every depth and make the threshold tests vacuous.
     """
     if not DEPTH_OFFLOAD_AVAILABLE:
@@ -70,9 +66,7 @@ def create_depth_offload_config(max_depth: int = 3, population_size: int = 50):
     return config
 
 
-# =============================================================================
-# Phase 9.1: Depth Offloading Tests
-# =============================================================================
+# Depth Offloading Tests
 
 class TestDepthOffloadBasics:
     """Basic tests for depth offload variant."""
@@ -113,9 +107,8 @@ class TestDepthOffloadConfiguration:
     def test_depth_offload_selected_by_depth_under_auto(self, depth_offload_algorithm):
         """Under `auto`, offload is reachable and chosen by depth.
 
-        Replaces an assertion on `_depth_offload_enabled`, a flag that was always
-        True and existed only because offload lived on a dedicated class. Whether
-        offload runs is now a question about the resolved mode.
+        Whether offload runs is a question about the resolved mode, not about a flag
+        that a dedicated offload class would always set True.
         """
         depth_offload_algorithm.max_depth = 3
         assert depth_offload_algorithm.should_use_offloading() is False
@@ -244,9 +237,7 @@ class TestDepthOffloadConfiguration:
         assert metrics.best_fitness >= 0
 
 
-# =============================================================================
-# Phase 9.2: Sharding Tests
-# =============================================================================
+# Sharding Tests
 
 class TestShardingConfiguration:
     """Tests for configure_sharding() method."""
@@ -439,7 +430,7 @@ class TestOptimalChunkSizeCalculation:
 
 
 class TestComprehensiveDepthOffload:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: depth offload over many generations and at several depths."""
 
     @pytest.mark.slow
     def test_multiple_generations_with_offloading(self, depth_offload_algorithm, xor_problem):
@@ -631,7 +622,7 @@ class TestOffloadEdgeCases:
         depth_offload_algorithm.configure_offloading(depth_threshold=3)
 
         config_obj = depth_offload_algorithm.create_config(config)
-        state = depth_offload_algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        depth_offload_algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert depth_offload_algorithm.should_use_offloading() is True
 
@@ -664,17 +655,15 @@ class TestOffloadEdgeCases:
         assert metrics.best_fitness >= 0
 
 
-# =============================================================================
-# Phase 9.3: Depth Offload with H→H Recurrence Tests
-# =============================================================================
+# Depth Offload with H->H Recurrence Tests
 
 class TestDepthOffloadWithRecurrence:
-    """Tests for depth offload with h→h (recurrence) enabled.
+    """Tests for depth offload with h->h (recurrence) enabled.
 
-    The depth offload h→h path uses _evaluate_recurrent_chunked() which:
-    - Transfers full matrices to GPU for h→h discovery
+    The depth offload h->h path uses _evaluate_recurrent_chunked() which:
+    - Transfers full matrices to GPU for h->h discovery
     - Uses discover_sparse_hh_vectorized_multi_hop()
-    - Tracks h→h connection metrics
+    - Tracks h->h connection metrics
     """
 
     def test_depth_offload_with_hidden_only_recurrence(self, depth_offload_algorithm, xor_problem):
@@ -736,7 +725,7 @@ class TestDepthOffloadWithRecurrence:
         assert metrics.best_fitness >= 0
 
     def test_depth_offload_hh_with_cpu_grid_mode(self, depth_offload_algorithm, xor_problem):
-        """Verify h→h works with CPU-resident grid mode enabled."""
+        """Verify h->h works with CPU-resident grid mode enabled."""
         config = create_depth_offload_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -757,7 +746,7 @@ class TestDepthOffloadWithRecurrence:
         assert metrics.best_fitness >= 0
 
     def test_depth_offload_hh_with_sharding(self, depth_offload_algorithm, xor_problem):
-        """Verify h→h works with sharding configuration."""
+        """Verify h->h works with sharding configuration."""
         config = create_depth_offload_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -780,7 +769,7 @@ class TestDepthOffloadWithRecurrence:
 
     @pytest.mark.parametrize("depth_threshold", [2, 3, 4])
     def test_depth_offload_hh_at_various_thresholds(self, depth_offload_algorithm, xor_problem, depth_threshold):
-        """Verify h→h works with different depth thresholds."""
+        """Verify h->h works with different depth thresholds."""
         config = create_depth_offload_config(max_depth=depth_threshold)
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -798,7 +787,7 @@ class TestDepthOffloadWithRecurrence:
         assert metrics.best_fitness >= 0
 
     def test_depth_offload_hh_metrics_tracking(self, depth_offload_algorithm, xor_problem):
-        """Verify h→h connection metrics are tracked correctly."""
+        """Verify h->h connection metrics are tracked correctly."""
         config = create_depth_offload_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -813,16 +802,15 @@ class TestDepthOffloadWithRecurrence:
         state = depth_offload_algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
         state, metrics = depth_offload_algorithm.run_generation(state, xor_problem)
 
-        # Verify h→h metrics attributes exist (may be 0 if no h→h discovered)
+        # Verify h->h metrics attributes exist (may be 0 if no h->h discovered)
         assert hasattr(depth_offload_algorithm, '_last_hh_discovery_time_ms')
         assert hasattr(depth_offload_algorithm, '_last_hh_connections')
         assert hasattr(depth_offload_algorithm, '_last_avg_hh_connections')
 
 
 class TestChunkedMetricAccumulation:
-    """The population-chunked offload loop
-    passed {} to both chunk-eval helpers, so the generation's reported h->h
-    connection count was the LAST chunk's only. The loop now accumulates."""
+    """The population-chunked offload loop accumulates what both chunk-eval helpers report, so
+    the generation's h->h connection count is the sum over its chunks, not the last chunk's."""
 
     def test_hh_total_is_the_sum_across_chunks_not_the_last(self, monkeypatch):
         from emr_hyperneat.execution import offload as offload_mod
@@ -848,7 +836,8 @@ class TestChunkedMetricAccumulation:
 
         from conftest import create_config_with_recurrence
         algo = EMRHyperNEAT()
-        config = create_config_with_recurrence("hidden_only")
+        # The chunked loop never consults the h->h cache, and with the cache on it is refused
+        config = create_config_with_recurrence("hidden_only", hh_cache_enabled=False)
         emr = config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
         emr.setdefault("execution", {}).update(
             {"mode": "depth_offload", "target_cpu_gb": 1e-4})
@@ -867,8 +856,8 @@ class TestChunkedMetricAccumulation:
 
 
 class TestOffloadCacheParity:
-    """run_generation_offload dropped HMR's cached_sparse_hh pass-through
-    and never consulted the cache manager, re-discovering every generation."""
+    """run_generation_offload takes HMR's cached_sparse_hh pass-through and consults the
+    cache manager, rather than re-discovering every generation."""
 
     def test_manager_cache_hits_after_first_generation(self):
         from conftest import create_config_with_recurrence, XORProblem
@@ -899,18 +888,18 @@ class TestOffloadCacheParity:
         from emr_hyperneat.execution.offload import (
             run_generation_offload,
         )
-        # The restored HMR-era parameter must exist on the unified entry.
+        # The unified entry must take HMR's cached_sparse_hh parameter.
         assert "cached_sparse_hh" in inspect.signature(run_generation_offload).parameters
 
 
 class TestRunUntilThresholdHonorsExecutionMode:
     """`run_until_threshold` must dispatch on execution mode, as `run_generation` does.
 
-    It did not. `_run_until_threshold_single_gpu` called `run_generation_verbose`
-    unconditionally, and that method carries no offload dispatch, so a config asking
-    for `depth_offload` quietly ran the standard on-device path: precisely the
+    `run_generation_verbose` carries no offload dispatch, so if
+    `_run_until_threshold_single_gpu` called it unconditionally, a config asking for
+    `depth_offload` would quietly run the standard on-device path: precisely the
     out-of-memory failure the mode exists to prevent, at the depth where it matters.
-    Streaming was never affected, because `create_config` resolves it into the
+    Streaming does not depend on this, because `create_config` resolves it into the
     `enable_streaming` flag that the build step reads.
 
     Two independent observables, so neither carries the result alone: a counting
@@ -949,7 +938,7 @@ class TestRunUntilThresholdHonorsExecutionMode:
     GENERATIONS = 2
 
     def test_depth_offload_reaches_the_offload_path(self, xor_problem, monkeypatch):
-        """The regression: depth_offload through run_until_threshold must offload."""
+        """depth_offload must offload through run_until_threshold too."""
         algorithm, config_obj = self._algorithm('depth_offload')
         assert algorithm.resolve_execution_mode() is ExecutionMode.DEPTH_OFFLOAD
         calls = self._count_offload_calls(monkeypatch)
@@ -1025,3 +1014,65 @@ class TestRunUntilThresholdHonorsExecutionMode:
         with pytest.warns(UserWarning, match="offload takes precedence"):
             algorithm.run_until_threshold(
                 state, xor_problem, self.UNREACHABLE_FITNESS, 1)
+
+
+class TestDepthOffloadFollowsTheForwardMode:
+    """Depth offload decides recurrence by the standard path's rule: the forward mode, which
+    follows `allow_hidden_to_hidden`, with no further condition on `enabled` or
+    `iteration_level > 0`. Hidden-to-hidden connections at iteration level 0 (direct
+    connections, as at level 1) run recurrent here, as on the standard path."""
+
+    @staticmethod
+    def _told(mode, recurrence, generations=2):
+        """The fitness each generation hands to selection, and the path depth offload reports."""
+        import numpy as np
+        config = create_base_config(max_depth=3, population_size=20)
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['recurrence'] = dict(recurrence)
+        # Depth offload evaluates on exactly the union of reached positions. The standard mode's
+        # default pads it to a bucket length, and on x86 a padded sum can round differently (a
+        # genome's fitness by a float32 ulp or two), so both modes run exact shapes here
+        emr['execution'] = {'mode': mode, 'compaction_bucket': 'exact'}
+        # Both paths split the key before the ask only under extra_randkey_split; set here, it
+        # covers that opt-in split on both (in 0.1.0 depth offload split it before every
+        # tell, whatever the flag)
+        emr['extra_randkey_split'] = True
+        algorithm = EMRHyperNEAT()
+        problem = XORProblem()
+        state = algorithm.initialize(algorithm.create_config(config), problem, seed=DEFAULT_SEED)
+        told, tell = [], algorithm._compiled_tell
+
+        def spy_tell(state_, fitnesses):
+            told.append(np.asarray(fitnesses))
+            return tell(state_, fitnesses)
+
+        algorithm._compiled_tell = spy_tell
+        paths = []
+        for _ in range(generations):
+            state, metrics = algorithm.run_generation(state, problem)
+            paths.append(metrics.custom_metrics.get('mode'))
+        return told, paths
+
+    @pytest.mark.parametrize('iteration_level', [0, 1])
+    def test_standard_and_depth_offload_agree(self, iteration_level):
+        import numpy as np
+        from conftest import GPU_TRAJECTORY_RTOL, exact_backend
+        recurrence = {'allow_hidden_to_hidden': True, 'iteration_level': iteration_level}
+        standard, _ = self._told('standard', recurrence)
+        offload, paths = self._told('depth_offload', recurrence)
+        assert paths == ['recurrent_depth_offload', 'recurrent_depth_offload']
+        assert len(standard) == len(offload) == 2
+        for generation, (expected, actual) in enumerate(zip(standard, offload)):
+            if exact_backend():
+                np.testing.assert_array_equal(actual, expected, err_msg=f'generation {generation}')
+            else:
+                np.testing.assert_allclose(actual, expected, rtol=GPU_TRAJECTORY_RTOL, atol=0,
+                                           err_msg=f'generation {generation}')
+
+    def test_recurrence_switched_off_with_hidden_to_hidden_on_is_refused(self):
+        config = create_base_config(max_depth=3, population_size=20)
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['recurrence'] = {'enabled': False, 'allow_hidden_to_hidden': True}
+        emr['execution'] = {'mode': 'depth_offload'}
+        with pytest.raises(ValueError, match='enabled: false with allow_hidden_to_hidden: true'):
+            EMRHyperNEAT().create_config(config)

@@ -1,15 +1,31 @@
 #!/usr/bin/env python3
 """
-Run statistical validation experiments for HMR-HyperNEAT paper.
+Run statistical validation experiments for the EMR-HyperNEAT paper (GECCO 2026).
 
 This script runs 30+ seeds at key depths (3, 4, 5) to generate
 statistically valid performance data for the paper.
+
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's base
+module, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-hyperneat --release 0.1.0 --` followed by a command of
+Usage without its `papers/emr-hyperneat/` prefix runs the original on 0.1.0. The published file,
+data/statistical_validation_results.json, comes from --quick (depths 3 and 4, five seeds). The
+EMR version runs the experiment as it ran, on EMR's defaults:
+    - Population 1000, feed-forward XOR with a bias input, tanh hidden and sigmoid output nodes,
+      up to 100 generations, threshold 0.98, initial_depth 0 (the HMR module ignored
+      initial_depth; 0 forces nothing).
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - run_xor_experiment is the single run (run_hmr_xor_experiment in release 0.1.0).
+    - Results go to results/statistical_validation_emr/, apart from the published file in data/
+      (the data release).
 
 Usage:
     python papers/emr-hyperneat/scripts/runners/run_statistical_validation.py
 
 Output:
-    papers/emr-hyperneat/data/statistical_validation_results.json
+    papers/emr-hyperneat/results/statistical_validation_emr/statistical_validation_results.json
 """
 
 import os
@@ -30,6 +46,9 @@ import numpy as np
 
 import jax
 import jax.numpy as jnp
+
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 
 
 @dataclass
@@ -62,41 +81,33 @@ class XORProblem:
         return self._data
 
 
-def run_hmr_xor_experiment(
+def run_xor_experiment(
     depth: int,
     seed: int,
     population: int = 1000,
     max_generations: int = 100,
     fitness_threshold: float = 0.98
 ) -> ExperimentResult:
-    """Run single HMR-HyperNEAT XOR experiment."""
-    from emr_hyperneat._hmr_frozen.hmrhyperneat import (
-        HMRHyperNEAT,
-    )
+    """Run single EMR-HyperNEAT XOR experiment."""
 
     # XOR problem definition
     input_coords = [(-1.0, -1.0), (1.0, -1.0), (0.0, -0.5)]  # x1, x2, bias
     output_coords = [(0.0, 1.0)]
 
-    # No `variance_rule` pin here, unlike the emr-dynamic-functions and
-    # emr-neuromodulation runners: those instantiate EMRHyperNEAT, whose level-0 rule is
-    # `canonical` by default. This runner runs the frozen HMR module, whose
-    # compute_hierarchical_variances_batch(all_weights, grid) hard-wires level 0 to one
-    # scalar per genome over its own four weights (the legacy rule) and takes no flag.
-    # `execution.skip_dead_levels` is likewise never read on the frozen path. The published
-    # numbers therefore reproduce here by construction; adding the key would be dead config.
-    # HMR-HyperNEAT config
-    hmr_config = {
+    # EMR-HyperNEAT config, with HMR's level-0 rule and key split, which the published runs used
+    # and emr_settings pins.
+    emr_config = {
         'initial_depth': 0,
         'max_depth': depth,
         'variance_threshold': 0.03,
+        **hmr_rule_and_split(),
     }
 
     config_dict = {
         'algorithm_params': {
-            'hmrhyperneat': {
+            'emrhyperneat': {
                 'population_size': population,
-                'hmr_hyperneat': hmr_config,
+                'emr_hyperneat': emr_config,
                 'substrate': {
                     'input_coords': input_coords,
                     'output_coords': output_coords,
@@ -111,7 +122,7 @@ def run_hmr_xor_experiment(
     problem = XORProblem()
 
     # Warmup run for JIT compilation
-    warmup_algo = HMRHyperNEAT()
+    warmup_algo = EMRHyperNEAT()
     warmup_config = warmup_algo.create_config(config_dict)
     warmup_start = time.time()
     warmup_state = warmup_algo.initialize(warmup_config, problem, seed=seed)
@@ -119,7 +130,7 @@ def run_hmr_xor_experiment(
     jit_warmup_time = time.time() - warmup_start
 
     # Actual experiment
-    algo = HMRHyperNEAT()
+    algo = EMRHyperNEAT()
     config = algo.create_config(config_dict)
     state = algo.initialize(config, problem, seed=seed)
 
@@ -170,12 +181,12 @@ def run_validation_suite(
 ) -> Dict[str, Any]:
     """Run full statistical validation suite."""
     if output_dir is None:
-        output_dir = Path(__file__).resolve().parents[2] / "data"
+        output_dir = Path(__file__).resolve().parents[2] / "results" / "statistical_validation_emr"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
-    print("HMR-HyperNEAT Statistical Validation Suite")
+    print("EMR-HyperNEAT Statistical Validation Suite (EMR version)")
     print("=" * 70)
     print(f"Depths: {depths}")
     print(f"Seeds per depth: {n_seeds}")
@@ -203,7 +214,7 @@ def run_validation_suite(
             print(f"  [{i+1}/{n_seeds}] Seed {seed}...", end=" ", flush=True)
 
             try:
-                result = run_hmr_xor_experiment(
+                result = run_xor_experiment(
                     depth=depth,
                     seed=seed,
                     population=population
@@ -257,7 +268,7 @@ def main():
     """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Run HMR-HyperNEAT statistical validation')
+    parser = argparse.ArgumentParser(description='Run EMR-HyperNEAT statistical validation')
     parser.add_argument('--depths', type=int, nargs='+', default=[3, 4, 5],
                        help='Depths to test (default: 3 4 5)')
     parser.add_argument('--seeds', type=int, default=30,

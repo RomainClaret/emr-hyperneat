@@ -1,10 +1,10 @@
 """Strategy 84: Tag+Homeostatic Dual Hybrid.
 
-Combines two 100% sin retention winners:
+Combines two strategies that reached 100% sin retention:
 - Strategy 81 (Synaptic Tagging): Tag-and-capture consolidation
 - Strategy 82 (Homeostatic): Balance + discovery bonus
 
-Key innovation: Captured functions are protected from homeostatic deactivation,
+Captured functions are protected from homeostatic deactivation,
 combining the best of both mechanisms for robust sin retention.
 
 Bio inspiration: Synaptic tagging captures important connections while
@@ -40,7 +40,7 @@ class TagHomeostaticDualStrategy(PaletteEvolutionStrategy):
     - Synaptic tagging (81): Two-stage tag-and-capture consolidation
     - Homeostatic plasticity (82): Balance between averaging/extreme aggregations
 
-    Critical interaction: Captured functions get protection from homeostatic
+    Interaction: Captured functions get protection from homeostatic
     deactivation, ensuring sin retention while maintaining exploration.
     """
 
@@ -49,7 +49,7 @@ class TagHomeostaticDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Tagging parameters (from strategy 81) ===
+        # Tagging parameters (from strategy 81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -57,25 +57,25 @@ class TagHomeostaticDualStrategy(PaletteEvolutionStrategy):
         fitness_delta_threshold: float = 0.01,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Homeostatic parameters (from strategy 82) ===
+        # Homeostatic parameters (from strategy 82)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         correction_strength: float = 1.8,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -434,7 +434,7 @@ class TagHomeostaticDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === TAGGING MECHANISM (from 81) ===
+        # TAGGING MECHANISM (from 81)
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -452,15 +452,15 @@ class TagHomeostaticDualStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === HOMEOSTATIC MECHANISM (from 82) ===
+        # HOMEOSTATIC MECHANISM (from 82)
         extreme_ratio = self._compute_extreme_ratio(state['agg_mask'])
 
-        # === CROSS-DOMAIN AFFINITY ===
+        # CROSS-DOMAIN AFFINITY
         new_cross_affinity = self._update_cross_affinity(
             state['cross_affinity'], state['act_mask'], state['agg_mask'], improvement
         )
 
-        # === MUTATIONS ===
+        # MUTATIONS
         new_act_mask, act_mut_info = self._mutate_act_palette_hybrid(
             k_act, state['act_mask'], new_act_captured, new_cross_affinity
         )

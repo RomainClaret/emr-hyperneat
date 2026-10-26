@@ -3,13 +3,13 @@
 Combines ecological succession (strategy 26) with aggregation-led dual discovery
 (strategy 101) for phased exploration with extreme-led discovery.
 
-Key Innovation:
+Mechanism:
 - PIONEER phase: Explores broadly, discovers extremes aggressively
 - INTERMEDIATE phase: Balanced exploration, captures sin-extreme pairings
 - CLIMAX phase: Protects discovered sin-extreme, minimal exploration
 - Each phase has different exploration rates and protection levels
 
-Bio inspiration: Ecological succession from pioneer → climax communities.
+Bio inspiration: Ecological succession from pioneer -> climax communities.
 Early evolution explores broadly, late evolution protects what works.
 """
 
@@ -42,41 +42,41 @@ class SuccessionAggLedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === SUCCESSION PHASE PARAMETERS (KEY INNOVATION) ===
+        # SUCCESSION PHASE PARAMETERS
         pioneer_end: int = 10,                    # End of pioneer phase
         intermediate_end: int = 30,               # End of intermediate phase
-        # === Pioneer phase ===
+        # Pioneer phase
         pioneer_agg_exploration: float = 0.30,    # High aggregation exploration
         pioneer_act_exploration: float = 0.25,
         pioneer_sin_bias: float = 0.3,            # Moderate sin preference in pioneer
-        # === Intermediate phase ===
+        # Intermediate phase
         intermediate_exploration: float = 0.15,
         intermediate_capture_boost: float = 1.3,   # Boost capture during intermediate
-        # === Climax phase ===
+        # Climax phase
         climax_extreme_protection: float = 0.90,  # Strong protection for discovered
         climax_exploration: float = 0.05,         # Minimal exploration
         succession_sin_delay: int = 5,            # Generations before sin bias kicks in
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         tag_decay: float = 0.9,
         capture_window: int = 5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Succession Aggregation-Led Dual strategy."""
-        # Succession phases (KEY)
+        # Succession phases
         self.pioneer_end = pioneer_end
         self.intermediate_end = intermediate_end
         self.pioneer_agg_exploration = pioneer_agg_exploration
@@ -348,7 +348,7 @@ class SuccessionAggLedDualStrategy(PaletteEvolutionStrategy):
         new_phase = phase_params['phase']
         phase_transition = old_phase != new_phase
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags = self._update_tags(state['act_mask'], state['act_tags'], phase_params)
         new_agg_tags = self._update_tags(state['agg_mask'], state['agg_tags'], phase_params)
 
@@ -356,7 +356,7 @@ class SuccessionAggLedDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, act_captures = self._attempt_capture(
             new_act_tags, state['act_captured'], new_tag_history,
             generation, improved, new_phase
@@ -372,7 +372,7 @@ class SuccessionAggLedDualStrategy(PaletteEvolutionStrategy):
         if new_phase == 'intermediate':
             int_captures = act_captures + agg_captures
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff = state['act_affinities'] * self.affinity_decay
         new_agg_aff = state['agg_affinities'] * self.affinity_decay
         if fitness_delta > 0:
@@ -387,7 +387,7 @@ class SuccessionAggLedDualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_agg_aff[j] + self.agg_affinity_lr * fitness_delta)
                     )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, _ = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -437,7 +437,7 @@ class SuccessionAggLedDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Succession metrics (KEY)
+            # Succession metrics
             'phase': new_phase,
             'phase_transition': phase_transition,
             'phase_transitions': new_state['phase_transitions'],

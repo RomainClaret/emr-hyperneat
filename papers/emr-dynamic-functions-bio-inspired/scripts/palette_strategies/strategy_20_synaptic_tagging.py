@@ -15,14 +15,14 @@ For palette evolution:
 - Capture: Global fitness breakthrough "captures" tagged functions
 - Permanent protection: Captured functions are protected from removal
 
-Key mechanisms:
+Mechanisms:
 1. Tag creation: Functions active during local improvement get tagged
 2. Tag decay: Tags decay each generation
 3. Capture window: Tags can be captured within N generations
 4. Capture event: Major fitness improvement captures all active tags
 5. Captured functions: Get permanent affinity boost
 
-Expected improvement over Hebbian:
+Intended effects compared with Hebbian:
 - Fewer false positives (requires BOTH local correlation AND global confirmation)
 - More selective protection (only truly important functions get captured)
 - Temporal credit assignment (links local events to global outcomes)
@@ -447,14 +447,14 @@ class SynapticTaggingStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Decay existing tags
+        # Decay existing tags
         decayed_tags = self._decay_tags(
             state['synaptic_tags'],
             state['tag_creation_gen'],
             generation,
         )
 
-        # Step 2: Create/strengthen tags on local improvement
+        # Create/strengthen tags on local improvement
         new_tags, new_tag_gen, n_tagged = self._create_tags(
             decayed_tags,
             state['tag_creation_gen'],
@@ -463,7 +463,7 @@ class SynapticTaggingStrategy(PaletteEvolutionStrategy):
             generation,
         )
 
-        # Step 3: Attempt capture on global success
+        # Attempt capture on global success
         new_tags, new_affinity, new_captured, newly_captured = self._attempt_capture(
             new_tags,
             new_tag_gen,
@@ -474,7 +474,7 @@ class SynapticTaggingStrategy(PaletteEvolutionStrategy):
             generation,
         )
 
-        # Step 4: Update affinity normally
+        # Update affinity normally
         new_affinity = self._update_affinity(
             new_affinity,
             state['mask'],

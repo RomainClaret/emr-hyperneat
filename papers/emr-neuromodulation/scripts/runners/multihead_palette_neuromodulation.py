@@ -4,7 +4,7 @@
 This extends multi-head neuromodulation by assigning different activation functions
 to different heads based on their task specialization.
 
-Key Insight from Palette Evolution Research:
+From palette-evolution research:
 - XOR is parity-like: needs oscillatory functions (sin, burst)
 - AND/OR/NAND/NOR are threshold gates: need bounded functions (tanh, sigmoid)
 - Using the wrong activation type makes tasks unsolvable or slow
@@ -38,26 +38,12 @@ import jax
 import jax.numpy as jnp
 from functools import partial
 
-from emr_hyperneat._hmr_frozen.hmrhyperneat_neuromodulation_functions import (
-    HMRHyperNEAT,
-    MultiTaskConfig,
-    get_nt_for_task,
-    NT_PRESETS_4,
+from emr_hyperneat.emrhyperneat import (
+    EMRHyperNEAT,
 )
 
-# R7: optional EMR backend for the HMR->EMR migration A/B test. Try-guarded so
-# HMR-only environments still import this module.
-try:
-    from emr_hyperneat.emrhyperneat import (
-        EMRHyperNEAT,
-    )
-except Exception:
-    EMRHyperNEAT = None
 
-
-# ============================================================================
 # Constants
-# ============================================================================
 
 ALL_TASKS = ['xor', 'and', 'or', 'nand', 'nor']
 
@@ -77,7 +63,7 @@ TRUTH_TABLES = {
 
 # Define head-specific NT profiles using OUTPUT INVERSION approach
 # Format: [DA, 5HT, NE, no_invert] where NT4=0.0 enables output inversion
-# NOTE: This differs from NT_PRESETS_4 which uses distinct NT vectors for all tasks (NT4=1.0)
+# This differs from NT_PRESETS_4 which uses distinct NT vectors for all tasks (NT4=1.0)
 HEAD_NT_PROFILES = {
     'xor': jnp.array([0.95, 0.05, 0.95, 1.0]),   # HIGH-LOW-HIGH, no inversion
     'and': jnp.array([0.10, 0.90, 0.10, 1.0]),   # LOW-HIGH-LOW, no inversion
@@ -86,9 +72,7 @@ HEAD_NT_PROFILES = {
     'nor': jnp.array([0.50, 0.50, 0.50, 0.0]),   # Same as OR but WITH OUTPUT INVERSION
 }
 
-# ============================================================================
-# Per-Head Activation Functions - THE KEY INNOVATION
-# ============================================================================
+# Per-Head Activation Functions
 
 # Oscillatory activations (for parity-like problems)
 def burst_activation(x):
@@ -140,9 +124,7 @@ PRESET_BLEND_WEIGHTS = {
 }
 
 
-# ============================================================================
 # Data Classes
-# ============================================================================
 
 @dataclass
 class MultiHeadPaletteResult:
@@ -166,9 +148,7 @@ class MultiHeadPaletteResult:
     fitness_history: List[Dict[str, float]] = field(default_factory=list)
 
 
-# ============================================================================
 # Forward Pass with Per-Head Activation
-# ============================================================================
 
 def forward_single_head_with_activation(
     W1: jnp.ndarray,
@@ -314,9 +294,7 @@ EVAL_POPULATION_FNS = {
 }
 
 
-# ============================================================================
 # Reference Problem
-# ============================================================================
 
 class RefProblem:
     """Reference problem for algorithm initialization."""
@@ -335,9 +313,7 @@ class RefProblem:
         return list(zip(self.inputs.tolist(), self.targets.tolist()))
 
 
-# ============================================================================
 # Multi-Head Palette Experiment Runner
-# ============================================================================
 
 def run_multihead_palette_experiment(
     task_names: List[str],
@@ -352,7 +328,6 @@ def run_multihead_palette_experiment(
     verbose: bool = True,
     nt_profiles: Optional[Dict[str, jnp.ndarray]] = None,
     modulation_strength: float = 5.0,
-    backend: str = 'emr',  # R7: migrated to EMR (validated to reproduce HMR/paper). Pass 'hmr' for the exact published baseline.
 ) -> MultiHeadPaletteResult:
     """Run multi-head neuromodulation with per-head activation palettes.
 
@@ -364,7 +339,7 @@ def run_multihead_palette_experiment(
         seed: Random seed
         generations: Max generations
         population: Population size
-        max_depth: HMR max depth
+        max_depth: Max substrate depth
         success_threshold: Threshold for convergence
         verbose: Print progress
         nt_profiles: Optional dict mapping task names to NT vectors.
@@ -424,73 +399,42 @@ def run_multihead_palette_experiment(
     # Initialize algorithm
     problem = RefProblem(task_names)
 
-    if backend == 'emr':
-        # R7 migration: EMR's neuromod config differs from HMR (verified via probe).
-        # The mode MUST be exactly 'true_neuromodulation' (EMR errors on the HMR mode
-        # string and only enables true neuromod on the exact-match mode). EMR's decode
-        # sources base_gains/receptors from the first-input weight (use_self_connection_
-        # query=False, not config-settable here) -- the validated divergence from HMR's
-        # self-connection source. The fitness/forward path below is backend-agnostic.
-        if EMRHyperNEAT is None:
-            raise RuntimeError("backend='emr' requested but EMRHyperNEAT failed to import")
-        config_params = {
-            'algorithm_params': {
-                'emrhyperneat': {
-                    'population_size': population,
-                    'substrate': {
-                        'input_coords': [[-1.0, 0.0], [1.0, 0.0]],
-                        'output_coords': [[0.0, 1.0]],
-                    },
-                    'emr_hyperneat': {
-                        'initial_depth': 0,
-                        'variance_rule': 'legacy',  # published runs used the legacy level-0 own-weights rule
-                        'max_depth': max_depth,
-                        'variance_threshold': 0.03,
-                        'neuromodulation': {
-                            'mode': 'true_neuromodulation',
-                            'modulation_strength': modulation_strength,
-                            'num_nt_types': 4,
-                            'receptor_from_weight': True,
-                            'receptor_derivation': 'tanh',
-                            # R7 exact reproduction: source receptors/base-gains from the CPPN
-                            # self-connection query (the HMR/paper decode), not the W1 approximation.
-                            'use_self_connection_query': True,
-                        },
-                    },
-                    'neat_species': {
-                        'compatibility_threshold': 2.5,
-                        'max_stagnation': 40,
+    # The mode must be exactly 'true_neuromodulation': EMR enables true neuromodulation only
+    # under that name. Receptors and base gains come from the CPPN's self-connection query
+    # (use_self_connection_query), the decode the published runs used.
+    config_params = {
+        'algorithm_params': {
+            'emrhyperneat': {
+                'population_size': population,
+                'substrate': {
+                    'input_coords': [[-1.0, 0.0], [1.0, 0.0]],
+                    'output_coords': [[0.0, 1.0]],
+                },
+                'emr_hyperneat': {
+                    'initial_depth': 0,
+                    # The published runs used the legacy level-0 own-weights rule
+                    'variance_rule': 'legacy',
+                    'max_depth': max_depth,
+                    'variance_threshold': 0.03,
+                    'neuromodulation': {
+                        'mode': 'true_neuromodulation',
+                        'modulation_strength': modulation_strength,
+                        'num_nt_types': 4,
+                        'receptor_from_weight': True,
+                        'receptor_derivation': 'tanh',
+                        # Receptors and base gains from the CPPN self-connection query (the
+                        # published runs' decode), not the W1 approximation.
+                        'use_self_connection_query': True,
                     },
                 },
-            },
-        }
-        algo = EMRHyperNEAT()
-    else:
-        config_params = {
-            'algorithm_params': {
-                'hmrhyperneat': {
-                    'population_size': population,
-                    'substrate': {
-                        'input_coords': [[-1.0, 0.0], [1.0, 0.0]],
-                        'output_coords': [[0.0, 1.0]],
-                    },
-                    'hmr_hyperneat': {
-                        'initial_depth': 0,
-                        'max_depth': max_depth,
-                        'variance_threshold': 0.03,
-                        'neuromodulation': {
-                            'mode': 'true_neuromodulation_4nt_option_a_tanh',
-                            'modulation_strength': modulation_strength,
-                        },
-                    },
-                    'neat_species': {
-                        'compatibility_threshold': 2.5,
-                        'max_stagnation': 40,
-                    },
+                'neat_species': {
+                    'compatibility_threshold': 2.5,
+                    'max_stagnation': 40,
                 },
             },
-        }
-        algo = HMRHyperNEAT()
+        },
+    }
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(config_params)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -737,9 +681,7 @@ def run_5task_comparison(
     return results
 
 
-# ============================================================================
 # Main Entry Point
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(description="Multi-Head Palette Neuromodulation")

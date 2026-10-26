@@ -7,7 +7,7 @@ Bio-inspired learning: "Functions that fire together, stay together."
 Tracks co-occurrence of functions in high-fitness networks and uses Hebbian
 learning to strengthen useful pairs while weakening bad pairs - for BOTH domains.
 
-Key innovation: Cross-domain Hebbian learning tracks which activation-aggregation
+Cross-domain Hebbian learning tracks which activation-aggregation
 combinations succeed together, influencing protection for both palettes.
 
 Biological analogy:
@@ -36,8 +36,8 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
     """Hebbian co-occurrence learning for BOTH activation and aggregation palettes.
 
     Learns which function pairs work well together within each domain:
-    - High fitness + pair active → strengthen association
-    - Low fitness + pair active → weaken association
+    - High fitness + pair active -> strengthen association
+    - Low fitness + pair active -> weaken association
     - Strong pairs persist; weak pairs get pruned
 
     Also learns cross-domain associations:
@@ -140,7 +140,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
             (NUM_AGGREGATIONS, NUM_AGGREGATIONS), dtype=jnp.bool_
         )
 
-        # Cross-domain affinity matrix (NEW)
+        # Cross-domain affinity matrix
         cross_affinity = jnp.ones((NUM_ACTIVATIONS, NUM_AGGREGATIONS)) * 0.5
 
         return {
@@ -269,7 +269,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, List[int], List[int]]:
         """Apply Hebbian-guided mutation to a palette.
 
-        Key constraint: max_active prevents antagonism (too many functions hurts).
+        Constraint: max_active prevents antagonism (too many functions hurts).
         """
         key1, key2 = jax.random.split(key)
 
@@ -288,7 +288,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # CRITICAL: Skip if already at max
+                # Skip if already at max
                 if current_active + len(activated) >= max_active:
                     continue
 
@@ -311,7 +311,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
                 if is_protected:
                     continue
 
-                # Lower affinity → higher deactivation rate
+                # Lower affinity -> higher deactivation rate
                 rate = base_deactivate * (1 + self.hebbian_influence * (0.5 - affinity))
                 rate = max(0.01, min(0.3, rate))
 
@@ -356,7 +356,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - baseline) / max(0.1, baseline)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # --- Hebbian updates for both domains ---
+        # Hebbian updates for both domains
         new_act_weights = self._hebbian_update(
             state['act_hebbian_weights'], state['act_mask'], fitness_signal
         )
@@ -370,7 +370,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
             fitness_signal,
         )
 
-        # --- Consolidation updates ---
+        # Consolidation updates
         new_act_counts, new_act_protected = self._update_consolidation(
             new_act_weights,
             state['act_consolidation_counts'],
@@ -382,7 +382,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
             state['agg_protected_pairs'],
         )
 
-        # --- Compute affinities with cross-domain influence ---
+        # Compute affinities with cross-domain influence
         act_affinities = self._compute_affinity_scores(
             new_act_weights, state['act_mask'],
             new_cross_affinity, state['agg_mask'],
@@ -394,7 +394,7 @@ class HebbianDualStrategy(PaletteEvolutionStrategy):
             is_activation=False,
         )
 
-        # --- Apply mutations to both palettes ---
+        # Apply mutations to both palettes
         new_act_mask, act_activated, act_deactivated = self._mutate_palette_hebbian(
             key_act, state['act_mask'], act_affinities, new_act_protected,
             self.base_activate_rate, self.base_deactivate_rate,

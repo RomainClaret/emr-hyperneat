@@ -4,12 +4,12 @@ Bio inspiration: Synaptic tagging and capture - tags mark activated synapses,
 plasticity-related proteins capture tags for consolidation. Two-stage learning
 decouples discovery from immediate reward.
 
-Key innovation:
+Mechanism:
 - Cross-domain tagging: both activation and aggregation must be tagged
 - Extreme aggregation tag boost (1.3x)
 - Capture requires both domains tagged for cross-domain consolidation
 
-Expected: Better cross-domain synergy through coordinated tag-and-capture.
+Expected: Better cross-domain pairings through coordinated tag-and-capture.
 """
 
 from typing import Dict, Any, List, Optional, Tuple

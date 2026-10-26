@@ -1,15 +1,15 @@
 """Strategy 100: STDP Adaptive Window Dual.
 
-Attempts to fix the broken STDP+Tag (89) with dynamically adapting windows:
+Variant of STDP+Tag (89) with dynamically adapting windows:
 - Problem: Fixed windows don't match learning dynamics - during domain shifts,
   the LTD window (1-3 gens) depresses functions before they prove useful
 - Hypothesis: Windows should expand during stagnation (give functions more time)
   and contract during progress (lock in discoveries faster)
 
-Key mechanisms:
-- Stagnation → windows grow (more averaging, less sensitivity to noise)
-- Progress → windows shrink (faster learning, quicker capture)
-- Domain shift detected → LTP expands, LTD contracts (protect during transition)
+Mechanisms:
+- Stagnation -> windows grow (more averaging, less sensitivity to noise)
+- Progress -> windows shrink (faster learning, quicker capture)
+- Domain shift detected -> LTP expands, LTD contracts (protect during transition)
 
 Bio inspiration: Neural time constants can change based on neuromodulatory state.
 Noradrenaline/dopamine can adjust integration windows in real neural circuits.
@@ -50,7 +50,7 @@ class STDPAdaptiveWindowDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Adaptive window parameters ===
+        # Adaptive window parameters
         base_ltp_window: int = 5,               # Starting LTP window
         base_ltd_window: int = 3,               # Starting LTD window
         min_ltp_window: int = 2,                # Minimum LTP window
@@ -64,26 +64,26 @@ class STDPAdaptiveWindowDualStrategy(PaletteEvolutionStrategy):
         domain_shift_ltp_expansion: float = 1.5,        # LTP multiplier during shift
         domain_shift_ltd_contraction: float = 0.5,      # LTD multiplier during shift
         shift_adaptation_duration: int = 8,             # Gens to maintain shift mode
-        # === STDP rates ===
+        # STDP rates
         ltp_rate: float = 0.1,
         ltd_rate: float = 0.05,
         ltd_min_weight: float = 0.25,  # Floor
-        # === Tag-and-capture parameters ===
+        # Tag-and-capture parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -205,11 +205,11 @@ class STDPAdaptiveWindowDualStrategy(PaletteEvolutionStrategy):
         """Adapt window sizes based on learning dynamics."""
         # Base adaptation
         if stagnation_counter > 5:
-            # Stagnation → grow windows (more averaging)
+            # Stagnation -> grow windows (more averaging)
             ltp_window += self.stagnation_window_growth
             ltd_window += self.stagnation_window_growth * 0.5
         elif improved:
-            # Progress → shrink windows (faster learning)
+            # Progress -> shrink windows (faster learning)
             ltp_window -= self.progress_window_shrink
             ltd_window -= self.progress_window_shrink * 0.5
 

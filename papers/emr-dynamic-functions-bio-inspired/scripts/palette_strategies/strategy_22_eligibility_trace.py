@@ -5,9 +5,9 @@ Implements dopamine-gated eligibility traces for temporal credit assignment.
 Biological Basis:
 - Eligibility traces: Local activity creates decaying "eligibility" mark
 - Dopamine: Global reward signal that gates learning
-- Three-factor rule: Learning = eligibility × dopamine × direction
+- Three-factor rule: Learning = eligibility * dopamine * direction
 
-Key Insight:
+Rationale:
 - STDP (Strategy 16) uses fixed 5-10 generation windows
 - Eligibility traces provide CONTINUOUS, decaying credit assignment
 - Functions active before reward get credit proportional to recency
@@ -20,7 +20,7 @@ Learning Rule:
 This extends temporal credit assignment beyond STDP's hard windows,
 linking function discovery to multi-generation fitness improvements.
 
-Expected improvements:
+Intended effects:
 - Better temporal credit assignment over long timescales
 - Smoother learning than window-based approaches
 - Natural recency bias without hard cutoffs
@@ -42,7 +42,7 @@ from .base_strategy import (
 
 
 class EligibilityTraceStrategy(PaletteEvolutionStrategy):
-    """Three-factor learning: eligibility × dopamine → credit.
+    """Three-factor learning: eligibility × dopamine -> credit.
 
     Eligibility traces solve the temporal credit assignment problem by
     maintaining a decaying record of which functions were recently active.
@@ -256,8 +256,8 @@ class EligibilityTraceStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply mutation with dopamine-modulated rates.
 
-        High dopamine (success) → less exploration (exploit)
-        Low/negative dopamine (failure) → more exploration
+        High dopamine (success) -> less exploration (exploit)
+        Low/negative dopamine (failure) -> more exploration
         """
         key1, key2 = jax.random.split(key)
 
@@ -333,30 +333,30 @@ class EligibilityTraceStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute dopamine signal (reward prediction error)
+        # Compute dopamine signal (reward prediction error)
         dopamine, new_baseline = self._compute_dopamine(
             best_fitness,
             state['dopamine_baseline']
         )
 
-        # Step 2: Update eligibility traces
+        # Update eligibility traces
         new_eligibility = self._update_eligibility(
             state['eligibility'],
             state['mask'],
             state['previous_mask'],
         )
 
-        # Step 3: Three-factor learning update to affinity
+        # Three-factor learning update to affinity
         new_affinity = self._update_affinity(
             state['function_affinity'],
             new_eligibility,
             dopamine,
         )
 
-        # Step 4: Compute protection
+        # Compute protection
         protection = self._compute_protection(new_affinity, new_eligibility)
 
-        # Step 5: Apply mutation with DA modulation
+        # Apply mutation with DA modulation
         new_mask, mutation_info = self._mutate_palette(
             subkey,
             state['mask'],

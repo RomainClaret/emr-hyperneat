@@ -3,7 +3,7 @@
 Combines BCM Metaplasticity (#15) with Aggregation-led (#101) mechanics.
 BCM sliding threshold auto-regulates exploration based on discovery rate.
 
-Key Innovation:
+Mechanism:
 - BCM sliding threshold tracks recent discovery success
 - High discovery rate -> raise threshold (be more selective)
 - Low discovery rate -> lower threshold (explore more)
@@ -44,7 +44,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
     aggregation-first discovery. The BCM threshold self-regulates
     based on discovery rate.
 
-    Critical innovation: BCM threshold adapts to discovery success.
+    BCM threshold adapts to discovery success.
     When discoveries happen, threshold rises (be selective). When
     stagnating, threshold falls (explore more). Extreme aggs have
     inherently lower threshold for automatic preference.
@@ -55,48 +55,48 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === BCM PARAMETERS (NEW from #15) ===
+        # BCM PARAMETERS (from #15)
         bcm_threshold_lr: float = 0.1,        # Learning rate for threshold
         bcm_window: int = 10,                 # Window to track discovery rate
         bcm_min_threshold: float = 0.3,       # Min protection threshold
         bcm_max_threshold: float = 0.8,       # Max protection threshold
         bcm_target_discovery_rate: float = 0.15,  # Target discovery per gen
         bcm_threshold_decay: float = 0.95,    # Threshold decay toward baseline
-        # === EXTREME PREFERENCE (NEW) ===
+        # EXTREME PREFERENCE
         extreme_bcm_discount: float = 0.3,    # Threshold reduction for extremes
         sin_bcm_discount: float = 0.25,       # Threshold reduction for sin
-        # === AGGREGATION-LED PARAMETERS (from #101) ===
+        # AGGREGATION-LED PARAMETERS (from #101)
         agg_exploration_rate: float = 0.25,
         agg_discovery_bonus: float = 0.6,
         act_exploration_rate: float = 0.08,
         agg_led_activation_boost: float = 0.4,
         agg_stability_threshold: int = 5,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize BCM-Aggregation strategy."""
-        # BCM parameters (NEW)
+        # BCM parameters
         self.bcm_threshold_lr = bcm_threshold_lr
         self.bcm_window = bcm_window
         self.bcm_min_threshold = bcm_min_threshold
@@ -104,7 +104,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
         self.bcm_target_discovery_rate = bcm_target_discovery_rate
         self.bcm_threshold_decay = bcm_threshold_decay
 
-        # Extreme preference (NEW)
+        # Extreme preference
         self.extreme_bcm_discount = extreme_bcm_discount
         self.sin_bcm_discount = sin_bcm_discount
 
@@ -176,7 +176,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
         # Cross-domain affinity
         cross_affinity = jnp.ones((NUM_ACTIVATIONS, NUM_AGGREGATIONS)) * 0.5
 
-        # BCM state (NEW)
+        # BCM state
         bcm_threshold = 0.55  # Start at middle
         discovery_history: List[bool] = []  # Track discoveries per gen
 
@@ -198,7 +198,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
             'tag_history': [],
             # Cross-domain
             'cross_affinity': cross_affinity,
-            # BCM state (NEW)
+            # BCM state
             'bcm_threshold': bcm_threshold,
             'discovery_history': discovery_history,
             # Aggregation-led tracking
@@ -238,8 +238,8 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[float, List[bool]]:
         """Update BCM sliding threshold based on discovery rate.
 
-        KEY INNOVATION: High discovery -> raise threshold (be selective)
-                        Low discovery -> lower threshold (explore more)
+        High discovery -> raise threshold (be selective)
+        Low discovery -> lower threshold (explore more)
         """
         # Update history
         new_history = discovery_history + [new_discoveries > 0]
@@ -279,7 +279,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
     ) -> float:
         """Get function-specific BCM threshold.
 
-        KEY INNOVATION: Extreme aggs and sin have lower threshold.
+        Extreme aggs and sin have lower threshold.
         """
         threshold = base_threshold
 
@@ -435,7 +435,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, int, Set[int]]:
         """Explore aggregations with BCM-regulated threshold.
 
-        KEY INNOVATION: Exploration rate modulated by BCM threshold.
+        Exploration rate modulated by BCM threshold.
         Lower threshold = more exploration allowed.
         """
         new_mask = agg_mask.copy()
@@ -563,7 +563,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === AGG STABILITY TRACKING ===
+        # AGG STABILITY TRACKING
         new_agg_stability, has_stable_extreme = self._update_agg_stability(
             state['agg_mask'], state['agg_stability_counts']
         )
@@ -576,7 +576,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
 
         activation_boost_active = new_extreme_discovered
 
-        # === AGGREGATION EXPLORATION WITH BCM ===
+        # AGGREGATION EXPLORATION WITH BCM
         new_agg_mask, n_agg_explorations, new_discovered_aggs = self._explore_aggregations_bcm(
             k1, state['agg_mask'], state['agg_affinities'],
             state['bcm_threshold'], state['discovered_aggs']
@@ -585,7 +585,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
         # Count new discoveries
         new_agg_discoveries = len(new_discovered_aggs) - len(state['discovered_aggs'])
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], new_agg_mask,
             state['act_tags'], state['agg_tags'],
@@ -596,14 +596,14 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], new_agg_mask,
@@ -611,7 +611,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
             new_extreme_discovered
         )
 
-        # === ACTIVATION PALETTE SELECTION WITH BCM ===
+        # ACTIVATION PALETTE SELECTION WITH BCM
         new_act_mask, act_diversity_rescue, new_discovered_acts = self._select_act_palette_bcm(
             new_act_aff, new_act_captured, new_act_tags,
             new_cross_affinity, new_agg_mask,
@@ -623,7 +623,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
         new_act_discoveries = len(new_discovered_acts) - len(state['discovered_acts'])
         total_discoveries = new_agg_discoveries + new_act_discoveries
 
-        # === BCM THRESHOLD UPDATE ===
+        # BCM THRESHOLD UPDATE
         new_bcm_threshold, new_discovery_history = self._update_bcm_threshold(
             state['bcm_threshold'], state['discovery_history'], total_discoveries
         )
@@ -699,7 +699,7 @@ class BCMAggregationDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # BCM metrics (NEW)
+            # BCM metrics
             'bcm_threshold': new_bcm_threshold,
             'recent_discovery_rate': recent_discovery_rate,
             'new_discoveries_this_gen': total_discoveries,

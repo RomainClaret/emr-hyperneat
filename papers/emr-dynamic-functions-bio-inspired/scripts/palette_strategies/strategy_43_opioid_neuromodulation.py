@@ -12,11 +12,11 @@ Biological Basis:
 - Withdrawal increases exploration drive
 - Creates adaptive explore/exploit balance
 
-Key Insight:
+Rationale:
 - Current strategies lack dynamic explore/exploit modulation
 - Opioid system provides biologically-grounded balance mechanism
-- Success → exploitation (protect what works)
-- Failure → exploration (find something better)
+- Success -> exploitation (protect what works)
+- Failure -> exploration (find something better)
 - Tolerance prevents over-exploitation of stale solutions
 - Withdrawal drives exploration after plateaus
 
@@ -33,11 +33,11 @@ Opioid Mechanism:
     # Modulate exploration based on opioid level
     effective_mutation_rate = base_mutation_rate * (1 - opioid_level * exploration_modulation)
 
-    # Low opioid (withdrawal) → increased exploration
+    # Low opioid (withdrawal) -> increased exploration
     if opioid_level < withdrawal_threshold:
         effective_mutation_rate *= withdrawal_exploration_boost
 
-Expected improvements:
+Intended effects:
 - Automatic explore/exploit balance based on performance
 - Exploitation after success, exploration after stagnation
 - Tolerance prevents getting stuck on local optima
@@ -234,7 +234,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
         in_withdrawal: bool,
     ) -> float:
         """Compute effective mutation rate based on opioid state."""
-        # Base modulation: high opioid → low exploration
+        # Base modulation: high opioid -> low exploration
         modulated_rate = self.base_mutation_rate * (
             1 - opioid_level * self.exploration_modulation
         )
@@ -267,7 +267,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
         if jax.random.uniform(key1) < mutation_rate:
             # Remove a function (weighted by inverse affinity)
             if len(current_palette) > self.min_active:
-                # Calculate removal probabilities (lower affinity → higher removal prob)
+                # Calculate removal probabilities (lower affinity -> higher removal prob)
                 removal_weights = []
                 for i in current_palette:
                     # Inverse affinity, but withdrawal makes us more likely to try new things
@@ -303,7 +303,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
                     # Weighted toward unexplored functions
                     add_weights = []
                     for i in available:
-                        # Lower exposure → higher add probability
+                        # Lower exposure -> higher add probability
                         weight = 1.0 / (float(new_affinity[i]) + 0.1)
                         add_weights.append(weight)
 
@@ -349,7 +349,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
                 new_exposure = new_exposure.at[i].add(1.0)
 
                 if improved:
-                    # Reward association: opioid enhances affinity
+                    # Reward association: opioid amplifies the affinity boost
                     boost = 0.1 * (1 + opioid_level)
                     new_affinity = new_affinity.at[i].add(boost)
 
@@ -381,7 +381,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update opioid system
+        # Update opioid system
         new_opioid, new_tolerance, new_baseline = self._update_opioid_system(
             state['opioid_level'],
             state['tolerance'],
@@ -390,7 +390,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
             fitness_delta,
         )
 
-        # Step 2: Check for withdrawal
+        # Check for withdrawal
         was_in_withdrawal = state['in_withdrawal']
         in_withdrawal = new_opioid < self.withdrawal_threshold
         withdrawal_duration = state['withdrawal_duration']
@@ -406,12 +406,12 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
             withdrawal_duration = 0
             withdrawal_episodes = state['total_withdrawal_episodes']
 
-        # Step 3: Compute effective mutation rate
+        # Compute effective mutation rate
         effective_mutation_rate = self._compute_effective_mutation_rate(
             new_opioid, in_withdrawal
         )
 
-        # Step 4: Mutate palette based on exploration rate
+        # Mutate palette based on exploration rate
         new_mask, new_affinity = self._mutate_palette(
             state['mask'],
             state['function_affinity'],
@@ -420,7 +420,7 @@ class OpioidNeuromodulationStrategy(PaletteEvolutionStrategy):
             k1,
         )
 
-        # Step 5: Update function affinity
+        # Update function affinity
         new_affinity, new_exposure = self._update_affinity(
             new_affinity,
             state['function_exposure'],

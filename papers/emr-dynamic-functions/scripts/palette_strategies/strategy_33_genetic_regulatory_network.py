@@ -11,7 +11,7 @@ Biological Basis:
 - Expression levels follow Hill kinetics (sigmoidal response)
 - Regulatory networks create stable attractors and oscillations
 
-Key Insight:
+Rationale:
 - Current strategies learn correlations (Hebbian) but not causation
 - GRNs create structure where function activity CAUSES other function states
 - Emergent regulatory circuits self-organize
@@ -35,7 +35,7 @@ GRN Mechanism:
     else:
         weaken(links)
 
-Expected improvements:
+Intended effects:
 - Emergent regulatory circuits (not just correlations)
 - Stable expression patterns (attractors)
 - Coherent function groups via causal links
@@ -347,13 +347,13 @@ class GeneticRegulatoryNetworkStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update expression based on current regulation
+        # Update expression based on current regulation
         new_expression = self._update_expression(
             state['expression'],
             state['regulation'],
         )
 
-        # Step 2: Update regulatory links based on fitness
+        # Update regulatory links based on fitness
         new_regulation = self._update_regulation(
             state['regulation'],
             new_expression,
@@ -361,7 +361,7 @@ class GeneticRegulatoryNetworkStrategy(PaletteEvolutionStrategy):
             improvement,
         )
 
-        # Step 3: Select palette from expression
+        # Select palette from expression
         new_mask = self._select_palette_from_expression(new_expression)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

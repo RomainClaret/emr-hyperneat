@@ -4,7 +4,7 @@ Extends Intrinsic Plasticity to symmetric palette evolution with per-function
 threshold and gain adaptation for both domains, combined with memory cells
 and affinity floors for guaranteed retention.
 
-Key mechanisms:
+Mechanisms:
 1. Threshold adaptation: Shift activation curves based on activity
 2. Gain adaptation: Scale response magnitude based on activity
 3. Homeostatic target: Maintain functions in optimal operating range
@@ -74,7 +74,7 @@ class IntrinsicPlasticitySymmetricStrategy(PaletteEvolutionStrategy):
         activity_momentum: float = 0.7,
         # Cross-domain
         cross_learning_rate: float = 0.06,
-        # Memory cell parameters (from winning patterns)
+        # Memory cell parameters
         memory_threshold: float = 0.75,
         memory_sustain_generations: int = 8,
         # Affinity floors (CRITICAL for retention)

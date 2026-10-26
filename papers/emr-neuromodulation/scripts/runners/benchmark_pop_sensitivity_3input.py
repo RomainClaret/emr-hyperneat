@@ -37,9 +37,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'pop_sensitivity_3input'
 
@@ -86,9 +84,7 @@ NT_VECTORS = {
 DEFAULT_POP_SIZES = [100, 300, 750, 1500]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array, n_layers: int = 1) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -119,9 +115,7 @@ def init_population(key: jax.Array, pop_size: int, n_layers: int = 1) -> Dict[st
     return jax.vmap(lambda k: init_params(k, n_layers))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       n_layers: int, activation_fn,
@@ -161,9 +155,7 @@ def get_forward_fn(n_layers: int, activation_name: str):
     return _FORWARD_CACHE[key]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, n_layers: int = 1) -> Tuple[float, Dict[str, float]]:
     """Evaluate with uniform tanh activation on all tasks."""
@@ -186,9 +178,7 @@ def eval_single_multitask(params: Dict, n_layers: int = 1) -> Tuple[float, Dict[
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     pop_size: int,
@@ -302,9 +292,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -352,9 +340,7 @@ def summarize_pop(results_dir: Path, pop_size: int):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

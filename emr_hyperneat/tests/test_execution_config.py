@@ -1,11 +1,11 @@
 """Tests for the EMR execution-mode configuration and chunk arithmetic.
 
-The behaviour these lock down is mostly about what must *not* change: a config
+The behavior these lock down is mostly about what must *not* change: a config
 with no `execution` block has to keep producing the standard path, because that
 is what the published results and the golden tests were produced with.
 
 The chunking tests pin the arithmetic that decides memory feasibility at depth
-10+. They are exact-value tests rather than range checks -- an off-by-a-factor
+10+. They are exact-value tests rather than range checks: an off-by-a-factor
 here does not fail loudly, it just silently OOMs or wastes an order of magnitude
 of memory.
 """
@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from emr_hyperneat.execution import (  # noqa: E501
+from emr_hyperneat.execution import (
     ExecutionConfig,
     ExecutionMode,
     parse_execution_config,
     resolve_mode,
 )
-from emr_hyperneat.execution.chunking import (  # noqa: E501
+from emr_hyperneat.execution.chunking import (
     MIN_POPULATION_CHUNK,
     MIN_POSITION_CHUNK,
     optimal_position_chunk_size,
@@ -155,11 +155,10 @@ class TestConfigParsing:
 
 
 class TestPositionChunking:
-    """The carry-corrected model. Exact values changed deliberately:
-    the old formula (`LEGACY_CPPN_QUERY_OVERHEAD`) modeled 2 floats per
-    (genome, position) where the measured forward carry is 2 x max_nodes, a 50x
-    undercount that sized the 62,500-position shard behind the recorded 25.0 GB
-    depth-7 OOM."""
+    """The carry-corrected model. The legacy formula (`LEGACY_CPPN_QUERY_OVERHEAD`)
+    models 2 floats per (genome, position) where the measured forward carry is
+    2 x max_nodes, a 50x undercount that sized the 62,500-position shard behind the
+    recorded 25.0 GB depth-7 OOM."""
 
     def test_scales_inversely_with_population(self):
         big = optimal_position_chunk_size(100, 3, 1.0, 10_000_000, max_nodes=50)
@@ -181,7 +180,7 @@ class TestPositionChunking:
         assert optimal_position_chunk_size(100, 3, 1.0, 10_000_000, max_nodes=50) == 24_271
 
     def test_shard_fits_the_target_it_claims(self):
-        # The property the old formula violated: the carry of one emitted shard
+        # The property the legacy formula violates: the carry of one emitted shard
         # must actually fit inside target_gb.
         chunk = optimal_position_chunk_size(1000, 1, 0.5, 100_000, max_nodes=50)
         assert cppn_query_carry_bytes(1000, chunk, 50) <= 0.5e9
@@ -204,7 +203,7 @@ class TestCarryByteModel:
         assert abs(self.OBSERVED_OFFLOAD - predicted) / predicted < 0.001
 
     def test_legacy_model_undercounted_50x(self):
-        # What the old sizing charged per (genome, position) for one source,
+        # What the legacy sizing charges per (genome, position) for one source,
         # against the measured carry. The quotient is the recorded defect.
         legacy_bytes = 1 * 4 * LEGACY_CPPN_QUERY_OVERHEAD
         true_bytes = cppn_query_carry_bytes(1, 1, 50)
@@ -306,7 +305,7 @@ class TestMemoryAwareResolution:
 
     def _cfg(self):
         # AUTO is opt-in: the dataclass default mode is STANDARD (documented as
-        # "defaults reproduce the pre-unification behaviour"), so the gate is
+        # "defaults reproduce the pre-unification behavior"), so the gate is
         # only reachable through an explicit mode: auto.
         return parse_execution_config({"execution": {"mode": "auto"}})
 
@@ -326,6 +325,30 @@ class TestMemoryAwareResolution:
         mode = resolve_mode(self._cfg(), 6, population=1000,
                             device_bytes=self.GPU_USABLE)
         assert mode is ExecutionMode.STANDARD
+
+    def test_the_model_resolves_with_the_device_where_the_configuration_cannot(self, monkeypatch):
+        """A run's execution mode is the model's resolve_execution_mode, the generation loop's own decision: only
+        the model passes the population and the device memory, so on a GPU AUTO escalates where the configuration's
+        depth rule says STANDARD, and generation_execution_mode reports the escalation."""
+        import jax
+        from conftest import create_base_config
+        from emr_hyperneat import EMRHyperNEAT
+        from emr_hyperneat.execution import ExecutionMode
+        config = create_base_config(max_depth=7, population_size=1000)
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['execution'] = {'mode': 'auto'}
+        algo = EMRHyperNEAT()
+        algo.create_config(config)
+        usable = self.GPU_USABLE
+
+        class Device:
+            def memory_stats(self):
+                return {'bytes_limit': usable}
+
+        monkeypatch.setattr(jax, 'default_backend', lambda: 'gpu')
+        monkeypatch.setattr(jax, 'local_devices', lambda *args, **kwargs: [Device()])
+        assert algo.execution_config.resolve(algo.max_depth) is ExecutionMode.STANDARD
+        assert algo.resolve_execution_mode() is ExecutionMode.DEPTH_OFFLOAD
+        assert algo.generation_execution_mode() == 'depth_offload'
 
     def test_without_sizing_resolution_is_unchanged(self):
         # CPU runs and legacy callers pass no sizing: pure threshold logic.
@@ -359,10 +382,10 @@ class TestMemoryAwareResolution:
 
 
 class TestChunkProductBudget:
-    """Round-4 fix: the offload path sizes position chunks and the population
-    gate against the SAME shard target -- independently, in round 3, so the
-    realized per-call carry ran 53x UNDER budget and auto-mode d7 cost 1.97x
-    the hand-tuned cell. The gate now budgets
+    """The offload path sizes position chunks and the population gate against the
+    same shard target. Budgeted independently, the realized per-call carry ran 53x
+    under budget and auto-mode d7 cost 1.97x the hand-tuned cell (XOR, feed-forward,
+    population 1000, one RTX 2080 Ti; see execution/offload.py), so the gate budgets
     against the realized slab (min(largest level, largest position chunk))."""
 
     MN = 50
@@ -380,7 +403,7 @@ class TestChunkProductBudget:
         pop_chunk = population_chunk_for_query(1000, realized_slab, self.MN, self.BUDGET)
         carry = cppn_query_carry_bytes(pop_chunk, realized_slab, self.MN)
         budget_bytes = self.BUDGET * 1e9
-        # Round 3's independent budgeting realized ~9.4 MB here (53x under).
+        # Independent budgeting realized ~9.4 MB here (53x under).
         # The product budget must land within 2x of the target, either side.
         assert budget_bytes / 2 <= carry <= budget_bytes * 2, (
             f"realized carry {carry/1e6:.1f} MB vs budget {budget_bytes/1e6:.0f} MB")
@@ -388,7 +411,7 @@ class TestChunkProductBudget:
         assert pop_chunk == 1000
 
     def test_round3_independent_budgeting_was_53x_under(self):
-        # Pin the defect being fixed, so the fix's magnitude stays on record.
+        # Pins the shortfall of independent budgeting, so its magnitude stays on record.
         from emr_hyperneat.execution.chunking import (
             cppn_query_carry_bytes, optimal_position_chunk_size,
             population_chunk_for_query,
@@ -402,7 +425,7 @@ class TestChunkProductBudget:
 
     def test_fitting_configurations_still_uncapped(self):
         # d1-d6 slabs: position chunk covers the whole level, pop gate returns
-        # the full population -- byte-identical values, no new chunking.
+        # the full population: byte-identical values, no new chunking.
         from emr_hyperneat.execution.chunking import (
             optimal_position_chunk_size, population_chunk_for_query,
         )

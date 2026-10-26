@@ -1,12 +1,12 @@
 """Strategy 71S: Circadian Critical Symmetric (Critical Period Protection for Sin/Extremes).
 
-Extends CircadianCriticalDualStrategy to symmetric mode with winning patterns:
+Extends CircadianCriticalDualStrategy to symmetric mode with:
 - Critical period protection for sin and extreme aggregations
 - Affinity floors applied every generation
 - Memory cell crystallization for sustained performance
 - Cross-domain critical period coordination
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Phase-independent protection - sin/max/min bypass critical period gates
 2. Critical windows - non-protected functions have limited plasticity windows
 3. Cross-domain synchronization - critical periods align across domains
@@ -74,7 +74,7 @@ class CircadianCriticalSymmetricState:
 class CircadianCriticalSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with critical period dynamics and protection.
 
-    Applies winning patterns:
+    Mechanisms:
     - Protected indices bypass critical period restrictions
     - Affinity floors (sin=0.6, extreme_agg=0.5)
     - Memory cell crystallization (8 gens sustained)
@@ -92,7 +92,7 @@ class CircadianCriticalSymmetricStrategy(PaletteEvolutionStrategy):
         critical_period_length: int = 15,
         consolidation_threshold: float = 0.7,
         consolidated_plasticity: float = 0.1,  # Reduced plasticity after consolidation
-        # Protection parameters (winning patterns)
+        # Protection parameters
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
         protected_deactivation_prob: float = 0.001,  # 0.1%
@@ -135,7 +135,7 @@ class CircadianCriticalSymmetricStrategy(PaletteEvolutionStrategy):
         self.min_active_act = min_active_act
         self.min_active_agg = min_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

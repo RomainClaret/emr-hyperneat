@@ -3,7 +3,7 @@
 Combines BCM Metaplasticity (#15) with Aggregation-led extreme preference (#101).
 BCM threshold is LOWER for extreme aggs, creating automatic extreme bias.
 
-Key Innovation:
+Mechanism:
 - BCM sliding thresholds adapt based on function activity
 - Extreme aggregations (max/min) have permanent threshold discount
 - Sin also gets threshold discount for easier retention
@@ -38,7 +38,7 @@ class BCMExtremePreferenceDualStrategy(PaletteEvolutionStrategy):
     BCM sliding thresholds are biased to be lower for
     extreme aggregations (max/min), making them more likely to be retained.
 
-    Critical innovation: Differential thresholds create automatic preference.
+    Differential thresholds create automatic preference.
     """
 
     name = "bcm_extreme_preference_dual"
@@ -46,33 +46,33 @@ class BCMExtremePreferenceDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === BCM parameters ===
+        # BCM parameters
         bcm_threshold_lr: float = 0.1,
         bcm_window: int = 10,
         bcm_min_threshold: float = 0.2,
         bcm_max_threshold: float = 0.9,
         bcm_initial_threshold: float = 0.5,
-        # === Extreme preference ===
+        # Extreme preference
         extreme_bcm_discount: float = 0.3,
         discount_decay_per_capture: float = 0.1,
-        # === Sin preference ===
+        # Sin preference
         sin_idx: int = 4,
         sin_discount: float = 0.2,
-        # === Agg-led timing ===
+        # Agg-led timing
         agg_lead_generations: int = 15,
         agg_lead_act_mutation: float = 0.05,
         normal_act_mutation: float = 0.12,
         agg_lead_agg_mutation: float = 0.15,
         normal_agg_mutation: float = 0.08,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -220,7 +220,7 @@ class BCMExtremePreferenceDualStrategy(PaletteEvolutionStrategy):
 
         act_mutation_rate, agg_mutation_rate = self._get_mutation_rates(generation)
 
-        # === UPDATE BCM THRESHOLDS ===
+        # UPDATE BCM THRESHOLDS
         act_thresholds = state['act_thresholds']
         agg_thresholds = state['agg_thresholds']
         act_activity = state['act_activity']
@@ -286,7 +286,7 @@ class BCMExtremePreferenceDualStrategy(PaletteEvolutionStrategy):
 
         threshold_adjustments += 1
 
-        # === ACTIVATION UPDATE ===
+        # ACTIVATION UPDATE
         act_affinities = state['act_affinities']
         sin_captures = state['sin_captures']
 
@@ -309,7 +309,7 @@ class BCMExtremePreferenceDualStrategy(PaletteEvolutionStrategy):
                     new_idx = int(jax.random.choice(k4, jnp.array(candidates), p=probs))
                     act_mask = act_mask.at[new_idx].set(1.0)
 
-        # === AGGREGATION UPDATE ===
+        # AGGREGATION UPDATE
         agg_affinities = state['agg_affinities']
         extreme_captures = state['extreme_captures']
 

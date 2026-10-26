@@ -3,7 +3,7 @@
 Combines morphogen gradient spatial organization (strategy 31) with
 aggregation-led dual discovery (strategy 101) for spatial co-location.
 
-Key Innovation:
+Mechanism:
 - Sin and extreme aggregations are placed NEARBY in virtual space
 - Morphogen sources naturally co-activate spatially close functions
 - Spatial proximity creates implicit sin-extreme co-activation
@@ -42,14 +42,14 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
     description = "Dual: Morphogen gradients co-activate sin-extreme via spatial proximity"
 
     # Function positions in 2D virtual space
-    # KEY: Sin and extremes are clustered together!
+    # Sin and extremes are clustered together
     FUNCTION_POSITIONS = {
         # Monotonic cluster (top-left)
         0: (0.2, 0.8),   # identity
         1: (0.3, 0.7),   # tanh
         2: (0.1, 0.7),   # sigmoid
         3: (0.2, 0.6),   # relu
-        # SIN-EXTREME CLUSTER (bottom-right) - KEY INNOVATION
+        # SIN-EXTREME CLUSTER (bottom-right)
         4: (0.8, 0.2),   # sin - near extremes!
         # Other functions
         5: (0.3, 0.5),   # step
@@ -74,31 +74,31 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === SPATIAL CONFIGURATION (KEY INNOVATION) ===
+        # SPATIAL CONFIGURATION
         sin_position: Tuple[float, float] = (0.8, 0.2),
         max_position: Tuple[float, float] = (0.7, 0.3),
         min_position: Tuple[float, float] = (0.9, 0.3),
         n_sources: int = 3,
-        # === Gradient parameters ===
+        # Gradient parameters
         gradient_decay: float = 3.0,
         concentration_threshold: float = 0.35,
-        # === Source dynamics ===
+        # Source dynamics
         source_learning_rate: float = 0.10,
         source_momentum: float = 0.7,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Exploration ===
+        # Exploration
         exploration_rate: float = 0.20,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -383,7 +383,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === SUCCESS MEMORY ===
+        # SUCCESS MEMORY
         new_act_success = 0.9 * state['act_success']
         new_agg_success = 0.9 * state['agg_success']
         if improvement > 0:
@@ -396,14 +396,14 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
         new_act_success = jnp.clip(new_act_success, 0.0, 1.0)
         new_agg_success = jnp.clip(new_agg_success, 0.0, 1.0)
 
-        # === UPDATE SOURCES ===
+        # UPDATE SOURCES
         new_positions, new_strengths, new_velocities = self._update_sources(
             state['source_positions'], state['source_strengths'],
             state['source_velocities'], new_act_success, new_agg_success,
             state['act_mask'], state['agg_mask'], improvement
         )
 
-        # === COMPUTE CONCENTRATIONS ===
+        # COMPUTE CONCENTRATIONS
         new_act_conc = self._compute_concentrations(
             new_positions, new_strengths, self.act_positions, NUM_ACTIVATIONS
         )
@@ -411,7 +411,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
             new_positions, new_strengths, self.agg_pos_array, NUM_AGGREGATIONS
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff = state['act_affinities'] * self.affinity_decay
         new_agg_aff = state['agg_affinities'] * self.affinity_decay
         if improvement > 0:
@@ -426,7 +426,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_agg_aff[j] + self.agg_affinity_lr * improvement)
                     )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, _ = self._select_palette(
             new_act_aff, new_act_conc, NUM_ACTIVATIONS,
             self.min_active_act, self.max_active_act, self.min_diversity_act,
@@ -475,7 +475,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Morphogen metrics (KEY)
+            # Morphogen metrics
             'sin_concentration': float(new_act_conc[4]),
             'max_concentration': float(new_agg_conc[2]),
             'min_concentration': float(new_agg_conc[3]),

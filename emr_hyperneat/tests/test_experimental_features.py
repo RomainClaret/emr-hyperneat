@@ -5,12 +5,11 @@ Tests cover experimental and advanced features including:
 - critical_periods_config: Phase boundaries for dynamic functions plasticity
 - two_module_mode: Parallel vs sequential dual-module processing
 - generalist_bonus_type: Multi-task fitness bonuses/penalties
-- FULL_SPARSE mode: All-sparse forward pass mode
+- FULL_SPARSE mode: defined in the enum and refused (not implemented)
 - fitness_mode options: Different fitness functions (mse, accuracy, bce, etc.)
 """
 
 import pytest
-import jax.numpy as jnp
 
 from conftest import (
     EMRHyperNEAT,
@@ -25,16 +24,12 @@ from conftest import (
     assert_no_errors,
     assert_positive_fitness,
     XORProblem,
-    MultiTaskProblem,
-    NT_TASK_PRESETS,
     DEFAULT_SEED,
     QUICK_GENERATIONS,
 )
 
 
-# =============================================================================
 # Streaming Verbose Tests
-# =============================================================================
 
 class TestStreamingVerbose:
     """Tests for streaming_verbose output mode."""
@@ -79,112 +74,36 @@ class TestStreamingVerbose:
         assert_no_errors(result)
 
 
-# =============================================================================
 # Critical Periods Tests
-# =============================================================================
 
 class TestCriticalPeriods:
-    """Tests for dynamic functions critical periods configuration."""
+    """dynamic_functions.critical_periods is not implemented (HMR prints a line and changes no
+    mutation rate), so `enabled: True` raises; disabled is the default."""
 
     def test_critical_periods_disabled_by_default(self, algorithm, xor_problem):
         """Verify critical periods are disabled by default."""
         config = create_config_with_dynamic_functions('cppn_output_4')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Check that critical periods is disabled
         assert hasattr(algorithm, 'df_critical_periods_enabled')
         assert algorithm.df_critical_periods_enabled is False
 
-    def test_critical_periods_enabled(self, algorithm, xor_problem):
-        """Verify critical periods can be enabled."""
+    @pytest.mark.parametrize("phases", [{'phase1_end': 0.2, 'phase2_end': 0.5, 'min_plasticity': 0.3}, {}])
+    def test_critical_periods_enabled_raises(self, algorithm, phases):
         config = create_config_with_dynamic_functions('cppn_output_4')
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions']['critical_periods'] = {
-            'enabled': True,
-            'phase1_end': 0.2,
-            'phase2_end': 0.5,
-            'min_plasticity': 0.3,
-        }
-
-        config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
-
-        assert algorithm.df_critical_periods_enabled is True
-        assert algorithm.df_critical_periods_config['phase1_end'] == 0.2
-        assert algorithm.df_critical_periods_config['phase2_end'] == 0.5
-        assert algorithm.df_critical_periods_config['min_plasticity'] == 0.3
-
-    @pytest.mark.parametrize("phase1_end", [0.1, 0.2, 0.3])
-    def test_critical_periods_phase1_boundary(self, algorithm, xor_problem, phase1_end):
-        """Verify phase1_end boundary configuration."""
-        config = create_config_with_dynamic_functions('cppn_output_4')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions']['critical_periods'] = {
-            'enabled': True,
-            'phase1_end': phase1_end,
-            'phase2_end': 0.5,
-            'min_plasticity': 0.3,
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
-        assert algorithm.df_critical_periods_config['phase1_end'] == phase1_end
-
-    @pytest.mark.parametrize("phase2_end", [0.4, 0.5, 0.6, 0.7])
-    def test_critical_periods_phase2_boundary(self, algorithm, xor_problem, phase2_end):
-        """Verify phase2_end boundary configuration."""
-        config = create_config_with_dynamic_functions('cppn_output_4')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions']['critical_periods'] = {
-            'enabled': True,
-            'phase1_end': 0.2,
-            'phase2_end': phase2_end,
-            'min_plasticity': 0.3,
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
-        assert algorithm.df_critical_periods_config['phase2_end'] == phase2_end
-
-    @pytest.mark.parametrize("min_plasticity", [0.1, 0.3, 0.5])
-    def test_critical_periods_min_plasticity(self, algorithm, xor_problem, min_plasticity):
-        """Verify min_plasticity configuration."""
-        config = create_config_with_dynamic_functions('cppn_output_4')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions']['critical_periods'] = {
-            'enabled': True,
-            'phase1_end': 0.2,
-            'phase2_end': 0.5,
-            'min_plasticity': min_plasticity,
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
-        assert algorithm.df_critical_periods_config['min_plasticity'] == min_plasticity
-
-    def test_critical_periods_evolution_runs(self, algorithm, xor_problem):
-        """Verify evolution runs correctly with critical periods enabled."""
-        config = create_config_with_dynamic_functions('cppn_output_6')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions']['critical_periods'] = {
-            'enabled': True,
-            'phase1_end': 0.15,
-            'phase2_end': 0.45,
-            'min_plasticity': 0.25,
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
-        assert_positive_fitness(result)
+        hmr['dynamic_functions']['critical_periods'] = dict(enabled=True, **phases)
+        with pytest.raises(ValueError, match='critical_periods is not implemented'):
+            algorithm.create_config(config)
 
 
-# =============================================================================
 # Two Module Mode Tests
-# =============================================================================
 
 class TestTwoModuleMode:
-    """Tests for two_module_mode neuromodulation feature."""
+    """two_module_mode, feed-forward only: two-module mode refuses recurrence, so these tests run
+    feed-forward."""
 
     def test_two_module_mode_none_default(self, algorithm):
         """Verify two_module_mode defaults to 'none'."""
@@ -205,6 +124,7 @@ class TestTwoModuleMode:
             task_names=two_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
+            recurrence_preset='feedforward',
         )
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['multitask']['two_module_mode'] = 'parallel'
@@ -224,6 +144,7 @@ class TestTwoModuleMode:
             task_names=two_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
+            recurrence_preset='feedforward',
         )
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['multitask']['two_module_mode'] = 'sequential'
@@ -244,6 +165,7 @@ class TestTwoModuleMode:
             task_names=two_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
+            recurrence_preset='feedforward',
         )
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['multitask']['two_module_mode'] = mode
@@ -258,9 +180,7 @@ class TestTwoModuleMode:
         assert_no_errors(result, f"two_module_mode='{mode}' failed")
 
 
-# =============================================================================
 # Generalist Bonus Type Tests
-# =============================================================================
 
 class TestGeneralistBonusType:
     """Tests for generalist_bonus_type multi-task feature."""
@@ -379,32 +299,21 @@ class TestGeneralistBonusType:
         assert_no_errors(result, f"generalist_bonus_weight={weight} failed")
 
 
-# =============================================================================
 # FULL_SPARSE Forward Pass Mode Tests
-# =============================================================================
 
 class TestFullSparseMode:
-    """Tests for FULL_SPARSE forward pass mode (experimental)."""
+    """FULL_SPARSE forward pass mode: defined, and refused (not implemented)."""
 
     def test_full_sparse_enum_exists(self):
         """Verify FULL_SPARSE is defined in ForwardPassMode."""
         assert hasattr(ForwardPassMode, 'FULL_SPARSE')
         assert ForwardPassMode.FULL_SPARSE.value == "full_sparse"
 
-    @pytest.mark.skip(reason="FULL_SPARSE is experimental and may not be fully implemented")
-    def test_full_sparse_with_extreme_recurrence(self, algorithm, xor_problem):
-        """Verify FULL_SPARSE runs under full-recurrent settings.
-
-        Skipped, and correctly so: FULL_SPARSE does not deliver sparse h→h at all,
-        because the generation loop's h→h gates test for HYBRID_SPARSE_HH.
-        """
-        config = create_config_with_recurrence('full_recurrent')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        # FULL_SPARSE requires all connections to be sparse
-        hmr['recurrence']['force_full_sparse'] = True
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-        assert_no_errors(result)
+    def test_full_sparse_is_refused(self, algorithm):
+        """FULL_SPARSE is not implemented and is refused rather than run with no h->h
+        (test_configuration_parsing.py::TestForwardModeLabels)."""
+        with pytest.raises(NotImplementedError, match='FULL_SPARSE'):
+            algorithm.set_forward_mode(ForwardPassMode.FULL_SPARSE)
 
     def test_forward_pass_modes_enum_values(self):
         """Verify all ForwardPassMode enum values are defined."""
@@ -413,9 +322,7 @@ class TestFullSparseMode:
             assert hasattr(ForwardPassMode, mode), f"ForwardPassMode.{mode} not found"
 
 
-# =============================================================================
 # Fitness Mode Tests
-# =============================================================================
 
 class TestFitnessMode:
     """Tests for different fitness_mode options."""
@@ -578,31 +485,29 @@ class TestSingleTaskFitnessModes:
         assert_positive_fitness(result)
 
 
-# =============================================================================
 # Forward Pass Mode Auto-Detection Tests
-# =============================================================================
 
 class TestForwardPassModeDetection:
     """Tests for automatic forward pass mode detection and selection."""
 
     def test_dense_only_without_recurrence(self, algorithm, xor_problem):
-        """Verify DENSE_ONLY is used when no H→H connections exist."""
+        """Verify DENSE_ONLY is used when no H->H connections exist."""
         config = create_config_with_recurrence('feedforward')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
-        # Without H→H connections, should use DENSE_ONLY
+        # Without H->H connections, should use DENSE_ONLY
         # The algorithm should not fail
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
 
     def test_hybrid_mode_with_recurrence(self, algorithm, xor_problem):
-        """Verify HYBRID mode is used when H→H connections exist."""
+        """Verify HYBRID mode is used when H->H connections exist."""
         config = create_config_with_recurrence('hidden_only')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
-        # With H→H connections, should use HYBRID mode
+        # With H->H connections, should use HYBRID mode
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
         assert_positive_fitness(result)
@@ -624,9 +529,7 @@ class TestForwardPassModeDetection:
         assert ForwardPassMode.HYBRID_SPARSE_HH.value == "hybrid"
 
 
-# =============================================================================
 # Additional FULL_SPARSE Tests
-# =============================================================================
 
 class TestFullSparseModeDetails:
     """Additional tests for FULL_SPARSE forward pass mode details."""
@@ -650,15 +553,14 @@ class TestFullSparseModeDetails:
         assert str(ForwardPassMode.FULL_SPARSE.value) == "full_sparse"
 
 
-# =============================================================================
 # Combined Experimental Features Tests
-# =============================================================================
 
 class TestCombinedExperimentalFeatures:
     """Tests for combinations of experimental features."""
 
     def test_streaming_verbose_with_critical_periods(self, algorithm, xor_problem):
-        """Verify streaming_verbose works with critical_periods enabled."""
+        """streaming_verbose with per-node functions and a critical-periods block. The block is
+        disabled: enabled raises, since nothing in EMR applies it."""
         config = create_config_with_streaming(
             enable_streaming=True,
             population_chunk_size=50,
@@ -669,7 +571,7 @@ class TestCombinedExperimentalFeatures:
             'mode': 'cppn_output',
             'num_activations': 4,
             'critical_periods': {
-                'enabled': True,
+                'enabled': False,
                 'phase1_end': 0.2,
                 'phase2_end': 0.5,
                 'min_plasticity': 0.3,
@@ -706,6 +608,7 @@ class TestCombinedExperimentalFeatures:
             task_names=two_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
+            recurrence_preset='feedforward',
         )
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['multitask']['two_module_mode'] = 'parallel'
@@ -723,11 +626,12 @@ class TestCombinedExperimentalFeatures:
 
     @pytest.mark.slow
     def test_all_experimental_multi_task_features(self, algorithm, three_task_problems):
-        """Comprehensive test of all experimental multi-task features."""
+        """Two-module mode, a generalist bonus and hybrid fitness together, on three tasks."""
         config = create_config_with_multi_task(
             task_names=three_task_problems['task_names'],
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
+            recurrence_preset='feedforward',
         )
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
@@ -741,16 +645,14 @@ class TestCombinedExperimentalFeatures:
             algorithm, config,
             problems=three_task_problems['problems'],
             nt_vectors=three_task_problems['nt_vectors'],
-            generations=10,  # Slightly longer for comprehensive test
+            generations=10,  # Twice QUICK_GENERATIONS
             aggregation_method='mean',
         )
         assert_no_errors(result)
         assert_positive_fitness(result)
 
 
-# =============================================================================
 # Utility Method Tests
-# =============================================================================
 
 class TestUtilityMethods:
     """Tests for algorithm utility methods."""
@@ -760,7 +662,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         mode = algorithm.get_recurrence_mode()
         assert mode == 'feedforward'
@@ -770,10 +672,10 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_config_with_recurrence('hidden_only')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         mode = algorithm.get_recurrence_mode()
-        # hidden_only preset enables h→h without backward/lateral/self connections
+        # hidden_only preset enables h->h without backward/lateral/self connections
         # So it returns 'feedforward+hh' not 'hidden_only'
         assert mode == 'feedforward+hh'
 
@@ -782,7 +684,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_config_with_recurrence('full_recurrent')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         mode = algorithm.get_recurrence_mode()
         assert mode == 'full_recurrent'
@@ -792,7 +694,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_config_with_recurrence('hidden_only')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         extended_config = algorithm.get_extended_config()
         assert extended_config is not None
@@ -804,7 +706,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         extended_config = algorithm.get_extended_config()
         # Either None or disabled
@@ -815,9 +717,9 @@ class TestUtilityMethods:
         """Verify get_extended_metrics returns metrics after running a generation."""
         algorithm = EMRHyperNEAT()
         config = create_config_with_recurrence('hidden_only')
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
+        run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
-        metrics = algorithm.get_extended_metrics()
+        algorithm.get_extended_metrics()
         # May be None if not collecting extended metrics
         # Just verify it doesn't error
 
@@ -826,7 +728,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         metrics = algorithm.get_extended_metrics()
         assert metrics is None
@@ -836,7 +738,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Should not raise
         algorithm.refresh_problem_cache(xor_problem)
@@ -846,7 +748,7 @@ class TestUtilityMethods:
         algorithm = EMRHyperNEAT()
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Create a fresh XOR problem
         new_problem = XORProblem()
@@ -855,9 +757,7 @@ class TestUtilityMethods:
         algorithm.refresh_problem_cache(new_problem)
 
 
-# =============================================================================
 # Edge Case Combination Tests
-# =============================================================================
 
 class TestEdgeCaseCombinations:
     """Tests for edge case feature combinations."""
@@ -898,7 +798,7 @@ class TestEdgeCaseCombinations:
         # Add dynamic aggregation
         hmr['aggregation'] = {
             'mode': 'global',
-            'aggregation_func': 'mean',
+            'global_function': 'mean',
         }
 
         # Add neuromodulation
@@ -927,17 +827,18 @@ class TestEdgeCaseCombinations:
             'output_activation': 'tanh',
         }
 
-        # Add recurrence
-        hmr['extended'] = {
-            'recurrence_preset': 'hidden_only',
+        # Add recurrence (the block is `recurrence`; EMR refuses `extended`)
+        hmr['recurrence'] = {
+            'preset': 'hidden_only',
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
         assert_positive_fitness(result)
+        assert algorithm.extended_config.allow_hidden_to_hidden
 
     def test_all_features_combined(self, xor_problem):
-        """Comprehensive test: streaming + dynamic functions + aggregation + neuromod + recurrence."""
+        """Streaming, dynamic functions, aggregation, neuromodulation and recurrence together."""
         algorithm = EMRHyperNEAT()
         config = create_config_with_streaming(
             enable_streaming=True,
@@ -953,17 +854,19 @@ class TestEdgeCaseCombinations:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'aggregation_func': 'sum',
+            'global_function': 'sum',
         }
         hmr['neuromodulation'] = {
             'mode': 'static_gating',
             'gate_threshold': 0.2,
         }
-        hmr['extended'] = {
-            'recurrence_preset': 'hidden_only',
+        hmr['recurrence'] = {
+            'preset': 'hidden_only',
             'iteration_level': 2,
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
         assert_positive_fitness(result)
+        assert algorithm.extended_config.allow_hidden_to_hidden
+        assert algorithm.extended_config.iteration_level == 2

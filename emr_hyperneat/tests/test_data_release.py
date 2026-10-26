@@ -30,7 +30,7 @@ fr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(fr)
 
 
-# --- Offline: parsing the Zenodo response -------------------------------------
+# Offline: parsing the Zenodo response
 
 _FAKE_ZENODO = {
     "doi": "10.5281/zenodo.21383894",
@@ -70,7 +70,7 @@ def test_resolve_latest_errors_without_archive(monkeypatch):
         fr._resolve_latest()
 
 
-# --- Offline: checksum verification -------------------------------------------
+# Offline: checksum verification
 
 def test_verify_accepts_and_rejects_md5(tmp_path):
     f = tmp_path / "blob.bin"
@@ -82,7 +82,7 @@ def test_verify_accepts_and_rejects_md5(tmp_path):
         fr._verify(f, "0" * 32)  # wrong md5
 
 
-# --- Offline: unpack only papers/ + block path traversal ----------------------
+# Offline: unpack only papers/ + block path traversal
 
 def _make_targz(dest: Path, members: dict[str, bytes]) -> Path:
     with tarfile.open(dest, "w:gz") as tar:
@@ -119,7 +119,7 @@ def test_unpack_blocks_path_traversal(tmp_path, monkeypatch):
     assert not (tmp_path / "evil.json").exists()
 
 
-# --- Live: Zenodo is actually reachable and serving the archive ---------------
+# Live: Zenodo is actually reachable and serving the archive
 
 @pytest.mark.network
 def test_zenodo_live_resolves_and_reachable():

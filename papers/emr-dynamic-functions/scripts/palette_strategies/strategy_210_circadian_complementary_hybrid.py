@@ -1,10 +1,10 @@
-"""Strategy 50: Circadian Rhythm + Complementary Learning Hybrid.
+"""Strategy 210: Circadian Rhythm + Complementary Learning Hybrid.
 
 Combines the best features of:
 1. Circadian Rhythm (strategy 34): Intrinsic oscillatory gating - temporal structure
 2. Complementary Learning (strategy 23): Fast/slow memory systems - function tracking
 
-Key Insight:
+Rationale:
 - Circadian gates WHEN functions are available (temporal cycling)
 - Complementary Learning tracks WHICH functions work (memory systems)
 - Together: temporal structure + learned function preferences
@@ -15,12 +15,13 @@ Mechanism:
 3. Fast memory rapidly discovers useful functions
 4. Slow memory retains proven functions
 5. Consolidation transfers fast discoveries to slow memory
-6. Palette selection combines circadian activity × effective affinity
+6. Palette selection uses a weighted average of circadian activity and effective affinity
 
 Hybrid Activity Computation:
     circadian_activity = (1 - amplitude) + amplitude * (1 + cos(phase_diff)) / 2
     effective_affinity = slow_weight * slow + fast_weight * fast
-    combined = circadian_activity * effective_affinity
+    combined = (circadian_weight * circadian_activity + affinity_weight * effective_affinity)
+               / (circadian_weight + affinity_weight)
 
 This ensures:
 - Functions peak at their circadian phase
@@ -47,7 +48,7 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
 
     Circadian rhythm provides temporal gating structure.
     Complementary learning provides fast/slow memory for function tracking.
-    Selection combines both: activity = circadian × affinity
+    Selection combines both as a weighted average of circadian activity and affinity.
     """
 
     name = "circadian_complementary_hybrid"
@@ -90,7 +91,7 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
             fast_decay: Decay rate for fast memory
             slow_learning_rate: Learning rate for slow memory
             consolidation_interval: Generations between consolidation
-            consolidation_rate: Transfer rate fast → slow
+            consolidation_rate: Transfer rate fast -> slow
             fast_weight: Weight of fast system in affinity
             slow_weight: Weight of slow system in affinity
             circadian_weight: Weight of circadian in combined activity
@@ -229,8 +230,8 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
     ) -> jnp.ndarray:
         """Combine circadian gating with affinity scores.
 
-        Combined = circadian_weight × circadian + affinity_weight × affinity
-        Then normalize to [0, 1].
+        Combined = circadian_weight × circadian + affinity_weight × affinity,
+        normalized to [0, 1].
         """
         combined = (
             self.circadian_weight * circadian_activity +
@@ -395,7 +396,7 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Advance circadian clock
+        # Advance circadian clock
         phase_increment = 2 * jnp.pi / self.circadian_period
         new_circadian_phase = state['circadian_phase'] + phase_increment
         cycles_completed = state['cycles_completed']
@@ -403,21 +404,21 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
             new_circadian_phase = new_circadian_phase % (2 * jnp.pi)
             cycles_completed += 1
 
-        # Step 2: Update fast memory system
+        # Update fast memory system
         new_fast = self._update_fast_system(
             state['fast_affinity'],
             state['mask'],
             fitness_signal,
         )
 
-        # Step 3: Update slow memory system
+        # Update slow memory system
         new_slow = self._update_slow_system(
             state['slow_affinity'],
             state['mask'],
             fitness_signal,
         )
 
-        # Step 4: Check for consolidation
+        # Check for consolidation
         consolidation_metrics = {}
         gens_since_consolidation = generation - state['last_consolidation']
         did_consolidate = False
@@ -433,10 +434,10 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
             last_consolidation = state['last_consolidation']
             consolidation_count = state['consolidation_count']
 
-        # Step 5: Compute effective affinity
+        # Compute effective affinity
         effective_affinity = self._get_effective_affinity(new_fast, new_slow)
 
-        # Step 6: Adapt circadian phases (now influenced by affinity)
+        # Adapt circadian phases (influenced by affinity)
         new_phases = self._adapt_phases(
             state['function_phases'],
             state['mask'],
@@ -446,20 +447,20 @@ class CircadianComplementaryHybridStrategy(PaletteEvolutionStrategy):
             k1,
         )
 
-        # Step 7: Compute circadian activity
+        # Compute circadian activity
         circadian_activity = self._compute_circadian_activity(
             new_circadian_phase,
             new_phases,
             state['function_amplitudes'],  # Amplitudes don't adapt in hybrid
         )
 
-        # Step 8: Combine circadian activity with affinity
+        # Combine circadian activity with affinity
         combined_activity = self._compute_combined_activity(
             circadian_activity,
             effective_affinity,
         )
 
-        # Step 9: Select palette based on combined activity
+        # Select palette based on combined activity
         new_mask = self._select_palette(combined_activity)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

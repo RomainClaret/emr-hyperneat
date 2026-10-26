@@ -1,11 +1,11 @@
 """Strategy 87: Triple Hybrid Dual.
 
-Combines ALL THREE winners:
+Combines ALL THREE of these strategies:
 - Strategy 81 (Synaptic Tagging): Tag-and-capture consolidation (100% sin retention)
 - Strategy 82 (Homeostatic): Balance + discovery bonus (100% sin retention)
 - Strategy 74 (Cross-Domain Reinforcement): 2x learning when both domains change (67% Parity-5)
 
-Key innovation: Three-layer protection system with coordinated priority:
+Three-layer protection system with coordinated priority:
 1. Tagging every generation (marks candidates)
 2. Affinity updates with reinforcement (when BOTH domains change)
 3. Capture on improvement (requires tag + affinity threshold)
@@ -16,7 +16,7 @@ Bio inspiration: Neural circuits use multiple overlapping plasticity mechanisms 
 short-term tagging, long-term consolidation, homeostatic scaling, and modulatory
 reinforcement all work together to create stable, adaptive memory.
 
-Expected: 100% sin retention + improved Parity-5 solving through synergistic mechanisms.
+Expected: 100% sin retention + improved Parity-5 solving through the combined mechanisms.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -59,7 +59,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Tagging parameters (from strategy 81) ===
+        # Tagging parameters (from strategy 81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -67,32 +67,32 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
         fitness_delta_threshold: float = 0.01,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Homeostatic parameters (from strategy 82) ===
+        # Homeostatic parameters (from strategy 82)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         correction_strength: float = 1.8,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Reinforcement parameters (from strategy 74) ===
+        # Reinforcement parameters (from strategy 74)
         base_cross_learning_rate: float = 0.15,
         reinforcement_multiplier: float = 2.0,
         affinity_protection_threshold: float = 0.6,
         affinity_protection_strength: float = 0.5,
-        # === Triple protection parameters ===
+        # Triple protection parameters
         triple_protection_threshold: float = 0.7,  # All 3 mechanisms agree
         triple_protection_strength: float = 0.9,  # Near-total protection
         capture_affinity_threshold: float = 0.6,  # Affinity needed for capture
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         stagnation_threshold: int = 5,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -198,7 +198,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
     def get_active_agg_palette(self, state: Dict[str, Any]) -> List[int]:
         return mask_to_indices(state['agg_mask'])
 
-    # === MECHANISM 1: TAGGING (from 81) ===
+    # MECHANISM 1: TAGGING (from 81)
     def _update_tags(
         self,
         act_mask: jnp.ndarray,
@@ -230,7 +230,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
 
         return new_act_tags, new_agg_tags
 
-    # === MECHANISM 2: REINFORCEMENT (from 74) ===
+    # MECHANISM 2: REINFORCEMENT (from 74)
     def _update_cross_affinity_reinforced(
         self,
         cross_affinity: jnp.ndarray,
@@ -268,7 +268,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
 
         return new_affinity, reinforcement_events
 
-    # === MECHANISM 3: CAPTURE (requires tag + affinity) ===
+    # MECHANISM 3: CAPTURE (requires tag + affinity)
     def _attempt_capture_combined(
         self,
         act_tags: jnp.ndarray,
@@ -321,7 +321,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
 
         return new_act_captured, new_agg_captured, capture_count, cross_capture_count
 
-    # === MECHANISM 4: HOMEOSTATIC BALANCE (from 82) ===
+    # MECHANISM 4: HOMEOSTATIC BALANCE (from 82)
     def _compute_extreme_ratio(self, agg_mask: jnp.ndarray) -> float:
         """Compute current extreme/averaging ratio."""
         active_extreme = sum(1 for i in EXTREME_AGGS if agg_mask[i] > 0.5)
@@ -331,7 +331,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
             return 0.5
         return active_extreme / total
 
-    # === TRIPLE PROTECTION CHECK ===
+    # TRIPLE PROTECTION CHECK
     def _check_triple_protection(
         self,
         idx: int,
@@ -359,7 +359,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
         # Triple protection: captured + high affinity + critical
         return is_captured and high_affinity and is_critical
 
-    # === COMBINED MUTATION ===
+    # COMBINED MUTATION
     def _mutate_act_palette_triple(
         self,
         key: jax.random.PRNGKey,
@@ -535,7 +535,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === PRIORITY 1: TAGGING (every generation) ===
+        # PRIORITY 1: TAGGING (every generation)
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -545,7 +545,7 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === PRIORITY 2: REINFORCEMENT (affinity updates) ===
+        # PRIORITY 2: REINFORCEMENT (affinity updates)
         new_cross_affinity, reinforcement_events = self._update_cross_affinity_reinforced(
             state['cross_affinity'],
             state['act_mask'], state['agg_mask'],
@@ -553,17 +553,17 @@ class TripleHybridDualStrategy(PaletteEvolutionStrategy):
             improvement
         )
 
-        # === PRIORITY 3: CAPTURE (on improvement) ===
+        # PRIORITY 3: CAPTURE (on improvement)
         new_act_captured, new_agg_captured, capture_count, cross_capture_count = self._attempt_capture_combined(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_cross_affinity, new_tag_history, generation, improved
         )
 
-        # === PRIORITY 4: HOMEOSTATIC BALANCE ===
+        # PRIORITY 4: HOMEOSTATIC BALANCE
         extreme_ratio = self._compute_extreme_ratio(state['agg_mask'])
 
-        # === PRIORITY 5: MUTATIONS (with triple protection) ===
+        # PRIORITY 5: MUTATIONS (with triple protection)
         should_mutate = new_stagnation >= self.stagnation_threshold
         new_act_mask = state['act_mask']
         new_agg_mask = state['agg_mask']

@@ -2,16 +2,16 @@
 
 Hybrid combining Critical Period developmental windows with STDP temporal credit.
 
-Key synergies:
+How the two combine:
 1. Critical periods define when plasticity is high vs low
 2. STDP assigns temporal credit to functions that precede success
-3. NOVEL: Credit window SIZE shrinks as critical period closes
+3. Credit window SIZE shrinks as critical period closes
    - Early (open period): wide credit window (10 gens) - learn broad associations
    - Late (closed period): narrow credit window (2 gens) - only immediate causality
 4. Functions that accumulate credit during open periods are protected during closure
 
 Biological basis:
-- Critical periods in development have enhanced STDP-like plasticity
+- Critical periods in development have stronger STDP-like plasticity
 - Early sensory learning has broad temporal integration windows
 - Mature circuits have precise, narrow timing requirements
 - Combines developmental gating with causal learning

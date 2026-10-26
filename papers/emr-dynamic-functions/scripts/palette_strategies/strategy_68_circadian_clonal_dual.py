@@ -2,10 +2,10 @@
 
 Hybrid combining Circadian rhythm oscillations with Clonal selection dynamics.
 
-Key synergies:
+How the two combine:
 1. Master clock (period=20) provides global temporal structure
 2. Clonal affinity learning determines function fitness matching
-3. NOVEL: Clock gates hypermutation - explore during "night" (low activity), exploit during "day"
+3. Clock gates hypermutation - explore during "night" (low activity), exploit during "day"
 4. Phase entrainment weighted by affinity - high-affinity functions lock to clock faster
 
 Biological basis:

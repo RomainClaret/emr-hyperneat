@@ -11,7 +11,7 @@ Biological Basis:
 - Rhythms persist even without external cues (intrinsic)
 - Phase can be adjusted by environmental signals (entrainment)
 
-Key Insight:
+Rationale:
 - Current strategies are purely reactive (respond to fitness)
 - Circadian rhythms add intrinsic periodic structure
 - Functions become available at different phases
@@ -35,7 +35,7 @@ Circadian Mechanism:
         # Move successful function phases toward current clock phase
         function_phases[active] += learning_rate * sin(circadian_phase - phases[active])
 
-Expected improvements:
+Intended effects:
 - Natural exploration/exploitation cycles
 - Forced diversity through phase cycling
 - Phase adaptation learns optimal timing
@@ -62,7 +62,7 @@ class CircadianRhythmStrategy(PaletteEvolutionStrategy):
 
     Functions have individual phases and amplitudes. A master circadian clock
     advances each generation, and functions are active when their phase
-    aligns with the clock. Phases adapt based on fitness feedback.
+    is near the clock's phase. Phases adapt based on fitness feedback.
     """
 
     name = "circadian_rhythm"
@@ -354,7 +354,7 @@ class CircadianRhythmStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Advance master clock
+        # Advance master clock
         phase_increment = 2 * jnp.pi / self.circadian_period
         new_circadian_phase = state['circadian_phase'] + phase_increment
         cycles_completed = state['cycles_completed']
@@ -362,7 +362,7 @@ class CircadianRhythmStrategy(PaletteEvolutionStrategy):
             new_circadian_phase = new_circadian_phase % (2 * jnp.pi)
             cycles_completed += 1
 
-        # Step 2: Adapt function phases based on fitness (entrainment)
+        # Adapt function phases based on fitness (entrainment)
         new_phases = self._adapt_phases(
             state['function_phases'],
             state['mask'],
@@ -371,21 +371,21 @@ class CircadianRhythmStrategy(PaletteEvolutionStrategy):
             k1,
         )
 
-        # Step 3: Adapt amplitudes
+        # Adapt amplitudes
         new_amplitudes = self._adapt_amplitudes(
             state['function_amplitudes'],
             state['mask'],
             improvement,
         )
 
-        # Step 4: Compute new activity levels
+        # Compute new activity levels
         new_activity = self._compute_activity(
             new_circadian_phase,
             new_phases,
             new_amplitudes,
         )
 
-        # Step 5: Select palette based on activity
+        # Select palette based on activity
         new_mask = self._select_palette(new_activity)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

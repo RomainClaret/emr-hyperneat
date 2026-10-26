@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """CCM financial-dataset runtime: ES-HN vs EMR total runtime over 30 generations.
 
-Reads the real 30-generation runs in ``data/runs_ccm.json`` (CRSP/Compustat Merged data,
-94,464 samples, pop=100), with one ES-HN and one EMR run per depth (1-6). ES-HyperNEAT
-(PUREPLES, CPU) has no JIT, so its construction is not folded into generation 0
-(``construction_in_gen0`` is False); the EMR run (GPU) pays JIT as generation 0
-(``construction_in_gen0`` is True). That flag labels the two runs.
+Reads ``data/runs_ccm.json`` (CRSP/Compustat Merged data, pop=100), with one ES-HN and one
+EMR record per depth (1-6). Both methods were timed over 5 generations on a 5,000-observation
+subset of the 94,464-observation panel, so each total is a 30-generation projection.
+ES-HyperNEAT (a feed-forward Python port of PUREPLES's algorithm, on CPU) has no JIT: its
+construction is 0 by convention and its total is 30 times its per-generation time
+(``construction_in_gen0`` is False). The EMR run (GPU) pays JIT as generation 0
+(``construction_in_gen0`` is True), so its total is the JIT time plus 29 times its steady
+per-generation time. That flag labels the two runs.
 
 Output: per-depth ES-HN / EMR totals, the crossover speedup, and TikZ coordinates.
 """
@@ -27,7 +30,7 @@ def format_time(seconds):
 
 
 def load_ccm():
-    """Return {depth: {'es_hn': total_s, 'emr': total_s}} from the real runs.
+    """Return {depth: {'es_hn': total_s, 'emr': total_s}} from the CCM records.
 
     The CPU ES-HN run has no JIT (construction_in_gen0 == False); the EMR run of the
     pair pays JIT as generation 0 (construction_in_gen0 == True).

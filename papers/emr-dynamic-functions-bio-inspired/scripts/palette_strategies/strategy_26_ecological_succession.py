@@ -8,9 +8,9 @@ Biological/Ecological Basis:
 - Pioneer species: Hardy generalists that colonize first (grasses, lichens)
 - Intermediate species: Bridge between pioneers and specialists
 - Climax species: Specialists that dominate stable ecosystems (oak trees)
-- Succession is directional: generalist → specialist
+- Succession is directional: generalist -> specialist
 
-Key Insight:
+Rationale:
 - Early evolution needs stable, general-purpose functions (tanh, sigmoid)
 - Late evolution can afford specialized, complex functions (sin, burst)
 - Treating all generations equally wastes early exploration
@@ -30,10 +30,10 @@ Phases:
         - Low mutation rate (exploit what works)
         - Protect functions discovered during intermediate phase
 
-Expected improvements:
+Intended effects:
 - Faster early convergence (generalists provide stable base)
 - Better late-stage specialization (complex functions added when ready)
-- Natural curriculum learning (simple → complex)
+- Natural curriculum learning (simple -> complex)
 - Reduced random exploration in climax phase
 """
 
@@ -54,7 +54,7 @@ from .base_strategy import (
 class EcologicalSuccessionStrategy(PaletteEvolutionStrategy):
     """Developmental phases with different function preferences.
 
-    Evolution progresses through pioneer → intermediate → climax phases,
+    Evolution progresses through pioneer -> intermediate -> climax phases,
     with each phase having different exploration rates and function biases.
     """
 

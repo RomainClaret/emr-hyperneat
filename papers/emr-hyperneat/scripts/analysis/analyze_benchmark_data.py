@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Scaling summary + LaTeX table for the EMR-HyperNEAT paper.
 
-The per-generation scaling comparison (ES-HyperNEAT via PUREPLES vs EMR-HyperNEAT) is
-read from the real 30-generation runs in ``data/runs_eshn.json`` and
+The per-generation scaling comparison (EMR-HyperNEAT against ES-HyperNEAT, run as a
+feed-forward Python port of PUREPLES's algorithm) is read from ``data/runs_eshn.json`` and
 ``data/runs_emr_gpu.json``, using the steady-state per-generation time at pop=1000 (the
-figure's configuration). No values are extrapolated. The paper's statistical comparison
-(Mann-Whitney U, Cliff's delta) lives in ``run_statistical_validation.py`` and its
-committed ``statistical_validation_results.json``.
+figure's configuration). Those times are measured, except two EMR values: depth 7's 60 s,
+an estimate (that cell ran out of memory after generation 0), and one of depth 13's three
+seeds, projected from depth 12. The paper's statistical comparison (Mann-Whitney U, Cliff's
+delta) lives in ``run_statistical_validation.py`` and its committed
+``statistical_validation_results.json``.
 
 Usage:
     python analyze_benchmark_data.py
@@ -34,7 +36,10 @@ def steady_per_gen(runs_file, pop=1000):
 
 
 def analyze_scaling_data():
-    """Per-generation time: ES-HN (PUREPLES) vs EMR-HyperNEAT, real data, pop=1000."""
+    """Per-generation time: ES-HN (PUREPLES port) vs EMR-HyperNEAT, pop=1000.
+
+    The EMR value at depth 7 is the 60 s estimate (see the module docstring).
+    """
     eshn = steady_per_gen("runs_eshn.json")
     emr = steady_per_gen("runs_emr_gpu.json")
     depths = [d for d in sorted(eshn) if d in emr]
@@ -52,7 +57,10 @@ def analyze_scaling_data():
 
 
 def generate_latex_table():
-    """Generate the per-generation scaling LaTeX table from the real data."""
+    """Generate the per-generation scaling LaTeX table (pop=1000).
+
+    Its depth-7 EMR cell is the 60 s estimate (see the module docstring).
+    """
     eshn = steady_per_gen("runs_eshn.json")
     emr = steady_per_gen("runs_emr_gpu.json")
     depths = [d for d in sorted(eshn) if d in emr and d in POSITIONS]
@@ -118,7 +126,11 @@ def analyze_discrete_problems():
 
 
 def compute_scaling_factors():
-    """Per-depth-level slowdown factor for ES-HN vs EMR (real per-gen data)."""
+    """Per-depth-level slowdown factor for ES-HN vs EMR, from the pop=1000 steady times.
+
+    The EMR values include the depth-7 estimate and, at depth 13, a seed projected from
+    depth 12 (see the module docstring).
+    """
     eshn = steady_per_gen("runs_eshn.json")
     emr = steady_per_gen("runs_emr_gpu.json")
 

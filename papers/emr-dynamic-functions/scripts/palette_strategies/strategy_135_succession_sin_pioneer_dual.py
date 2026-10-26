@@ -1,9 +1,9 @@
 """Strategy 135: Succession-Sin-Pioneer Dual.
 
-Fixes the 0% sin retention bug in succession strategies by giving sin
-automatic pioneer status with founder protection.
+Targets the 0% sin retention of the succession strategies, such as Strategy 125, by
+giving sin automatic pioneer status with founder protection.
 
-Key Fix:
+Mechanism:
 - Sin has AUTOMATIC pioneer status from generation 0
 - Sin has very high founder protection (95%)
 - Extreme aggregations also get pioneer bonus
@@ -45,46 +45,46 @@ class SuccessionSinPioneerDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === SIN PIONEER FIX (CRITICAL) ===
+        # SIN PIONEER
         sin_pioneer_status: bool = True,
         sin_founder_protection: float = 0.95,
         extreme_agg_pioneer_bonus: float = 0.3,
         sin_founder_threshold: float = 0.4,
         regular_founder_threshold: float = 0.6,
-        # === SUCCESSION PHASES ===
+        # SUCCESSION PHASES
         pioneer_phase_until: int = 15,
         intermediate_phase_until: int = 40,
         pioneer_mutation_rate: float = 0.25,
         climax_protection: float = 0.9,
-        # === IMMUNE MEMORY ===
+        # IMMUNE MEMORY
         memory_capacity: int = 5,
         memory_lifespan: int = 50,
         founder_memory_bonus: float = 0.5,
-        # === AFFINITY ===
+        # AFFINITY
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === TAGGING ===
+        # TAGGING
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         extreme_tag_boost: float = 1.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === INITIAL ===
+        # INITIAL
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Succession-Sin-Pioneer strategy."""
-        # SIN PIONEER (CRITICAL)
+        # SIN PIONEER
         self.sin_pioneer_status = sin_pioneer_status
         self.sin_founder_protection = sin_founder_protection
         self.extreme_agg_pioneer_bonus = extreme_agg_pioneer_bonus
@@ -179,7 +179,7 @@ class SuccessionSinPioneerDualStrategy(PaletteEvolutionStrategy):
         for agg in CORE_EXTREME_AGGS:
             cross_affinity = cross_affinity.at[4, agg].set(0.7)
 
-        # CRITICAL: Sin as pioneer
+        # Sin as pioneer
         act_pioneers: Set[int] = {4} if self.sin_pioneer_status else set()
         act_founders: Set[int] = set()
         agg_pioneers: Set[int] = set(CORE_EXTREME_AGGS)

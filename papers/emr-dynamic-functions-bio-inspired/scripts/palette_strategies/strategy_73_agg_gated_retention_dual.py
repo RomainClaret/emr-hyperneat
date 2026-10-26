@@ -2,7 +2,7 @@
 
 Biological Basis: Thalamic gates control information flow and protect important pathways.
 
-Key mechanism: Track per-aggregation fitness attribution (ablation-style).
+Mechanism: Track per-aggregation fitness attribution (ablation-style).
 Aggregations that consistently contribute to fitness improvement get "locked"
 with very low deactivation probability. Prevents loss of functionally important
 aggregations during continual learning.

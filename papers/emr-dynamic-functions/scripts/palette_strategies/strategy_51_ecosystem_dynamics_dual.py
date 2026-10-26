@@ -3,7 +3,7 @@
 Extends EcosystemDynamicsStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using ecological succession and competition dynamics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual carrying capacity - separate resource limits for act and agg
 2. Dual succession stages - independent pioneer/intermediate/climax transitions
 3. Cross-domain keystones - successful act-agg pairs get keystone protection
@@ -32,7 +32,7 @@ from .base_strategy import (
 
 # Function roles in ecosystem - activation domain
 ACT_FUNCTION_ROLES = {
-    0: 'intermediate',   # tanh - versatile
+    0: 'intermediate',   # tanh - general-purpose
     1: 'climax',         # sigmoid - stable
     2: 'pioneer',        # relu - simple
     3: 'pioneer',        # identity - simplest
@@ -418,7 +418,7 @@ class EcosystemDynamicsDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update contributions in both domains
+        # Update contributions in both domains
         new_act_contrib = self._update_contribution(
             state['act_contribution'], state['act_mask'], improved, fitness_delta
         )
@@ -426,13 +426,13 @@ class EcosystemDynamicsDualStrategy(PaletteEvolutionStrategy):
             state['agg_contribution'], state['agg_mask'], improved, fitness_delta
         )
 
-        # Step 2: Identify keystones
+        # Identify keystones
         act_palette = mask_to_indices(state['act_mask'])
         agg_palette = mask_to_indices(state['agg_mask'])
         act_keystones = self._identify_keystones(new_act_contrib, act_palette)
         agg_keystones = self._identify_keystones(new_agg_contrib, agg_palette)
 
-        # Step 3: Update cross-domain affinity
+        # Update cross-domain affinity
         new_cross = self._update_cross_affinity(
             state['cross_affinity'],
             state['act_mask'],
@@ -440,7 +440,7 @@ class EcosystemDynamicsDualStrategy(PaletteEvolutionStrategy):
             fitness_delta,
         )
 
-        # Step 4: Check for disturbance
+        # Check for disturbance
         in_recovery = state['in_recovery']
         recovery_left = state['recovery_gens_left']
         act_community_age = state['act_community_age']
@@ -477,11 +477,11 @@ class EcosystemDynamicsDualStrategy(PaletteEvolutionStrategy):
             act_community_age += 1
             agg_community_age += 1
 
-        # Step 5: Determine succession stages
+        # Determine succession stages
         act_stage = self._get_succession_stage(act_community_age)
         agg_stage = self._get_succession_stage(agg_community_age)
 
-        # Step 6: Succession-based mutation in both domains
+        # Succession-based mutation in both domains
         new_act_mask = self._succession_mutate(
             new_act_mask, new_act_contrib, act_keystones, act_stage, k_act,
             self.act_carrying_capacity, self.min_active_act, ACT_FUNCTION_ROLES, NUM_ACTIVATIONS

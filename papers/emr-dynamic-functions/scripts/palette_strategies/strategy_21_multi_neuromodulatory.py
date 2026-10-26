@@ -8,11 +8,11 @@ Biological Basis:
 - Norepinephrine (NE): Arousal, urgency, fight-or-flight, exploration
 - Serotonin (5-HT): Mood, patience, long-term stability, impulse control
 
-Key Interactions:
-- ACh ↔ DA synergy: Attention amplifies reward signals
-- NE ↔ 5-HT opposition: Urgency vs patience trade-off
-- DA → ACh: High reward increases attention
-- 5-HT → DA: High serotonin dampens reward sensitivity
+Interactions:
+- ACh <-> DA synergy: Attention amplifies reward signals
+- NE <-> 5-HT opposition: Urgency vs patience trade-off
+- DA -> ACh: High reward increases attention
+- 5-HT -> DA: High serotonin dampens reward sensitivity
 
 For palette evolution:
 - ACh: Controls precision of affinity updates (low = broad, high = precise)
@@ -20,14 +20,14 @@ For palette evolution:
 - NE: Controls exploration rate (high = more mutation)
 - 5-HT: Controls retention rate (high = more stable, less change)
 
-Key mechanisms:
+Mechanisms:
 1. Neuromodulator dynamics: Each updates based on evolutionary state
 2. Interaction effects: Neuromodulators influence each other
 3. Behavioral modulation: Combined levels control exploration/exploitation
 4. State-dependent plasticity: Learning rules change based on neuromodulator balance
 
-Expected improvement over Strategy 7 (simple neuromodulation):
-- More nuanced exploration/exploitation balance
+Intended effects compared with Strategy 7 (simple neuromodulation):
+- Finer control of the exploration/exploitation balance
 - Better adaptation to different evolutionary phases
 - More stable long-term behavior (5-HT influence)
 - Better attention mechanisms (ACh influence)
@@ -461,7 +461,7 @@ class MultiNeuromodulatoryStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update neuromodulator levels
+        # Update neuromodulator levels
         new_ach, new_da, new_ne, new_serotonin, neuromod_metrics = self._update_neuromodulators(
             state['acetylcholine'],
             state['dopamine'],
@@ -472,12 +472,12 @@ class MultiNeuromodulatoryStrategy(PaletteEvolutionStrategy):
             improved,
         )
 
-        # Step 2: Compute behavioral modulation
+        # Compute behavioral modulation
         exploration_rate, learning_rate, retention_rate = self._compute_behavioral_modulation(
             new_ach, new_da, new_ne, new_serotonin
         )
 
-        # Step 3: Update affinity with modulated learning
+        # Update affinity with modulated learning
         new_affinity = self._update_affinity(
             state['function_affinity'],
             state['mask'],
@@ -486,7 +486,7 @@ class MultiNeuromodulatoryStrategy(PaletteEvolutionStrategy):
             new_ach,
         )
 
-        # Step 4: Update co-occurrence
+        # Update co-occurrence
         new_co_occurrence = self._update_co_occurrence(
             state['co_occurrence'],
             state['mask'],
@@ -494,7 +494,7 @@ class MultiNeuromodulatoryStrategy(PaletteEvolutionStrategy):
             new_ach,
         )
 
-        # Step 5: Compute protection with 5-HT modulation
+        # Compute protection with 5-HT modulation
         protection = self._compute_protection(
             new_affinity,
             new_co_occurrence,
@@ -502,7 +502,7 @@ class MultiNeuromodulatoryStrategy(PaletteEvolutionStrategy):
             new_serotonin,
         )
 
-        # Step 6: Apply mutation with modulated rates
+        # Apply mutation with modulated rates
         new_mask, mutation_info = self._mutate_palette(
             subkey,
             state['mask'],

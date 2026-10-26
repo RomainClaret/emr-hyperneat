@@ -11,7 +11,7 @@ Biological Basis:
 - This "sharpen and prune" cycle consolidates important learning
 - Proposed by Giulio Tononi and Chiara Cirelli
 
-Key Insight:
+Rationale:
 - Current strategies lack natural consolidation phases
 - Wake/sleep cycles create distinct learn vs consolidate modes
 - Global downscaling automatically prunes weak functions
@@ -33,7 +33,7 @@ Sleep Mechanism:
 
     # Cycle repeats
 
-Expected improvements:
+Intended effects:
 - Natural consolidation without explicit memory
 - Global downscaling prevents bloat
 - Sleep phases allow re-evaluation of palette

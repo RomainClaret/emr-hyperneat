@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""E-S22: Per-Task Activation × Topology at 3-Input.
+"""E-S22: Per-Task Activation x Topology at 3-Input.
 
-Completes the topology × activation × arity interaction matrix.
-The paper establishes:
-  - Topology neutral at 2-input (E-S5)
-  - Topology transformative at 3-input with uniform tanh (E-S12: 20% FF → 80% recurrent)
+Completes the topology x activation x arity interaction matrix.
+The paper reports:
+  - Topology neutral at 2-input (E-S5), an artifact: the 2-input topology runner evaluated
+    all six presets as one feed-forward network
+  - Topology transformative at 3-input with uniform tanh (E-S12: 20% FF -> 80% recurrent)
   - Per-task activation achieves 100% at 3-input with feedforward (E-S9)
 
 Missing cell: per-task activation + recurrence at 3-input.
 Expected: Both 100% (per-task already saturates at feedforward), but convergence
 speed may differ, recurrence could accelerate or slow down.
 
-Conditions (2 × 30 seeds = 60 runs):
+Conditions (2 x 30 seeds = 60 runs):
   1. pertask_feedforward, per-task activation, standard MLP
   2. pertask_full_recurrent, per-task activation, lateral connections, 3 recurrent steps
 
@@ -42,9 +43,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'pertask_topology_3input'
 
@@ -123,9 +122,7 @@ TASK_ACTIVATIONS = {
 
 ALL_CONDITIONS = ['pertask_feedforward', 'pertask_full_recurrent']
 
-# ============================================================================
 # Activation functions
-# ============================================================================
 
 ACTIVATION_MAP = {
     'sin': jnp.sin,
@@ -133,9 +130,7 @@ ACTIVATION_MAP = {
 }
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array, topology: str) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -170,9 +165,7 @@ def init_population(key: jax.Array, pop_size: int, topology: str) -> Dict[str, j
     return jax.vmap(lambda k: init_params(k, topology))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       activation_fn, topology: str,
@@ -224,9 +217,7 @@ def get_forward_fn(activation_name: str, topology: str):
     return _FORWARD_CACHE[cache_key]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, topology: str) -> Tuple[float, Dict[str, float]]:
     per_task = {}
@@ -251,9 +242,7 @@ def eval_single_multitask(params: Dict, topology: str) -> Tuple[float, Dict[str,
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -374,9 +363,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -432,9 +419,7 @@ def summarize_condition(results_dir: Path, condition: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

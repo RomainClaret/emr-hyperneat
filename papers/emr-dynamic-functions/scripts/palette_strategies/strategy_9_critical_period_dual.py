@@ -13,7 +13,7 @@ Three phases for EACH domain:
 2. Confirmation (gen 20-50): Prune unhelpful, confirm useful
 3. Consolidation (gen 50+): Lock confirmed
 
-Key innovation: Cross-domain confirmation - functions that persist together
+Cross-domain confirmation: functions that persist together
 across domains get stronger protection.
 
 Biological analogy:
@@ -281,7 +281,7 @@ class CriticalPeriodDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, List[int], List[int]]:
         """Apply phase-appropriate mutation to a palette.
 
-        Key constraint: max_active prevents antagonism (too many functions hurts).
+        Constraint: max_active prevents antagonism (too many functions hurts).
         """
         key1, key2 = jax.random.split(key)
 
@@ -311,7 +311,7 @@ class CriticalPeriodDualStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # CRITICAL: Skip if already at max
+                # Skip if already at max
                 if current_active + len(activated) >= max_active:
                     continue
 
@@ -363,7 +363,7 @@ class CriticalPeriodDualStrategy(PaletteEvolutionStrategy):
         phase = self._get_phase(generation)
         phase_changed = phase != state['phase']
 
-        # --- Update activation domain ---
+        # Update activation domain
         new_act_persistence, new_act_confirmed, new_act_fitness_sum, new_act_fitness_count = \
             self._update_persistence_and_confirmation(
                 state['act_mask'],
@@ -374,7 +374,7 @@ class CriticalPeriodDualStrategy(PaletteEvolutionStrategy):
                 state['act_fitness_count'],
             )
 
-        # --- Update aggregation domain ---
+        # Update aggregation domain
         new_agg_persistence, new_agg_confirmed, new_agg_fitness_sum, new_agg_fitness_count = \
             self._update_persistence_and_confirmation(
                 state['agg_mask'],
@@ -385,14 +385,14 @@ class CriticalPeriodDualStrategy(PaletteEvolutionStrategy):
                 state['agg_fitness_count'],
             )
 
-        # --- Update cross-domain co-persistence ---
+        # Update cross-domain co-persistence
         new_cross_copersistence = self._update_cross_copersistence(
             state['cross_copersistence'],
             state['act_mask'],
             state['agg_mask'],
         )
 
-        # --- Compute cross-domain protection ---
+        # Compute cross-domain protection
         act_cross_protection = self._compute_cross_protection(
             new_cross_copersistence,
             state['agg_mask'],
@@ -406,7 +406,7 @@ class CriticalPeriodDualStrategy(PaletteEvolutionStrategy):
             is_activation=False,
         )
 
-        # --- Apply mutations ---
+        # Apply mutations
         act_rates = (
             self.act_exploration_activate,
             self.act_confirmation_activate,

@@ -15,6 +15,25 @@ Design:
     - Seeds: 42-71 (N=30, same as existing pop=500 data)
     - Run ONE strategy+population per invocation (OOM safety)
 
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+aggregation variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-dynamic-functions --release 0.1.0 --` followed by a command
+of Usage without its `papers/emr-dynamic-functions/` prefix runs the original on 0.1.0. The EMR
+version runs the experiment as it ran, on EMR's defaults except where noted:
+    - Population 150, whatever the pop_size argument says: the HMR variant read population_size
+      (default 150) and ignored the neat.pop_size this runner passed. The argument is kept and
+      ignored. Every published arm ran at 150, so the arms labeled 200 and 1000 are the same
+      runs seed by seed; the EMR version runs them as they ran, and a record keeps the label in
+      pop_size and gives the population that ran in population.
+    - Each node's activation and aggregation come from CPPN outputs of their own (EMR's
+      aggregation block sits beside dynamic_functions), read from the node's self-connection
+      query; HMR averaged them over the node's input-to-node queries.
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - Results go to the bio-inspired paper's results/population_sensitivity_emr/, apart from the
+      published runs in its results/population_sensitivity/.
+
 Usage:
     python papers/emr-dynamic-functions/scripts/runners/E3_population_sensitivity.py --strategy circadian_rhythm_dual --pop_size 200
     python papers/emr-dynamic-functions/scripts/runners/E3_population_sensitivity.py --strategy baseline_dual --pop_size 1000
@@ -38,15 +57,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classification_problems import ParityProblem
-from emr_hyperneat._hmr_frozen.hmrhyperneat_dynamic_functions_aggregation import (
-    HMRHyperNEAT,
-)
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 from palette_strategies.base_strategy import NUM_ACTIVATIONS, ACTIVATION_NAMES
 from palette_strategies.strategy_52_circadian_rhythm_dual import CircadianRhythmDualStrategy
 from palette_strategies.strategy_47_baseline_dual import BaselineDualStrategy
 from palette_strategies.strategy_16_stdp_dual import STDPDualStrategy
 
 OSCILLATORY_INDICES = {4, 11, 12, 13, 15}
+
+# The population of every published run: HMR's aggregation variant read population_size
+# (default 150) and ignored the neat.pop_size this runner passed, so the pop_size argument never
+# took effect. The EMR version runs 150 and ignores the argument the same way.
+POPULATION = 150
 
 STRATEGY_MAP = {
     'circadian_rhythm_dual': CircadianRhythmDualStrategy,
@@ -95,19 +118,20 @@ def run_single_trial(
 
     algo_config = {
         'algorithm_params': {
-            'hmrhyperneat': {
-                'hmr_hyperneat': {
+            'emrhyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': 0.03,
+                    **hmr_rule_and_split(),
                     'dynamic_functions': {
                         'mode': 'cppn_output',
                         'palette': current_act_palette,
                         'palette_evolution': {'enabled': False},
-                        'aggregation': {
-                            'mode': 'cppn_output',
-                            'num_aggregations': 6,
-                        },
+                    },
+                    'aggregation': {
+                        'mode': 'cppn_output',
+                        'num_aggregations': 6,
                     },
                 },
                 'substrate': {
@@ -115,14 +139,14 @@ def run_single_trial(
                     'output_coords': output_coords,
                 },
                 'neat': {
-                    'pop_size': pop_size,
+                    'pop_size': POPULATION,
                     'species_size': 10,
                 },
             }
         }
     }
 
-    algo = HMRHyperNEAT()
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(algo_config)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -161,6 +185,7 @@ def run_single_trial(
     return {
         'strategy': strategy_name,
         'pop_size': pop_size,
+        'population': POPULATION,
         'seed': seed,
         'solved': solved_gen is not None,
         'solved_gen': solved_gen,
@@ -183,6 +208,7 @@ def _save_results(filepath: Path, strategy: str, pop_size: int, results: list):
     output = {
         'strategy': strategy,
         'pop_size': pop_size,
+        'population': POPULATION,
         'timestamp': datetime.now().isoformat(),
         'summary': {
             'n': n,
@@ -214,7 +240,8 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[3]
-    output_dir = project_root / 'papers' / 'emr-dynamic-functions-bio-inspired' / 'results' / 'population_sensitivity'
+    output_dir = (project_root / 'papers' / 'emr-dynamic-functions-bio-inspired' / 'results'
+                  / 'population_sensitivity_emr')
     os.makedirs(output_dir, exist_ok=True)
 
     result_file = output_dir / f'{args.strategy}_pop{args.pop_size}.json'
@@ -243,7 +270,8 @@ def main():
         print(f"Starting fresh: {args.strategy}, pop={args.pop_size}, N={len(seeds)}")
 
     print(f"\n{'='*60}")
-    print(f"POPULATION SENSITIVITY: {args.strategy} pop={args.pop_size}")
+    print(f"POPULATION SENSITIVITY: {args.strategy} pop={args.pop_size} "
+          f"(a label: population {POPULATION})")
     print(f"Problem: Parity-4, depth=4, gens={args.max_gens}")
     print(f"Seeds: {len(seeds)} ({seeds[0]}-{seeds[-1]})")
     print(f"{'='*60}\n")

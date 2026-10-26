@@ -3,7 +3,7 @@
 Implements elite preservation with sin-extreme seeding: top genomes
 periodically seed sin+extreme_agg combinations to next generation.
 
-Key Mechanism:
+Mechanism:
 - Elite genomes (top performers) get sin if missing (80% rate)
 - Elite genomes get max/min if missing (90% rate)
 - Re-seeding occurs at specific generations (0, 10, 20, 30)
@@ -36,7 +36,7 @@ class EliteSeedingDualStrategy(PaletteEvolutionStrategy):
     Top performers periodically receive sin and extreme
     agg "seeds" to ensure these critical functions remain in the palette.
 
-    Critical innovation: Periodic seeding at key generations reinforces the
+    Periodic seeding at key generations reinforces the
     importance of sin and extreme aggregations.
     """
 
@@ -45,33 +45,33 @@ class EliteSeedingDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === SEEDING PARAMETERS (CORE) ===
+        # SEEDING PARAMETERS (CORE)
         elite_sin_rate: float = 0.8,  # 80% of elite get sin if missing
         elite_extreme_rate: float = 0.9,  # 90% of elite get max/min if missing
         seeding_generations: List[int] = None,  # Re-seed at these gens
         seed_on_stagnation: bool = True,
         stagnation_seed_threshold: int = 10,
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         seeding_affinity_boost: float = 0.2,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         exploration_rate_act: float = 0.08,
         exploration_rate_agg: float = 0.10,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_after: int = 6,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -127,7 +127,7 @@ class EliteSeedingDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin and extreme in initial palette
+        # Ensure sin and extreme in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -323,7 +323,7 @@ class EliteSeedingDualStrategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > 0.5:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure sin and extreme aggs are never removed
+        # Ensure sin and extreme aggs are never removed
         new_act_mask = new_act_mask.at[4].set(1.0)
         for agg in CORE_EXTREME_AGGS:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

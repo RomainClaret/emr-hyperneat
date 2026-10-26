@@ -80,7 +80,7 @@ python -c "import jax; print(jax.devices())"   # want CudaDevice(...), not CpuDe
 If that prints `CpuDevice`, the `nvidia-*-cu12` wheels pip resolved are newer than your driver
 supports (they are unpinned; the lockfile pins only `jax`/`jaxlib`), and JAX falls back to CPU
 after a single `Unable to load cuSPARSE` warning. Pin the CUDA userspace to the generation
-`nvidia-smi` reports — for a 12.4 driver:
+`nvidia-smi` reports. For a 12.4 driver:
 
 ```bash
 pip install "nvidia-cublas-cu12==12.4.5.8" "nvidia-cusparse-cu12==12.3.1.170" \

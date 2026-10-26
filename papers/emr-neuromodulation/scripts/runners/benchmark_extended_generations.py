@@ -4,9 +4,9 @@
 WARNING / SCOPE: this script extends the *direct-encoded MLP* control (the same pipeline
 as benchmark_monotonic_ablation.py), which the paper reports has a much WEAKER barrier
 (~76.7% at 5-task) than the indirect EMR-HyperNEAT encoding. The paper's headline 0/54
-barrier is the INDIRECT encoding. Reviewer 4's "do they stay stuck at 10x generations?"
+barrier is the INDIRECT encoding. The review's "do they stay stuck at 10x generations?"
 question concerns the indirect barrier, which is tested by
-benchmark_extended_generations_indirect.py -- NOT this script.
+benchmark_extended_generations_indirect.py, NOT this script.
 
 Empirically, the direct-encoded 2-task XOR+AND converges ~96.7% at 1000 generations
 (median ~10 gens): direct encoding was never "stuck", so this run does not address the
@@ -35,9 +35,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).parent / 'results' / 'extended_generations'
 
@@ -74,9 +72,7 @@ ACTIVATION_MAP = {
 }
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -96,9 +92,7 @@ def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
     return jax.vmap(init_params)(keys)
 
 
-# ============================================================================
 # Forward pass (identical to benchmark_monotonic_ablation.py)
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
@@ -134,9 +128,7 @@ def get_forward_fn(activation_name: str):
     return _FORWARD_CACHE[activation_name]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, activation_name: str,
                           tasks: List[str]) -> Tuple[float, Dict[str, float]]:
@@ -160,9 +152,7 @@ def eval_single_multitask(params: Dict, activation_name: str,
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer (identical to verified pipeline)
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -283,9 +273,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -332,9 +320,7 @@ def summarize(results_dir: Path, condition: str, tag: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

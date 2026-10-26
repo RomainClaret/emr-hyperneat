@@ -3,7 +3,7 @@
 Combines Morphogen gradients (#31) with Critical Period (#9) and Aggregation-led (#101).
 Agg morphogen sources develop first, act sources follow toward them.
 
-Key Innovation:
+Mechanism:
 - Aggregations develop morphogen sources FIRST (agg-lead duration)
 - Activation mutations are attracted toward active agg source positions
 - Creates spatial coupling between act/agg development
@@ -38,7 +38,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
     Aggregations develop morphogen sources first,
     which then attract activation mutations.
 
-    Critical innovation: Spatial coupling through temporal leadership.
+    Spatial coupling through temporal leadership.
     """
 
     name = "morphogen_agg_led_dual"
@@ -46,29 +46,29 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Agg-led timing ===
+        # Agg-led timing
         agg_lead_duration: int = 20,
         agg_source_strength: float = 1.5,
-        # === Act-agg attraction ===
+        # Act-agg attraction
         act_agg_attraction: float = 0.2,
         sin_extreme_attraction: float = 0.35,
         sin_idx: int = 4,
-        # === Morphogen parameters ===
+        # Morphogen parameters
         morphogen_decay: float = 0.92,
         diffusion_rate: float = 0.15,
-        # === Mutation rates ===
+        # Mutation rates
         agg_lead_mutation_rate: float = 0.15,
         act_follow_mutation_rate: float = 0.10,
         normal_mutation_rate: float = 0.08,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -196,7 +196,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
 
         agg_lead_phase = self._is_agg_lead_phase(generation)
 
-        # === UPDATE MORPHOGEN FIELDS ===
+        # UPDATE MORPHOGEN FIELDS
         act_morphogen = state['act_morphogen'] * self.morphogen_decay
         agg_morphogen = state['agg_morphogen'] * self.morphogen_decay
 
@@ -216,7 +216,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
                     strength *= 1.5
                 agg_morphogen = agg_morphogen.at[i].add(strength * 0.3)
 
-        # === AGGREGATION UPDATE (leads during agg-lead phase) ===
+        # AGGREGATION UPDATE (leads during agg-lead phase)
         if agg_lead_phase:
             agg_mutation_rate = self.agg_lead_mutation_rate
         else:
@@ -236,7 +236,7 @@ class MorphogenAggLedDualStrategy(PaletteEvolutionStrategy):
                 agg_mask = agg_mask.at[new_idx].set(1.0)
                 agg_led_mutations += 1
 
-        # === ACTIVATION UPDATE (follows agg gradients) ===
+        # ACTIVATION UPDATE (follows agg gradients)
         if agg_lead_phase:
             act_mutation_rate = self.act_follow_mutation_rate
         else:

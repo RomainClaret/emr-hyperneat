@@ -16,7 +16,7 @@ import numpy as np
 from scipy import stats
 
 # Data from Table 12 (Tc = characteristic timescale in gens)
-# Using midpoints for ranges: 5-10→7.5, 50-100→75, ~20→20, ~50→50, >>100→200
+# Using midpoints for ranges: 5-10->7.5, 50-100->75, ~20->20, ~50->50, >>100->200
 strategies = [
     ('Hebbian',       'Temporal',      1,     90),
     ('Baseline',      'Random',        1,     70),
@@ -68,7 +68,7 @@ below_rates = [s for _, _, s in below]
 print(f"  → {sum(1 for s in below_rates if s >= 80)}/{len(below_rates)} achieve ≥80%")
 print()
 
-# Fisher's exact test for the 2x2 table: Tc≤20 vs Tc>20 × Solve≥80% vs Solve<80%
+# Fisher's exact test for the 2x2 table: Tc≤20 vs Tc>20 x Solve≥80% vs Solve<80%
 a = sum(1 for s in above_rates if s >= 80)  # Tc≤20 AND ≥80%
 b = sum(1 for s in above_rates if s < 80)   # Tc≤20 AND <80%
 c = sum(1 for s in below_rates if s >= 80)  # Tc>20 AND ≥80%

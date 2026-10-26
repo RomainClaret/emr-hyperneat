@@ -1,6 +1,7 @@
 """Strategy 19 Symmetric: Consolidation Window with Memory Cells and Affinity Floors.
 
-Extends ConsolidationWindowDual with winning patterns from eligibility_trace_symmetric:
+Extends ConsolidationWindowDual with memory cells and affinity floors, as in
+eligibility_trace_symmetric:
 - Working memory and long-term memory (LTM) for both domains
 - Periodic consolidation phases (sleep-like memory replay)
 - Memory cells from sustained high affinity
@@ -12,7 +13,7 @@ Biological Basis:
 - Long-term memory: Stable, resistant to interference
 - Consolidation phase: Low mutation, high replay, transfer to LTM
 
-Key additions:
+Additions:
 - Memory cells: Functions maintaining high affinity become permanent
 - Affinity floors: Sin and extreme aggs never drop below threshold
 - Discovery tracking: Track when critical functions are found
@@ -47,10 +48,10 @@ class ConsolidationPhase:
 class ConsolidationWindowSymmetricStrategy(PaletteEvolutionStrategy):
     """Sleep-like consolidation with memory cells for dual palette evolution.
 
-    Combines the periodic consolidation phases with memory cells
-    and affinity floors from the winning eligibility_trace strategy.
+    Combines the periodic consolidation phases with memory cells and
+    affinity floors, as in eligibility_trace_symmetric.
 
-    Key innovations:
+    Mechanisms:
     - Working memory decays quickly but learns fast during active phase
     - Long-term memory is stable and protected
     - Consolidation phases transfer proven patterns to LTM
@@ -299,7 +300,7 @@ class ConsolidationWindowSymmetricStrategy(PaletteEvolutionStrategy):
                 )
                 n_replay += 1
 
-            # Transfer: working → LTM for active high-value functions
+            # Transfer: working -> LTM for active high-value functions
             if (w_val >= self.replay_threshold or is_memory) and float(active[i]) > 0.5:
                 diff = float(new_working[i]) - float(ltm[i])
                 # Memory cells transfer faster

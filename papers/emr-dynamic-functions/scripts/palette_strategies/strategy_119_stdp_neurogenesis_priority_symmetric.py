@@ -4,11 +4,11 @@ Biological Basis: LTD (stagnation-correlated) regions have reduced birth rate.
 High LTD tracking identifies functions correlated with failure.
 Birth probability is REDUCED in high-LTD areas, INCREASED in high-LTP areas.
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. LTD tracking identifies stagnation-prone functions
 2. Birth probability is reduced in high-LTD regions
 3. LTP-guided birth priority for successful regions
-4. Protected indices for sin and extreme aggregations (0.1% deactivation)
+4. Protected indices for sin and extreme aggregations (always kept active)
 5. Affinity floors for guaranteed retention
 6. Memory cell crystallization for proven functions
 7. Initial palettes include critical functions from start
@@ -41,12 +41,15 @@ MIN_IDX = 3
 class STDPNeurogenesisPrioritySymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric STDP-guided birth priority for both domains.
 
-    Key improvements over dual version:
+    Differences from the dual version:
     - Protected indices for sin and extreme aggregations
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
     - Protected indices never get LTD (stagnation credit)
-    - Priority birth for sin/extremes when not present
+    - A larger birth boost for sin, max and min when missing (0.4, against 0.25 and 0.2)
+
+    Sin, max and min start active and no line removes a function, so the LTD exemption
+    and the birth boost never change the palettes.
     """
 
     name = "stdp_neurogenesis_priority_symmetric"
@@ -54,35 +57,35 @@ class STDPNeurogenesisPrioritySymmetricStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters ===
+        # STDP parameters
         ltp_window: int = 5,
         ltd_window: int = 3,
         ltp_rate: float = 0.20,
         ltd_rate: float = 0.15,
         stdp_decay: float = 0.85,
-        # === Birth priority parameters ===
+        # Birth priority parameters
         ltd_birth_inhibition: float = 0.5,
         ltp_birth_boost: float = 0.3,
         ltd_birth_threshold: float = 0.3,
         base_birth_rate: float = 0.12,
-        # === Protected function settings ===
+        # Protected function settings
         protected_birth_boost: float = 0.4,
         protected_deactivation_prob: float = 0.001,
-        # === Affinity floors ===
+        # Affinity floors
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
-        # === Memory cell parameters ===
+        # Memory cell parameters
         memory_formation_threshold: float = 0.75,
         memory_formation_count: int = 8,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -122,7 +125,7 @@ class STDPNeurogenesisPrioritySymmetricStrategy(PaletteEvolutionStrategy):
         self.max_active_act = max_active_act
         self.max_active_agg = max_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 
@@ -320,7 +323,7 @@ class STDPNeurogenesisPrioritySymmetricStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE STDP CREDIT ===
+        # UPDATE STDP CREDIT
         act_ltp = state['act_ltp'] * self.stdp_decay
         act_ltd = state['act_ltd'] * self.stdp_decay
         agg_ltp = state['agg_ltp'] * self.stdp_decay
@@ -366,7 +369,7 @@ class STDPNeurogenesisPrioritySymmetricStrategy(PaletteEvolutionStrategy):
         for idx in [MAX_IDX, MIN_IDX]:
             agg_ltp = agg_ltp.at[idx].set(jnp.maximum(agg_ltp[idx], 0.3))
 
-        # === ACTIVATION BIRTH WITH PRIORITY ===
+        # ACTIVATION BIRTH WITH PRIORITY
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates:
             probs = []
@@ -390,7 +393,7 @@ class STDPNeurogenesisPrioritySymmetricStrategy(PaletteEvolutionStrategy):
                     ltp_guided_births += 1
                 act_mask = act_mask.at[new_idx].set(1.0)
 
-        # === AGGREGATION BIRTH WITH PRIORITY ===
+        # AGGREGATION BIRTH WITH PRIORITY
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates:
             extremes_missing = [i for i in [MAX_IDX, MIN_IDX] if i in candidates]

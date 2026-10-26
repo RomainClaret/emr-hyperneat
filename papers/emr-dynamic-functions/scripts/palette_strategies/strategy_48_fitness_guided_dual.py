@@ -3,7 +3,7 @@
 Extends FitnessGuidedStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using elite population usage tracking.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual usage tracking - EMA weights for both act and agg domains
 2. Dual biased mutations - favor high-usage functions in both domains
 3. Cross-domain affinity - track which act-agg pairs appear in elite networks

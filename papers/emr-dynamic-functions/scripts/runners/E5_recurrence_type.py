@@ -7,6 +7,28 @@ with_backward, with_lateral, with_self, and full_recurrent.
 
 Expected: Some subset is sufficient. Possibly hidden_only alone collapses the divide.
 
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's full
+variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-dynamic-functions --release 0.1.0 --` followed by a command
+of Usage without its `papers/emr-dynamic-functions/` prefix runs the original on 0.1.0. The EMR
+version runs the experiment as it ran where EMR can, on EMR's defaults except where noted:
+    - Population 500 (this variant honored pop_size), tanh everywhere (global mode), Parity-4,
+      depth 2, up to 300 generations.
+    - The recurrent presets at iteration level 2, the level the published runs used (the preset
+      default is 1 from 0.2.0). The published runs settled by HMR's rule (`h = f(x W1)` once,
+      then `h = tanh(h + recurrent input)` at the later steps), kept the hidden-to-hidden connection
+      cache on and composed the multi-hop expansion through the population's union of active
+      positions. EMR settles by its own rule (`h = f(input drive + recurrent input)` at every
+      step), with the cache off and each genome's own connections: its defaults. The
+      feed-forward preset takes the same setting and has no hidden-to-hidden connections to
+      expand.
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults). The published configuration set
+      extra_randkey_split itself; the pin keeps it.
+    - Results go to results/recurrence_type_n30_emr/, apart from the published runs in
+      results/recurrence_type_n30/.
+
 Usage:
     python papers/emr-dynamic-functions/scripts/runners/E5_recurrence_type.py
     python papers/emr-dynamic-functions/scripts/runners/E5_recurrence_type.py --preset hidden_only
@@ -28,17 +50,12 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from classification_problems import ParityProblem
 
-from emr_hyperneat._hmr_frozen.hmrhyperneat_unified_extended_dynamic_functions_full import (
-    HMRHyperNEATUnifiedExtendedDynamicFunctions as UnifiedAlgo,
-    RECURRENCE_PRESETS,
-    ACTIVATION_LIST,
-)
+from emr_hyperneat.emrhyperneat import ACTIVATION_LIST, EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 
-# ============================================================================
 # Constants
-# ============================================================================
 
-OUTPUT_DIR = str(Path(__file__).resolve().parents[2] / "results" / "recurrence_type_n30")
+OUTPUT_DIR = str(Path(__file__).resolve().parents[2] / "results" / "recurrence_type_n30_emr")
 SEEDS = list(range(42, 72))  # 30 seeds: 42-71
 PRESETS = [
     'feedforward',
@@ -50,6 +67,10 @@ PRESETS = [
 ]
 TANH_INDEX = ACTIVATION_LIST.index('tanh')
 
+# The iteration level of the published runs: HMR's presets ran level 2. From 0.2.0 the presets
+# default to level 1, so the EMR version sets it.
+ITERATION_LEVEL = 2
+
 # Problem configuration
 N_BITS = 4
 POP_SIZE = 500
@@ -58,9 +79,7 @@ MAX_DEPTH = 2
 TARGET_FITNESS = 0.95
 
 
-# ============================================================================
 # Substrate coordinates
-# ============================================================================
 
 
 def make_input_coords(n_inputs: int) -> List[tuple]:
@@ -70,9 +89,7 @@ def make_input_coords(n_inputs: int) -> List[tuple]:
     return [(-1.0 + 2.0 * i / (n_inputs - 1), -1.0) for i in range(n_inputs)]
 
 
-# ============================================================================
 # Result I/O
-# ============================================================================
 
 
 def result_filepath(preset_name: str) -> str:
@@ -127,9 +144,7 @@ def build_result_dict(preset_name: str, results_list: List[dict]) -> Dict[str, A
     }
 
 
-# ============================================================================
 # Single trial runner
-# ============================================================================
 
 
 def run_single_seed(preset_name: str, seed: int) -> Dict[str, Any]:
@@ -141,14 +156,15 @@ def run_single_seed(preset_name: str, seed: int) -> Dict[str, Any]:
 
     algo_config = {
         'algorithm_params': {
-            'hmrhyperneat': {
-                'hmr_hyperneat': {
+            'emrhyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': MAX_DEPTH,
                     'variance_threshold': 0.03,
-                    'extra_randkey_split': True,
+                    **hmr_rule_and_split(),
                     'recurrence': {
                         'preset': preset_name,
+                        'iteration_level': ITERATION_LEVEL,
                     },
                     'dynamic_functions': {
                         'mode': 'global',
@@ -169,7 +185,7 @@ def run_single_seed(preset_name: str, seed: int) -> Dict[str, Any]:
         }
     }
 
-    algo = UnifiedAlgo()
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(algo_config)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -203,9 +219,7 @@ def run_single_seed(preset_name: str, seed: int) -> Dict[str, Any]:
     }
 
 
-# ============================================================================
 # Preset runner with incremental saves
-# ============================================================================
 
 
 def run_preset(preset_name: str) -> Dict[str, Any]:
@@ -246,9 +260,7 @@ def run_preset(preset_name: str) -> Dict[str, Any]:
     return build_result_dict(preset_name, results_list)
 
 
-# ============================================================================
 # Combined results and summary
-# ============================================================================
 
 
 def update_combined_results() -> Dict[str, Any]:
@@ -339,9 +351,7 @@ def show_status() -> None:
     print(f"\nTotal: {total_done}/{total_target} seeds ({total_done / total_target * 100:.0f}%)")
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 
 def main():

@@ -2,8 +2,10 @@
 """P1b: Timescale Rescaling Validation for Bio-Inspired Strategies.
 
 Tests whether compressing the characteristic timescale (Tc) of failed/borderline
-strategies recovers their performance on Parity-4. This is the key causal test
-for RQ3 (timescale compatibility hypothesis).
+strategies recovers their performance on Parity-4. It was designed as the causal test
+for RQ3 (timescale compatibility hypothesis), but its GRN arm does not test it: the
+rescaled GRN's activation palette ends at [16, 17] in 30 of 30 seeds, solved or not,
+because the argsort that selects it keeps the highest indices on ties.
 
 Strategies and their rescaled parameters:
     GRN (Tc >>100 -> ~10):
@@ -24,10 +26,28 @@ Strategies and their rescaled parameters:
         elite_bonus: 2.0 -> 10.0
 
 Design:
-    - Problem: Parity-4 (pop=500, 100 gens, depth=2, feedforward)
+    - Problem: Parity-4 (population 150, 100 gens, depth=2, feedforward).
     - Seeds: 42-71 (N=30 each)
     - Target fitness: 0.95
     - Run ONE strategy per invocation (OOM safety)
+
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+aggregation variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-dynamic-functions-bio-inspired --release 0.1.0 --` followed
+by a command of Usage without its `papers/emr-dynamic-functions-bio-inspired/` prefix runs the
+original on 0.1.0. The EMR version runs the experiment as it ran, on EMR's defaults except where
+noted:
+    - Population 150, whatever the pop_size argument says: the HMR variant read population_size
+      (default 150) and ignored the neat.pop_size this runner passed. The argument is kept and
+      ignored.
+    - Each node's activation and aggregation come from CPPN outputs of their own (EMR's
+      aggregation block sits beside dynamic_functions), read from the node's self-connection
+      query; HMR averaged them over the node's input-to-node queries.
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - Results go to results/timescale_rescaling_emr/, apart from the published runs in
+      results/timescale_rescaling/.
 
 Usage:
     python papers/emr-dynamic-functions-bio-inspired/scripts/runners/benchmark_bio_timescale_rescaling.py --strategy grn_rescaled
@@ -53,9 +73,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classification_problems import ParityProblem
-from emr_hyperneat._hmr_frozen.hmrhyperneat_dynamic_functions_aggregation import (
-    HMRHyperNEAT,
-)
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 from palette_strategies.base_strategy import NUM_ACTIVATIONS, ACTIVATION_NAMES
 
 # Import original strategy classes
@@ -64,6 +83,11 @@ from palette_strategies.strategy_38_glial_modulation import GlialModulationStrat
 from palette_strategies.strategy_32_ant_colony_pheromone import AntColonyPheromoneStrategy
 
 OSCILLATORY_INDICES = {4, 11, 12, 13, 15}
+
+# The population of every published run: HMR's aggregation variant read population_size
+# (default 150) and ignored the neat.pop_size this runner passed, so the pop_size argument never
+# took effect. The EMR version runs 150 and ignores the argument the same way.
+POPULATION = 150
 
 
 def create_rescaled_strategies() -> Dict[str, Any]:
@@ -156,19 +180,20 @@ def run_single_trial(
     # Build algo config
     algo_config = {
         'algorithm_params': {
-            'hmrhyperneat': {
-                'hmr_hyperneat': {
+            'emrhyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': 0.03,
+                    **hmr_rule_and_split(),
                     'dynamic_functions': {
                         'mode': 'cppn_output',
                         'palette': current_act_palette,
                         'palette_evolution': {'enabled': False},
-                        'aggregation': {
-                            'mode': 'cppn_output',
-                            'num_aggregations': 6,
-                        },
+                    },
+                    'aggregation': {
+                        'mode': 'cppn_output',
+                        'num_aggregations': 6,
                     },
                 },
                 'substrate': {
@@ -176,14 +201,14 @@ def run_single_trial(
                     'output_coords': output_coords,
                 },
                 'neat': {
-                    'pop_size': pop_size,
+                    'pop_size': POPULATION,
                     'species_size': 10,
                 },
             }
         }
     }
 
-    algo = HMRHyperNEAT()
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(algo_config)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -281,7 +306,7 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[3]
-    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'timescale_rescaling'
+    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'timescale_rescaling_emr'
     os.makedirs(output_dir, exist_ok=True)
 
     result_file = output_dir / f'{args.strategy}.json'
@@ -314,7 +339,7 @@ def main():
     print(f"TIMESCALE RESCALING: {args.strategy}")
     print(f"Description: {config['description']}")
     print(f"Rescaled params: {config['kwargs']}")
-    print(f"Problem: Parity-4, pop={args.pop_size}, depth={args.max_depth}, gens={args.max_gens}")
+    print(f"Problem: Parity-4, pop={POPULATION}, depth={args.max_depth}, gens={args.max_gens}")
     print(f"Target fitness: 0.95")
     print(f"Seeds: {len(seeds)} ({seeds[0]}-{seeds[-1]})")
     print(f"{'='*60}\n")

@@ -1,16 +1,20 @@
 """Strategy 11: Critical Period + Sticky Oscillatory Hybrid.
 
-Fixes Critical Period's aggressive pruning by adding sticky protection for
-oscillatory functions during the confirmation phase.
+Targets the low sin retention of Critical Period (Strategy 9) by giving oscillatory
+functions a low, sticky deactivation rate in every phase.
 
 The original Critical Period (Strategy 9) had:
 - 100% sin discovery at gen 2.0 (fastest!)
 - BUT only 7% sin retention (aggressive confirmation phase pruning)
 
 This hybrid adds:
-- Oscillatory functions use sticky (0.01) deactivation rate instead of 0.15
-- Confirmed oscillatory functions become fully protected
+- Oscillatory functions use the sticky deactivation rate (0.01) in every phase, where
+  the others use 0.02 (exploration), 0.15 (confirmation) and 0.01 (consolidation)
+- Consolidation starts early once the best fitness reaches 0.95
 - Maintains fast discovery while preserving useful functions
+
+As in Strategy 9, confirmed functions, oscillatory or not, are never deactivated
+during consolidation.
 
 Expected: 100% discovery @ 2 gens, 60%+ retention (vs 7%)
 """
@@ -47,15 +51,15 @@ class CriticalStickyStrategy(PaletteEvolutionStrategy):
     - Critical Period phases (fast discovery in exploration phase)
     - Sticky oscillatory protection (preserve discovered oscillatory functions)
 
-    Key fix: During confirmation phase, oscillatory functions use sticky
-    deactivation rate (0.01) instead of normal rate (0.15), preventing
-    the aggressive pruning that caused only 7% sin retention.
+    Oscillatory functions use the sticky deactivation rate (0.01) in every phase,
+    including confirmation, whose normal rate (0.15) pruned them in Strategy 9
+    and left only 7% sin retention.
 
     Phases:
     1. EXPLORATION: High activation (35%), minimal deactivation (2%)
        - Goal: Discover oscillatory functions quickly
     2. CONFIRMATION: Moderate activation (10%), pruning non-oscillatory (15%)
-       - Oscillatory functions protected with sticky rate (1%)
+       - Oscillatory functions keep the sticky rate (1%), as in every phase
     3. CONSOLIDATION: Lock in palette, minimal changes
     """
 
@@ -74,7 +78,7 @@ class CriticalStickyStrategy(PaletteEvolutionStrategy):
         confirmation_deactivate: float = 0.15,
         consolidation_activate: float = 0.02,
         consolidation_deactivate: float = 0.01,
-        # Sticky oscillatory protection (the key fix)
+        # Sticky oscillatory protection
         sticky_deactivate_rate: float = 0.01,
         # Confirmation tracking
         confirmation_persistence: int = 5,
@@ -202,9 +206,9 @@ class CriticalStickyStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply phase-appropriate mutation with sticky oscillatory protection.
 
-        Key difference from critical_period:
-        - Oscillatory functions use sticky_deactivate_rate during confirmation
-        - Confirmed oscillatory functions are fully protected
+        Unlike critical_period, oscillatory functions use sticky_deactivate_rate in
+        every phase. As in critical_period, confirmed functions (oscillatory or not)
+        are fully protected in consolidation.
         """
         key1, key2 = jax.random.split(key)
 
@@ -238,7 +242,7 @@ class CriticalStickyStrategy(PaletteEvolutionStrategy):
                 if is_oscillatory:
                     # STICKY: Oscillatory uses much lower rate
                     if phase == CriticalPeriodPhase.CONFIRMATION:
-                        # Key fix: Don't aggressively prune oscillatory during confirmation
+                        # Sticky rate in every phase; here it replaces confirmation_deactivate
                         actual_deact_rate = self.sticky_deactivate_rate
                     else:
                         actual_deact_rate = self.sticky_deactivate_rate

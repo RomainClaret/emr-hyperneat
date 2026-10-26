@@ -1,15 +1,15 @@
 """Strategy 98: STDP Extended Window Dual.
 
-Attempts to fix the broken STDP+Tag (89) by extending temporal windows:
+Variant of STDP+Tag (89) with extended temporal windows:
 - Problem: Strategy 89's LTD window (1-3 gens) depresses functions too quickly
   during domain shifts before they can prove useful
 - Hypothesis: Longer windows with proportionally reduced rates will allow
   functions to survive through domain transitions
 
-Key changes:
-- LTP window: 5 → 8 generations (more time to earn credit)
-- LTD window: 3 → 10 generations (slower depression)
-- LTD rate: 0.05 → 0.02 (gentler depression)
+Main differences from Strategy 89:
+- LTP window: 5 -> 8 generations (more time to earn credit)
+- LTD window: 3 -> 10 generations (slower depression)
+- LTD rate: 0.05 -> 0.02 (gentler depression)
 - LTD floor: 0.3 (minimum STDP weight, can't go below)
 
 Bio inspiration: Some synapses have naturally longer time constants. Extended
@@ -52,28 +52,28 @@ class STDPExtendedWindowDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Extended STDP parameters ===
+        # Extended STDP parameters
         ltp_window: int = 8,          # Extended from 5 (generations for LTP)
         ltd_window: int = 10,         # Extended from 3 (generations for LTD)
         ltp_rate: float = 0.08,       # LTP rate (slightly reduced for longer window)
         ltd_rate: float = 0.02,       # Reduced from 0.05 (gentler depression)
         ltd_min_weight: float = 0.3,  # Floor: minimum STDP weight
-        # === Tag-and-capture parameters ===
+        # Tag-and-capture parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):

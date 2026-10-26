@@ -1,6 +1,7 @@
 """Strategy 23 Symmetric: Complementary Learning with Memory Cells and Affinity Floors.
 
-Extends ComplementaryLearningDual with winning patterns from eligibility_trace_symmetric:
+Extends ComplementaryLearningDual with memory cells and affinity floors, as in
+eligibility_trace_symmetric:
 - Fast (hippocampus-like) and slow (cortex-like) systems for BOTH domains
 - Memory cells from sustained high affinity
 - Affinity floors for sin and extreme aggregations (CRITICAL for retention)
@@ -10,10 +11,10 @@ Extends ComplementaryLearningDual with winning patterns from eligibility_trace_s
 Biological Basis (Complementary Learning Systems):
 - Hippocampus: Rapid acquisition, high plasticity, volatile storage
 - Neocortex: Gradual consolidation, low plasticity, stable storage
-- Consolidation: Sleep-like transfer from fast→slow during replay phases
+- Consolidation: Sleep-like transfer from fast->slow during replay phases
 - Interleaved replay: Prevents catastrophic forgetting by mixing old and new
 
-Key additions:
+Additions:
 - Memory cells: Functions maintaining high affinity for 8+ gens become permanent
 - Affinity floors: Sin and extreme aggs never drop below threshold
 - protected_indices: Sin and extreme aggs get 0.1% deactivation rate
@@ -50,10 +51,10 @@ CORE_EXTREME_AGGS = [2, 3]  # max, min
 class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
     """Hippocampus-cortex dual memory with memory cells for dual palette evolution.
 
-    Combines the proven complementary learning systems with
-    memory cells and affinity floors from the winning eligibility_trace strategy.
+    Combines the complementary learning systems with memory cells and
+    affinity floors, as in eligibility_trace_symmetric.
 
-    Key innovations:
+    Mechanisms:
     - Fast/slow dual memory in both activation AND aggregation domains
     - Consolidation transfers proven functions from fast to slow
     - Interleaved replay prevents forgetting during consolidation
@@ -537,7 +538,7 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update fast systems (hippocampus-like)
+        # Update fast systems (hippocampus-like)
         new_act_fast = self._update_fast_system(
             state['act_fast'], state['act_mask'], fitness_signal
         )
@@ -545,7 +546,7 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_fast'], state['agg_mask'], fitness_signal
         )
 
-        # Step 2: Update slow systems (cortex-like)
+        # Update slow systems (cortex-like)
         new_act_slow = self._update_slow_system(
             state['act_slow'], state['act_mask'], fitness_signal,
             state['act_memory_cells']
@@ -555,12 +556,12 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_memory_cells']
         )
 
-        # Step 3: Apply affinity floors (CRITICAL for retention)
+        # Apply affinity floors (CRITICAL for retention)
         new_act_slow, new_agg_slow = self._apply_affinity_floors(
             new_act_slow, new_agg_slow
         )
 
-        # Step 4: Check for consolidation phase
+        # Check for consolidation phase
         consol_metrics = {}
         did_consolidate = False
         gens_since = generation - state['last_consolidation']
@@ -588,11 +589,11 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
                 'n_agg_consolidated': agg_consol['n_consolidated'],
             }
 
-        # Step 5: Compute effective affinities
+        # Compute effective affinities
         act_eff = self._get_effective_affinity(new_act_fast, new_act_slow)
         agg_eff = self._get_effective_affinity(new_agg_fast, new_agg_slow)
 
-        # Step 6: Update memory cells
+        # Update memory cells
         new_act_mem_counts, new_act_mem_cells = self._update_memory_cells(
             act_eff, state['act_mask'],
             state['act_memory_counts'], state['act_memory_cells']
@@ -602,7 +603,7 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_memory_counts'], state['agg_memory_cells']
         )
 
-        # Step 7: Update cross-domain affinity
+        # Update cross-domain affinity
         act_active = (state['act_mask'] > 0.5).astype(jnp.float32)
         agg_active = (state['agg_mask'] > 0.5).astype(jnp.float32)
         if fitness_signal >= 0:
@@ -611,7 +612,7 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
             cross_delta = self.cross_learning_rate * 0.3 * fitness_signal * jnp.outer(act_active, agg_active)
         new_cross = jnp.clip(state['cross_affinity'] + cross_delta, 0.0, 1.0)
 
-        # Step 8: Compute protection scores
+        # Compute protection scores
         act_prot = self._compute_protection(
             act_eff, new_act_slow, new_act_mem_cells, new_cross, state['agg_mask'], True
         )
@@ -619,7 +620,7 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
             agg_eff, new_agg_slow, new_agg_mem_cells, new_cross, state['act_mask'], False
         )
 
-        # Step 9: Apply mutations (with protected indices)
+        # Apply mutations (with protected indices)
         new_act_mask, act_mut = self._mutate_palette(
             k_act, state['act_mask'], act_prot, new_act_mem_cells, act_eff,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -631,7 +632,7 @@ class ComplementaryLearningSymmetricStrategy(PaletteEvolutionStrategy):
             protected_indices=CORE_EXTREME_AGGS,  # max, min are protected
         )
 
-        # Step 10: Track discoveries
+        # Track discoveries
         new_sin_gen, new_extreme_gen = self._track_discoveries(
             new_act_mask, new_agg_mask, generation,
             state['sin_discovered_gen'], state['extreme_agg_discovered_gen']

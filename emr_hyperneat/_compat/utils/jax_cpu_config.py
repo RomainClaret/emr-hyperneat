@@ -2,7 +2,7 @@
 JAX CPU Configuration with Warning Suppression
 
 This module configures JAX to use CPU backend and suppresses all Metal-related
-warnings on macOS. Import this BEFORE importing JAX in any module.
+warnings on macOS. Import this before importing JAX in any module.
 
 Usage:
     from emr_hyperneat._compat.utils import jax_cpu_config  # Import first!
@@ -126,7 +126,7 @@ def test_configuration():
     x = jnp.array([1.0, 2.0, 3.0])
     y = x * 2
     print(f"Test computation: {x} * 2 = {y}")
-    print("✓ Configuration successful - no warnings!")
+    print("Configuration successful - no warnings!")
 
 
 if __name__ == "__main__":

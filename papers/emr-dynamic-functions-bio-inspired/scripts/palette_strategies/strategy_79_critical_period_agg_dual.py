@@ -4,7 +4,7 @@ Bio inspiration: Different brain regions have different critical period timings.
 Visual cortex closes before auditory cortex. Similarly, aggregation functions
 should consolidate BEFORE activation functions to provide a stable foundation.
 
-Key innovation:
+Mechanism:
 - Aggregation critical period ends earlier (gen 12/28/30 vs 30/60/80 for activation)
 - Aggregation locks first, then activation explores on stable foundation
 - Extreme aggregations get extra protection during critical period

@@ -3,7 +3,7 @@
 Extends SynapticFatigueStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using synaptic fatigue dynamics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual fatigue tracking - separate fatigue for act and agg functions
 2. Dual base weights - independent learned weights in both domains
 3. Cross-domain fatigue coupling - high fatigue in one domain can affect other

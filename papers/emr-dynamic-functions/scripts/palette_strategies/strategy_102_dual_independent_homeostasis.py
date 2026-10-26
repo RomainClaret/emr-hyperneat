@@ -6,7 +6,7 @@ Aggregation-first approach with separate homeostatic systems for each domain:
 - Hypothesis: Independent homeostatic balance for each domain prevents
   cross-domain interference while still allowing coordinated captures
 
-Key mechanisms:
+Mechanisms:
 - Activation domain: Maintains target oscillatory ratio (sin, burst, resonator)
 - Aggregation domain: Maintains target extreme ratio (max, min)
 - Cross-domain interference factor: Limits how much one domain affects the other
@@ -55,31 +55,31 @@ class DualIndependentHomeostasisStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Independent homeostasis parameters ===
+        # Independent homeostasis parameters
         act_target_oscillatory_ratio: float = 0.40,  # Target 40% oscillatory in act
         agg_target_extreme_ratio: float = 0.60,       # Target 60% extreme in agg
         cross_domain_interference_factor: float = 0.2,  # How much domains affect each other
         homeostatic_strength: float = 0.3,            # Strength of homeostatic pressure
-        # === Tag-and-capture parameters ===
+        # Tag-and-capture parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Affinity learning ===
+        # Affinity learning
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -235,7 +235,7 @@ class DualIndependentHomeostasisStrategy(PaletteEvolutionStrategy):
         state['agg_affinities'] = agg_affinities
         state['prev_best_fitness'] = best_fitness
 
-        # === Compute INDEPENDENT homeostatic pressures ===
+        # Compute INDEPENDENT homeostatic pressures
         act_pressure = self._compute_homeostatic_pressure(
             state['act_mask'],
             self.act_target_oscillatory_ratio,

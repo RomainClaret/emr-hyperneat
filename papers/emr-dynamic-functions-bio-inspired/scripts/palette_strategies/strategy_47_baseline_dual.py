@@ -3,7 +3,7 @@
 Extends BaselineStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using uniform symmetric mutation.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual masks - separate masks for activation and aggregation
 2. Dual stagnation tracking - triggers mutation in both domains
 3. Cross-domain affinity - track which act-agg pairs work together

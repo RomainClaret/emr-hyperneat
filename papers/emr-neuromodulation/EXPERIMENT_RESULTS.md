@@ -12,31 +12,34 @@
 | Ablation | 744 | A | Varied architecture, Pop=750, 200 gen | 2-task compatibility (χ² stats) |
 | Validation (5-task) | 30 | B | Per-task activation, Pop=750, product | Validate 100% success |
 | Validation (2-task) | 300 | B | Per-task activation, Pop=750, 30 seeds/pair | Validate pair compatibility |
-| Component Ablation | 90 | B | 3 conditions × 30 seeds | Isolate critical components |
+| Component Ablation | 90 | B | 3 conditions x 30 seeds | Isolate critical components |
 | Schema A uniform n=30 | 300 | A | Uniform tanh, Pop=750, 30 seeds/pair | Table 2 column 1 |
 | Schema B uniform n=30 | 300 | B | Uniform tanh, Pop=750, 30 seeds/pair | Table 2 column 2 |
-| Topology Validation | 360 | B | 6 topologies × 30 seeds × 2 agg | Verify recurrence neutrality |
+| Topology Validation | 360 | B | 6 topologies x 30 seeds x 2 agg | Verify recurrence neutrality |
 | Uniform Sin Baseline | 30 | B | All sin, Pop=750, 30 seeds | Test if sin alone suffices |
 | Neuromod Ablation | 30 | B | Flat NT, per-task activation, 30 seeds | Test if neuromod is necessary |
-| Random NT (Exp 13) | 600 | B | 10 random NT sets × 30 seeds × 2 inv | W4: hand-design criticism |
-| Task Scaling (Exp 14) | 120 | B | 6/7/8/10 tasks × 30 seeds | W3: toy 5-task scale |
-| Sigma Sweep (Exp 15) | 180 | B | 6 strengths × 30 seeds | W: unjustified s=5.0 |
-| Deeper Substrate (Exp 16) | 120 | B | 3 depths uniform + d=6 control × 30 seeds | W2: single-layer |
+| Random NT (Exp 13) | 600 | B | 10 random NT sets x 30 seeds x 2 inv | Hand-designed vs random NT |
+| Task Scaling (Exp 14) | 120 | B | 6/7/8/10 tasks x 30 seeds | Test scaling beyond 5 tasks |
+| Sigma Sweep (Exp 15) | 180 | B | 6 strengths x 30 seeds | Test sensitivity to s (default 5.0) |
+| Deeper Substrate (Exp 16) | 120 | B | 3 depths uniform + d=6 control x 30 seeds | Test deeper substrates |
 | Gain/Bias Isolation | 30 | B | Flat NT + ACh polarity, 30 seeds | Isolate gain/bias from inversion |
-| Continuous Domain (Exp 18) | 90 |— | 3 tasks × 3 conditions × 30 seeds | Domain specificity test |
-| Multi-Head Control (E17) | 120 |— | 2 arch × 2 opt × 30 seeds | Architecture specificity |
-| Multi-Layer Neuromod (E18) | 300 | B | 5 depths × 2 act × 30 seeds | Multi-layer depth test |
-| Higher-Dim NT (E19) | 120 | B+ | 4 cond × 30 seeds | NT dimensionality test |
-| Multi-Layer 7-Task (E20) | 120 | B | 4 cond × 30 seeds | 7-task depth test |
-| IMPLY Barrier (E21) | 180 | B | 6 cond × 30 seeds | Activation-level mechanism |
-| Higher Arity (E22) | 120 | B | 4 cond × 30 seeds | 4-input barrier test |
-| Higher Arity Capacity (E22b) | 120 | B | 4 cond × 30 seeds | Capacity control |
-| Frozen Substrate (E24) | 120 | B | 4 cond × 30 seeds | Training vs eval barrier |
-| Higher Arity 5-Input (E25) | 120 | B | 4 cond × 30 seeds | 5-input barrier test |
-| Indirect Encoding Depth (E26) | 90 | B | 3 cond × 30 seeds | CPPN + depth |
-| Task Scaling 2-Layer (E27) | 120 | B | 4 cond × 30 seeds | 8/10-task scaling |
-| 2D Synthetic Classif. (E28) | 120 |— | 4 cond × 30 seeds | Domain generality |
+| Continuous Domain (Exp 18) | 90 | B | 3 tasks x 3 cond x 30 seeds | Domain specificity test |
+| Multi-Head Control (E17) | 120 | N/A | 2 arch x 2 opt x 30 seeds | Architecture specificity |
+| Multi-Layer Neuromod (E18) | 300 | B | 5 depths x 2 act x 30 seeds | Multi-layer depth test |
+| Higher-Dim NT (E19) | 120 | B+ | 4 cond x 30 seeds | NT dimensionality test |
+| Multi-Layer 7-Task (E20) | 120 | B | 4 cond x 30 seeds | 7-task depth test |
+| IMPLY Barrier (E21) | 180 | B | 6 cond x 30 seeds | Activation-level mechanism |
+| Higher Arity (E22) | 120 | B | 4 cond x 30 seeds | 4-input barrier test |
+| Higher Arity Capacity (E22b) | 120 | B | 4 cond x 30 seeds | Capacity control |
+| Frozen Substrate (E24) | 120 | B | 4 cond x 30 seeds | Training vs eval barrier |
+| Higher Arity 5-Input (E25) | 120 | B | 4 cond x 30 seeds | 5-input barrier test |
+| Indirect Encoding Depth (E26) | 90 | B | 3 cond x 30 seeds | CPPN + depth |
+| Task Scaling 2-Layer (E27) | 120 | B | 4 cond x 30 seeds | 8/10-task scaling |
+| 2D Synthetic Classif. (E28) | 120 | B | 4 cond x 30 seeds | Domain generality |
 | **Total** | **6,639** | | | |
+
+**Correction:** Continuous Domain and 2D Synthetic Classif. use Schema B's XOR, AND and OR
+vectors; the table listed none.
 
 ---
 
@@ -55,9 +58,9 @@
 - **IQR**: Q1=9, Q3=23
 
 ### Statistical Tests
-- **Rule of Three**: 95% upper bound on failure rate = 10% → true success rate ≥ 90%
+- **Rule of Three**: 95% upper bound on failure rate = 10% -> true success rate ≥ 90%
 - **Exact binomial**: P(30/30 | true_rate=0.90) = 0.042 (reject H₀: rate ≤ 0.90)
-- **Effect size**: Cohen's h ≈ 3.14 (theoretical maximum, comparing 0/54 baseline with 30/30)
+- **Effect size**: Cohen's h ~ 3.14 (theoretical maximum, comparing 0/54 baseline with 30/30)
 
 ### Per-Seed Data
 
@@ -109,7 +112,7 @@ All 30 seeds: 100% fitness on all 5 tasks (XOR, AND, OR, NAND, NOR). Every seed 
 **Config**: Pop=750, 200 generations, ≥98% threshold, 30 seeds per condition, Schema B.
 
 ### Condition A: Full Baseline (per-task activation + neuromodulation + product aggregation)
-- **Result**: 30/30 converged (100%)
+- **Result**: 30/30 converged (100%); the same seeds and per-seed generations as Section 1
 - **Median**: 14 generations | **Mean**: 15.9 | **SD**: 8.8
 - **95% CI**: [12.7, 19.2] | **Range**: 4–36
 
@@ -206,11 +209,11 @@ All 30 seeds: 100% fitness on all 5 tasks (XOR, AND, OR, NAND, NOR). Every seed 
 | Condition | Rate | Median Gen | Mean Gen | SD | 95% CI | Range |
 |-----------|------|-----------|---------|-----|--------|-------|
 | full_baseline | 30/30 (100%) | 14 | 15.9 | 8.8 | [12.7, 19.2] | 4–36 |
-| no_pertask_activation | 0/30 (0%) |— |— |— |— | all 0.75 |
+| no_pertask_activation | 0/30 (0%) | N/A | N/A | N/A | N/A | all 0.75 |
 | no_product_aggregation | 30/30 (100%) | 17 | 19.9 | 15.5 | [14.1, 25.7] | 3–78 |
 
 ### Key Finding
-Product aggregation is NOT required for success. It accelerates convergence by 1.2× (median 17 vs 14). Per-task activation IS required (0/30 without it). The old 5-seed estimate of 2.7× slowdown (median 19 vs 7) was inflated by small sample size.
+Product aggregation is not required for success. It accelerates convergence by 1.2x (median 17 vs 14). Per-task activation is required (0/30 without it). The old 5-seed estimate of 2.7x slowdown (median 19 vs 7) was inflated by small sample size.
 
 ---
 
@@ -218,7 +221,7 @@ Product aggregation is NOT required for success. It accelerates convergence by 1
 
 **Config**: Pop=750, 200 generations, ≥98% threshold, per-task activation, product aggregation, Schema B NT vectors, 30 seeds per pair.
 
-### Summary: ALL 10 Pairs → 100%
+### Summary: All 10 Pairs -> 100%
 
 | Pair | Convergence | Perfection | Schema A Rate (uniform tanh) |
 |------|-------------|------------|------------------------------|
@@ -234,7 +237,7 @@ Product aggregation is NOT required for success. It accelerates convergence by 1
 | NAND+NOR | 30/30 (100%) | 30/30 (100%) | 100% |
 
 ### Key Finding
-Per-task activation **completely eliminates** all compatibility barriers. The 2-task compatibility variation under uniform activation (Table 5 in paper) is entirely attributable to activation function mismatch. XOR+AND goes from 12.5% → 100%; OR+NOR goes from 41.7% → 100%.
+Per-task activation **completely eliminates** all compatibility barriers. The 2-task compatibility variation under uniform activation (Table 5 in paper) is entirely attributable to activation function mismatch. XOR+AND goes from 12.5% to 100%; OR+NOR goes from 41.7% to 100%.
 
 ---
 
@@ -299,6 +302,9 @@ NAND = AND + ACh inversion. NOR = OR + ACh inversion. Three unique modulatory pr
 | Benchmark 1,665 | See `docs/research/neuromodulation_statistical_analysis.md` |
 | Ablation 744 | See `docs/research/neuromodulation_ablation_study.md` |
 
+**Correction:** the first five locations above are not in the data release, so Sections 1 to 3
+cannot be recomputed from the public data.
+
 ---
 
 ## 7. Experiment Scripts
@@ -312,20 +318,20 @@ NAND = AND + ACh inversion. NOR = OR + ACh inversion. Three unique modulatory pr
 | Script | Purpose |
 |--------|---------|
 | `experiments/neuromodulation/run_validation_30seeds.py` | 25 additional 5-task validation seeds |
-| `experiments/neuromodulation/run_2task_ablation_schema_b.py` | All 10 pairs × seeds 1-24 with Schema B |
+| `experiments/neuromodulation/run_2task_ablation_schema_b.py` | All 10 pairs x seeds 1-24 with Schema B |
 | `experiments/neuromodulation/run_2task_extension_seeds25_30.py` | Extend 2-task from 24 to 30 seeds |
-| `experiments/neuromodulation/run_component_ablation.py` | 3 conditions × 5 seeds (original) |
-| `experiments/neuromodulation/run_component_ablation_extended.py` | 3 conditions × 25 seeds (extended to 30) |
-| `experiments/neuromodulation/run_2task_schema_a_uniform.py` | Schema A + uniform tanh, 10 pairs × 30 seeds |
-| `experiments/neuromodulation/run_2task_schema_b_uniform.py` | Schema B + uniform tanh, 10 pairs × 3 seeds (original) |
+| `experiments/neuromodulation/run_component_ablation.py` | 3 conditions x 5 seeds (original) |
+| `experiments/neuromodulation/run_component_ablation_extended.py` | 3 conditions x 25 seeds (extended to 30) |
+| `experiments/neuromodulation/run_2task_schema_a_uniform.py` | Schema A + uniform tanh, 10 pairs x 30 seeds |
+| `experiments/neuromodulation/run_2task_schema_b_uniform.py` | Schema B + uniform tanh, 10 pairs x 3 seeds (original) |
 | `experiments/neuromodulation/run_2task_schema_b_uniform_extension.py` | Extend Schema B uniform from 3 to 30 seeds |
-| `experiments/neuromodulation/multihead_palette_neuromodulation.py` | Core experiment runner |
+| `scripts/runners/multihead_palette_neuromodulation.py` | Core experiment runner |
 
 ---
 
 ## 8. Cross-Schema Comparison: Uniform Tanh 2-Task (n=30)
 
-**Config**: Pop=750, 100 generations, ≥98% threshold, feedforward, product aggregation, UNIFORM tanh (palette_mode='uniform'). 10 pairs × 30 seeds = 300 experiments per schema.
+**Config**: Pop=750, 100 generations, ≥98% threshold, feedforward, product aggregation, uniform tanh (palette_mode='uniform'). 10 pairs x 30 seeds = 300 experiments per schema.
 
 **Purpose**: Isolate activation function variable from NT schema variable with full statistical power. Both schemas now have n=30 per pair, matching the per-task activation condition.
 
@@ -346,12 +352,12 @@ NAND = AND + ACh inversion. NOR = OR + ACh inversion. Three unique modulatory pr
 
 ### Key Findings (strengthened at n=30)
 
-1. **Schema B NAND = AND at hidden layer**: Under Schema B, NAND has DA/5HT/NE=[0.10, 0.90, 0.10] (same as AND). Only ACh differs. Since ACh doesn't affect hidden layer modulation, XOR+NAND under Schema B behaves like XOR+AND → both 0%.
+1. **Schema B NAND = AND at hidden layer**: Under Schema B, NAND has DA/5HT/NE=[0.10, 0.90, 0.10] (same as AND). Only ACh differs. Since ACh doesn't affect hidden layer modulation, XOR+NAND under Schema B behaves like XOR+AND: both 0%.
 
 2. **Schema B NOR = OR at hidden layer**: NOR has DA/5HT/NE=[0.50, 0.50, 0.50] (same as OR). So:
-   - XOR+NOR ≈ XOR+OR (83.3% vs 86.7%, near-identical)
-   - OR+NOR = OR+OR effectively → 100% (no modulation conflict)
-   - AND+NOR = AND+OR effectively → 100%
+   - XOR+NOR ~ XOR+OR (83.3% vs 86.7%, near-identical)
+   - OR+NOR = OR+OR effectively -> 100% (no modulation conflict)
+   - AND+NOR = AND+OR effectively -> 100%
 
 3. **Activation function is the sole barrier**: XOR-containing pairs fail regardless of NT schema. Threshold-only pairs succeed in both schemas (with differences explained by effective modulation equivalences).
 
@@ -379,7 +385,7 @@ NAND = AND + ACh inversion. NOR = OR + ACh inversion. Three unique modulatory pr
 | Total ablation experiments | 744 | neuromodulation_ablation_study.md |
 | χ² for task count | 382.71 | neuromodulation_ablation_study.md |
 | Cramér's V | 0.717 | neuromodulation_ablation_study.md |
-| Logistic β (task count) | -1.521 | scripts/analysis/neuromodulation_statistical_analysis.py:758-822 |
+| Logistic β (task count) | -1.521 | neuromodulation_statistical_analysis.py:758-822 (private repository) |
 | XOR+AND convergence (Schema A, mixed-config n=24) | 12.5% (3/24) | neuromodulation_ablation_study.md |
 | XOR+AND convergence (Schema A, single-config n=30) | 0% (0/30) | ablation_schema_a_uniform/pair_xor+and.json |
 | XOR+OR convergence (Schema A, mixed-config n=24) | 79.2% (19/24) | neuromodulation_ablation_study.md |
@@ -401,8 +407,8 @@ NAND = AND + ACh inversion. NOR = OR + ACh inversion. Three unique modulatory pr
 |------|-------|
 | Converged | 180/180 (100%) |
 | Median | 9.5 generations |
-| Mean | 12.7 |
-| SD | 12.5 |
+| Mean | 12.7 (correction: 13.3; the six files repeat the same 30 seeds) |
+| SD | 12.5 (correction: 12.4 over the 30 seeds) |
 | 95% CI (bootstrap, median) | [5, 13] |
 | Range | 0–51 |
 
@@ -419,9 +425,9 @@ NAND = AND + ACh inversion. NOR = OR + ACh inversion. Three unique modulatory pr
 
 ### Key Finding
 
-**Recurrence is strictly neutral under both aggregation methods.** All six topologies produce **identical** convergence generation per seed: the same seed converges at the same generation regardless of recurrence configuration. This holds for both product and min aggregation.
+**Recurrence is strictly neutral under both aggregation methods.** All six topologies produce **identical** convergence generation per seed: the same seed converges at the same generation regardless of recurrence configuration. This holds for both product and min aggregation. **Correction:** the runner behind these files read a recurrent-weight attribute that the engine never sets and used a zero matrix instead, so every preset evaluated the same feed-forward network; the identity does not show that recurrence is neutral, and the effect of recurrent topology at 2-input is unknown. For min aggregation the identity holds only against `5task_min_feedforward_20260209_125607.json`: the folder's two earlier min feed-forward files (11 and 13 of 30 converged) match no recurrent preset on any seed.
 
-Min aggregation is ~1.9× slower than product (median 18 vs 9.5), consistent with the Component Ablation result (median 17 vs 14 for the 30-seed non-topology experiment).
+Min aggregation is ~1.9x slower than product (median 18 vs 9.5), consistent with the Component Ablation result (median 17 vs 14 for the 30-seed non-topology experiment).
 
 ### Per-Seed Convergence (all topologies identical)
 
@@ -471,7 +477,7 @@ Min aggregation is ~1.9× slower than product (median 18 vs 9.5), consistent wit
 | B1 product (6 topologies) | `results/topology_validation/5task_product_*.json` |
 | B2 min (6 topologies) | `papers/emr-neuromodulation/results/topology_validation/5task_min_*.json` |
 
-**Note**: B2 feedforward has 3 files (first two from pre-fix runs with 11/30 and 13/30 convergence). The canonical file is `5task_min_feedforward_20260209_125607.json` (30/30, post-fix).
+**Note**: B2 feedforward has 3 files (the first two from earlier runs, with 11/30 and 13/30 convergence). The canonical file is `5task_min_feedforward_20260209_125607.json` (30/30).
 
 **Script**: `experiments/neuromodulation/run_topology_validation.py`
 **Total runtime**: B1 ~11,066s (full_recurrent) to ~2,088s (feedforward); B2 similar range.
@@ -480,7 +486,7 @@ Min aggregation is ~1.9× slower than product (median 18 vs 9.5), consistent wit
 
 ## 11. Uniform Sin Baseline (Experiment A)
 
-**Config**: Pop=750, 200 generations, ≥98% threshold, ALL tasks use sin activation (uniform_sin), Schema B NT vectors, product aggregation, 30 seeds (1-30).
+**Config**: Pop=750, 200 generations, ≥98% threshold, all tasks use sin activation (uniform_sin), Schema B NT vectors, product aggregation, 30 seeds (1-30).
 
 **Purpose**: Test if sin activation alone suffices for all 5 tasks, or if diversity (sin for XOR, tanh for threshold) is structurally necessary.
 
@@ -508,7 +514,7 @@ Min aggregation is ~1.9× slower than product (median 18 vs 9.5), consistent wit
 
 ### Key Finding
 
-**Sin alone works for ALL 5 tasks.** The barrier is specifically *monotonic* activation (tanh), not lack of diversity. Sin can approximate threshold functions via its monotonically increasing region, while also handling parity natively. However, per-task assignment provides faster convergence: median 14 (per-task) vs 17 (uniform sin).
+**Sin alone works for all 5 tasks.** The barrier is specifically *monotonic* activation (tanh), not lack of diversity. Sin can approximate threshold functions via its monotonically increasing region, while also handling parity natively. However, per-task assignment provides faster convergence: median 14 (per-task) vs 17 (uniform sin).
 
 ### Data Location
 `papers/emr-neuromodulation/results/uniform_sin_baseline/`
@@ -519,11 +525,11 @@ Min aggregation is ~1.9× slower than product (median 18 vs 9.5), consistent wit
 
 ## 12. Neuromodulation Ablation (Experiment B)
 
-**Config**: Pop=750, 200 generations, ≥98% threshold, per-task activation (sin for XOR, tanh for threshold), FLAT NT vectors (identical [0.5, 0.5, 0.5, 1.0] for all tasks, ACh=1.0), product aggregation, 30 seeds (1-30).
+**Config**: Pop=750, 200 generations, ≥98% threshold, per-task activation (sin for XOR, tanh for threshold), flat NT vectors (identical [0.5, 0.5, 0.5, 1.0] for all tasks, ACh=1.0), product aggregation, 30 seeds (1-30).
 
 **Purpose**: Test if neuromodulation is structurally necessary or merely an accelerator. Per-task activation is retained, but all task-specific modulation is removed.
 
-### Result: 0/30 converged (0%), COMPLETE (all 30 seeds)
+### Result: 0/30 converged (0%) over all 30 seeds
 
 All 30 seeds plateau at min_fitness = 0.500.
 
@@ -536,7 +542,7 @@ All 30 seeds plateau at min_fitness = 0.500.
 
 ### Key Finding
 
-**Neuromodulation IS structurally necessary.** Without task-specific modulation:
+**Neuromodulation is structurally necessary.** Without task-specific modulation:
 - XOR succeeds (sin activation suffices without modulation for parity)
 - All four threshold tasks fail at exactly 50% (chance level for 2/4 patterns)
 - The network settles on a single decision threshold that gets 2/4 patterns correct for each threshold task
@@ -550,10 +556,10 @@ All 30 seeds plateau at min_fitness = 0.500.
 
 ---
 
-## 13. Random NT Vectors (Experiment 13: Strengthening W4)
+## 13. Random NT Vectors (Experiment 13)
 
 **Config**: Pop=750, 100 generations, ≥98% threshold, per-task activation, product aggregation, Schema B structure, 30 seeds per condition.
-**Purpose**: Test whether hand-designed NT vectors are critical or arbitrary. 10 random NT vector sets × 30 seeds × 2 inversion conditions = 600 runs.
+**Purpose**: Test whether hand-designed NT vectors are critical or arbitrary. 10 random NT vector sets x 30 seeds x 2 inversion conditions = 600 runs.
 
 ### Setup
 - **No inversion** (300 runs): Random DA/5HT/NE values, ACh=1.0 for all 5 tasks
@@ -571,21 +577,21 @@ All 30 seeds plateau at min_fitness = 0.500.
 
 | Set | Rate | Median Gen | Notes |
 |-----|------|-----------|-------|
-| 0 | 0/30 (0.0%) |— | |
+| 0 | 0/30 (0.0%) | N/A | |
 | 1 | 1/30 (3.3%) | 62 | |
-| 2 | 0/30 (0.0%) |— | |
+| 2 | 0/30 (0.0%) | N/A | |
 | 3 | 30/30 (100.0%) | 10 | Best random set |
 | 4 | 7/30 (23.3%) | 76 | |
-| 5 | 0/30 (0.0%) |— | |
-| 6 | 0/30 (0.0%) |— | |
+| 5 | 0/30 (0.0%) | N/A | |
+| 6 | 0/30 (0.0%) | N/A | |
 | 7 | 2/30 (6.7%) | 62 | |
-| 8 | 0/30 (0.0%) |— | |
-| 9 | 0/30 (0.0%) |— | |
+| 8 | 0/30 (0.0%) | N/A | |
+| 9 | 0/30 (0.0%) | N/A | |
 
 ### Key Findings
 
 1. **ACh polarity is the critical design decision**: 0/300 without inversion vs 40/300 with inversion. Without output inversion, NAND/NOR are structurally unsolvable since they require negating the AND/OR response.
-2. **NT vector geometry is NOT arbitrary**: Only 4/10 random sets achieve any success, and only 1/10 achieves 100%. The hand-designed NT vectors succeed because they satisfy specific modulatory geometry constraints, not by luck.
+2. **NT vector geometry is not arbitrary**: Only 4/10 random sets achieve any success, and only 1/10 achieves 100%. The hand-designed NT vectors succeed because they satisfy specific modulatory geometry constraints, not by luck.
 3. **One-in-ten match**: The best random set (set 3) achieves 100% with median 10 gen, comparable to hand-designed (median 14 gen). This shows the geometry constraints are satisfiable but specific.
 
 ### Data Location
@@ -595,10 +601,10 @@ All 30 seeds plateau at min_fitness = 0.500.
 
 ---
 
-## 14. Task Scaling (Experiment 14: Strengthening W3)
+## 14. Task Scaling (Experiment 14)
 
 **Config**: Pop=750, 100 generations, ≥98% threshold, per-task activation, product aggregation, extended NT profiles (Schema B style with ACh inversion for negated tasks), 30 seeds per task count.
-**Purpose**: Test scaling beyond 5 tasks. 4 task counts × 30 seeds = 120 runs.
+**Purpose**: Test scaling beyond 5 tasks. 4 task counts x 30 seeds = 120 runs.
 
 ### Extended Tasks
 - 6 tasks: XOR, AND, OR, NAND, NOR, XNOR
@@ -612,9 +618,9 @@ All 30 seeds plateau at min_fitness = 0.500.
 |-------|-----------|------|-----------|---------|-----|-------|-----------|
 | 5 (baseline) | 30/30 | 100% | 14 | 15.9 | 8.8 | 4–36 | 1.000 |
 | 6 (XNOR) | 30/30 | 100% | 16 | 18.2 | 13.2 | 3–63 | 1.000 |
-| 7 | 0/30 | 0% |— |— |— |— | 0.500 |
-| 8 | 0/30 | 0% |— |— |— |— | 0.658 |
-| 10 | 0/30 | 0% |— |— |— |— | 0.750 |
+| 7 | 0/30 | 0% | N/A | N/A | N/A | N/A | 0.500 |
+| 8 | 0/30 | 0% | N/A | N/A | N/A | N/A | 0.658 |
+| 10 | 0/30 | 0% | N/A | N/A | N/A | N/A | 0.750 |
 
 ### 6-Task XNOR Per-Seed Data
 
@@ -636,8 +642,8 @@ Sorted: [3, 3, 4, 5, 6, 6, 9, 11, 12, 12, 14, 14, 15, 16, 16, 17, 17, 17, 17, 18
 ### Key Findings
 
 1. **6-task succeeds trivially**: XNOR shares XOR's hidden-layer modulation (DA=0.95, 5HT=0.05, NE=0.95) with ACh=0.0 for output inversion. Compositionally related tasks add zero modulatory burden (median 16 gen, comparable to 5-task median 14).
-2. **Sharp cliff at 6→7 tasks**: 100% → 0%. Not a gradual degradation.
-3. **Honest limitation**: The current architecture (single-layer, fixed population) cannot scale beyond 6 Boolean tasks with per-task activation + neuromodulation.
+2. **Sharp cliff from 6 to 7 tasks**: 100% to 0%. Not a gradual degradation.
+3. **Limitation**: The current architecture (single-layer, fixed population) cannot scale beyond 6 Boolean tasks with per-task activation + neuromodulation.
 4. **Min_f diagnostic**: 7-task avg min_f=0.500 suggests some tasks at chance level, indicating the modulation space is saturated: 4D NT vectors cannot create 7 sufficiently distinct modulatory states.
 
 ### Data Location
@@ -647,10 +653,10 @@ Sorted: [3, 3, 4, 5, 6, 6, 9, 11, 12, 12, 14, 14, 15, 16, 16, 17, 17, 17, 17, 18
 
 ---
 
-## 15. Modulation Strength Sweep (Experiment 15: Strengthening W)
+## 15. Modulation Strength Sweep (Experiment 15)
 
 **Config**: Pop=750, 100 generations, ≥98% threshold, per-task activation, product aggregation, Schema B NT vectors, 30 seeds per strength value.
-**Purpose**: Test robustness to modulation strength s (default s=5.0). 6 strengths × 30 seeds = 180 runs.
+**Purpose**: Test robustness to modulation strength s (default s=5.0). 6 strengths x 30 seeds = 180 runs.
 
 ### Results
 
@@ -665,7 +671,7 @@ Sorted: [3, 3, 4, 5, 6, 6, 9, 11, 12, 12, 14, 14, 15, 16, 16, 17, 17, 17, 17, 18
 
 ### Key Findings
 
-1. **Robust across 40× range**: s=1.0 through s=20.0 all achieve 100% (120/120). Only s=0.5 shows slight degradation (93.3%).
+1. **Robust across 40x range**: s=1.0 through s=20.0 all achieve 100% (120/120). Only s=0.5 shows slight degradation (93.3%).
 2. **s=5.0 is not special**: Multiple values achieve equal or better convergence speed. s=2.0 is actually fastest (median 7 gen).
 3. **Low modulation weakens**: s=0.5 produces 2 failures (93.3%): insufficient modulation strength means NT vectors produce too-subtle gain/bias differences to separate tasks.
 4. **No upper ceiling observed**: Even s=20.0 works perfectly. Strong modulation doesn't cause instability.
@@ -677,7 +683,7 @@ Sorted: [3, 3, 4, 5, 6, 6, 9, 11, 12, 12, 14, 14, 15, 16, 16, 17, 17, 17, 17, 18
 
 ---
 
-## 16. Deeper Substrate (Experiment 16: Strengthening W2)
+## 16. Deeper Substrate (Experiment 16)
 
 **Config**: Pop=750, 100 generations, ≥98% threshold, product aggregation, Schema B NT vectors, 30 seeds per condition.
 **Purpose**: Test if deeper substrates (max_depth 4/5/6 vs default 3) can overcome the tanh barrier without per-task activation. 120 runs total (90 uniform + 30 per-head control). Runtime: 13.6h.
@@ -693,8 +699,11 @@ Sorted: [3, 3, 4, 5, 6, 6, 9, 11, 12, 12, 14, 14, 15, 16, 16, 17, 17, 17, 17, 18
 
 ### Key Findings
 
-1. **Barrier is mathematical, not architectural**: Increasing substrate depth from 3→4→5→6 has zero effect. All uniform tanh conditions plateau at exactly 0.750 (the XOR ceiling).
+1. **Barrier is mathematical, not architectural**: Increasing substrate depth from 3->4->5->6 has zero effect. All uniform tanh conditions plateau at exactly 0.750 (the XOR ceiling).
 2. **Deeper substrates cannot overcome monotonic activation limits**: A composition of monotonic functions is still monotonic. No depth of tanh layers can produce the oscillatory behavior XOR requires.
+   **Correction (findings 1 and 2):** the limit is not mathematical: tanh units with mixed-sign
+   weights represent XOR, and the 2-layer tanh MLP of Section 20 solves all five tasks in 30 of
+   30 runs.
 3. **Control confirmed**: depth=6 with per-task activation achieves 30/30 (100%, median 14 gen, range [4, 36]), identical to default-depth results. The barrier is activation-specific, not depth-related.
 
 ### Data Location
@@ -722,7 +731,7 @@ All 30 seeds show identical zero-variance pattern across all 100 generations:
 
 **Gain/bias modulation is structurally necessary for threshold differentiation.** With ACh polarity alone:
 - XOR solves via sin activation (no modulation needed for parity)
-- All threshold tasks plateau at 75% (3/4 patterns correct). The network finds ONE threshold that gets 3 of 4 Boolean patterns right, but cannot differentiate AND (θ≈1.5) from OR (θ≈0.5)
+- All threshold tasks plateau at 75% (3/4 patterns correct). The network finds one threshold that gets 3 of 4 Boolean patterns right, but cannot differentiate AND (θ≈1.5) from OR (θ≈0.5)
 - No evolution occurs. Fitness is constant from generation 0
 
 This creates a clean mechanistic hierarchy:
@@ -739,7 +748,16 @@ This creates a clean mechanistic hierarchy:
 
 ## 18. Continuous Domain (n=30)
 
-**Config**: 3 regression tasks × 3 activation conditions × 30 seeds = 90 runs. Standalone direct-encoded networks (not EMR-HyperNEAT). Tasks: periodic (y=sin(2πx)), monotonic (y=tanh(3x−1.5)), step (y=𝟙[x>0.5]), all normalized to [0,1]. (μ+λ)-ES, pop=200, 200 gens, fitness = 1−MSE, threshold ≥0.95.
+**Config**: 3 regression tasks x 3 activation conditions x 30 seeds = 90 runs. Standalone direct-encoded networks (not EMR-HyperNEAT). Tasks: periodic (y=sin(2πx)), monotonic (y=tanh(3x−1.5)), step (y=𝟙[x>0.5]), all normalized to [0,1]. (μ+λ)-ES, pop=200, 200 gens, fitness = 1−MSE, threshold ≥0.95.
+
+**Correction:** these runs did not use direct-encoded networks or a (μ+λ)-ES. The 90 per-seed
+records in `results/continuous_analogue/` (eight fields each, seeds 1 to 30 per condition) and
+its two summaries match the research runner
+`experiments/neuromodulation/run_continuous_analogue.py`, which evolves with NEAT the CPPNs of
+a neuromodulated 2-input substrate (maximum depth 4) on the HMR engine, at population 750 for
+200 generations, with Schema B's XOR, AND and OR vectors for the periodic, monotonic and step
+tasks. The records do not store the population or the generation budget; both are the runner's
+settings.
 
 ### Results
 
@@ -760,11 +778,13 @@ The per-task condition's bottleneck is predominantly the periodic task (12/17 fa
 ### Key Finding
 
 **Inverts the Boolean finding.** In continuous regression:
-- Uniform tanh is BEST (30/30, median 15 gen, fastest convergence)
-- Per-task activation HURTS (only 13/30, 43.3%)
-- Uniform sin is WORST (2/30, 6.7%, rugged fitness landscape for gradient-free search)
+- Uniform tanh is best (30/30, median 15 gen, fastest convergence)
+- Per-task activation hurts (only 13/30, 43.3%)
+- Uniform sin is worst (2/30, 6.7%, rugged fitness landscape for gradient-free search)
 
-The Boolean barrier is structural impossibility specific to discrete parity patterns, NOT a general function approximation limitation. Universal approximation means tanh neurons CAN fit smooth continuous functions via superposition. Sin creates rugged fitness landscapes: small weight perturbations cause large oscillatory output swings, making NEAT optimization harder. Tanh dominates because continuous regression on smooth targets is a fundamentally different computational problem.
+The Boolean barrier is structural impossibility specific to discrete parity patterns, not a general function approximation limitation. Universal approximation means tanh neurons can fit smooth continuous functions via superposition. Sin creates rugged fitness landscapes: small weight perturbations cause large oscillatory output swings, making NEAT optimization harder. Tanh dominates because continuous regression on smooth targets is a fundamentally different computational problem.
+**Correction:** the paper calls the Boolean barrier an evolutionary search barrier, not a
+representational limit.
 
 ### Data Location
 `papers/emr-neuromodulation/results/continuous_analogue/`
@@ -777,11 +797,11 @@ The Boolean barrier is structural impossibility specific to discrete parity patt
 
 ## 19. Multi-Head Architectural Control (E17)
 
-**Config**: Standalone direct-encoded MLPs (not EMR-HyperNEAT). 5 Boolean tasks (XOR, AND, OR, NAND, NOR) learned simultaneously via 5 output heads (one per task). No neuromodulation. N_HIDDEN=10, tanh hidden, sigmoid output. 2 architectures × 2 optimizers × 30 seeds = 120 runs.
+**Config**: Standalone direct-encoded MLPs (not EMR-HyperNEAT). 5 Boolean tasks (XOR, AND, OR, NAND, NOR) learned simultaneously via 5 output heads (one per task). No neuromodulation. N_HIDDEN=10, tanh hidden, sigmoid output. 2 architectures x 2 optimizers x 30 seeds = 120 runs.
 
 ### Architectures
-- **1-layer**: 2 → 10 (tanh) → 5 (sigmoid)
-- **2-layer**: 2 → 10 (tanh) → 10 (tanh) → 5 (sigmoid)
+- **1-layer**: 2 -> 10 (tanh) -> 5 (sigmoid)
+- **2-layer**: 2 -> 10 (tanh) -> 10 (tanh) -> 5 (sigmoid)
 
 ### Optimizers
 - **(μ+λ)-ES**: pop=750, σ=0.3, μ=10% (75 parents), 100 generations
@@ -798,9 +818,9 @@ The Boolean barrier is structural impossibility specific to discrete parity patt
 
 ### Key Findings
 
-1. **Even 1-layer multi-head tanh solves all 5 tasks** (80% ES, 100% Adam). The barrier is NOT tanh networks in general. It's the single-output neuromodulated architecture specifically.
+1. **Even 1-layer multi-head tanh solves all 5 tasks** (80% ES, 100% Adam). The barrier is not tanh networks in general. It's the single-output neuromodulated architecture specifically.
 2. **Multi-head eliminates the XOR ceiling**: Separate output weights per task allow different feature combinations from the same hidden layer. XOR gets its own output weights that can combine tanh features into alternating patterns.
-3. **Depth helps ES but not Adam**: 2-layer ES improves from 80%→93.3%, while Adam achieves 100% regardless. The remaining ES failures are search failures, not architectural impossibility.
+3. **Depth helps ES but not Adam**: 2-layer ES improves from 80% to 93.3%, while Adam achieves 100% regardless. The remaining ES failures are search failures, not architectural impossibility.
 4. **Architecture-specific diagnosis**: The neuromodulation paper's barrier is specific to: (a) single shared output, (b) gain/bias modulation requiring task discrimination, (c) single hidden layer with uniform activation. Multi-head architectures sidestep (a) entirely but sacrifice substrate reuse.
 
 ### Data Location
@@ -813,7 +833,7 @@ The Boolean barrier is structural impossibility specific to discrete parity patt
 ## 20. Multi-Layer Neuromodulated MLP (E18)
 
 **Config**: Direct-encoded MLPs with neuromodulation, 1/2/3 hidden layers (10 neurons each), Schema B NT vectors, s=5.0, (μ+λ)-ES (pop=750, μ=75, σ=0.3), 100 generations, ≥98% threshold, 30 seeds per condition.
-**Purpose**: Test whether multi-layer depth overcomes the 75% barrier in neuromodulated single-output architectures. Resolves limitation (8).
+**Purpose**: Test whether multi-layer depth overcomes the 75% barrier in neuromodulated single-output architectures.
 
 ### Results
 
@@ -829,15 +849,15 @@ The Boolean barrier is structural impossibility specific to discrete parity patt
 ### Statistical Tests
 
 - **1L vs 2L tanh**: Fisher's exact p=0.011 (barrier eliminated by depth)
-- **Pertask 1L vs tanh 2L speed**: Mann-Whitney U=40, p=5.65e-10 (pertask 4× faster)
-- **Parameter overhead**: 81 (1-layer) vs 231 (2-layer) = 2.9× more parameters
+- **Pertask 1L vs tanh 2L speed**: Mann-Whitney U=40, p=5.65e-10 (pertask 4x faster)
+- **Parameter overhead**: 81 (1-layer) vs 231 (2-layer) = 2.9x more parameters
 
 ### Key Findings
 
 1. **Barrier is depth-specific**: 2+ layers = 100% convergence with uniform tanh + neuromodulation
 2. **1-layer direct encoding ≠ 0%**: 76.7% success vs 0% under indirect encoding. CPPN-based encoding imposes additional constraints
-3. **Per-task activation remains superior**: 4× faster (median 3 vs 12), 2.9× fewer parameters, works at simplest architecture
-4. **Resolves limitation (8)**: Multi-layer neuromodulated single-output architectures DO overcome the barrier
+3. **Per-task activation remains superior**: 4x faster (median 3 vs 12), 2.9x fewer parameters, works at simplest architecture
+4. **Depth overcomes the barrier**: Multi-layer neuromodulated single-output architectures do overcome the barrier
 
 ### Data Location
 `papers/emr-neuromodulation/results/e18_multilayer_neuromod/`
@@ -849,7 +869,7 @@ The Boolean barrier is structural impossibility specific to discrete parity patt
 ## 21. Higher-Dimensional NT Vectors (E19)
 
 **Config**: Direct-encoded neuromodulated MLPs (1 hidden layer, 10 neurons), per-task activation (sin for XOR/XNOR, tanh for threshold), (μ+λ)-ES (pop=750, μ=75, σ=0.3), 100 generations, ≥98% threshold, 30 seeds per condition.
-**Purpose**: Test whether increasing NT dimensionality resolves the 7-task cliff. 4 conditions × 30 seeds = 120 runs.
+**Purpose**: Test whether increasing NT dimensionality resolves the 7-task cliff. 4 conditions x 30 seeds = 120 runs.
 
 ### Conditions
 
@@ -875,11 +895,11 @@ The Boolean barrier is structural impossibility specific to discrete parity patt
 
 ### IMPLY Barrier Analysis
 
-IMPLY plateaus at exactly 0.75 fitness in ALL failed runs, the same ceiling as XOR under monotonic activation. IMPLY ([1,1,0,1]) is the only asymmetric 2-input Boolean function, requiring directional discrimination ((0,1)→1 but (1,0)→0) that symmetric gain/bias/gating modulation cannot encode.
+IMPLY plateaus at exactly 0.75 fitness in all failed runs, the same ceiling as XOR under monotonic activation. IMPLY ([1,1,0,1]) is the only asymmetric 2-input Boolean function, requiring directional discrimination ((0,1)->1 but (1,0)->0) that symmetric gain/bias/gating modulation cannot encode.
 
 ### Key Findings
 
-1. **NT dimensionality is NOT the bottleneck**: 4D = 6D = 23.3% (Fisher p=1.000)
+1. **NT dimensionality is not the bottleneck**: 4D = 6D = 23.3% (Fisher p=1.000)
 2. **IMPLY is the sole barrier at 7 tasks**: 23/23 failures in both 4D and 6D
 3. **NIMPLY adds a second asymmetric barrier at 8 tasks**: 24/24 failures each
 4. **Direct encoding partially overcomes indirect encoding barrier**: 23.3% vs 0% at 7-task
@@ -896,7 +916,7 @@ IMPLY plateaus at exactly 0.75 fitness in ALL failed runs, the same ceiling as X
 ## 22. Higher-Arity Capacity Control: E22b
 
 **Config**: Direct-encoded neuromodulated MLPs (N_HIDDEN=40, doubled from E22's 20), 4-input Boolean tasks (Parity-4, AND-4, OR-4; 16 patterns), (μ+λ)-ES (pop=750, μ=75, σ=0.3), 200 generations, ≥98% threshold, Schema B NT vectors, s=5.0, 30 seeds per condition.
-**Purpose**: Test whether the 1-layer tanh barrier at 4-input is capacity-limited. If doubling hidden neurons resolves it, the barrier is capacity-driven; if not, it's representational. 4 conditions × 30 seeds = 120 runs.
+**Purpose**: Test whether the 1-layer tanh barrier at 4-input is capacity-limited. If doubling hidden neurons resolves it, the barrier is capacity-driven; if not, it's representational. 4 conditions x 30 seeds = 120 runs.
 
 ### Conditions
 
@@ -933,8 +953,10 @@ Parity-4 bottleneck eliminated at 2L with increased capacity: all 30 seeds solve
 
 ### Key Findings
 
-1. **Barrier is representational, NOT capacity-limited**: 1L tanh 0/30 at both 20 and 40 neurons
-2. **Depth + capacity interact**: 2L tanh improves 43.3%→76.7% with doubled neurons (p=0.017)
+1. **Barrier is representational, not capacity-limited**: 1L tanh 0/30 at both 20 and 40 neurons
+   (correction: no gradient control ran at 4-input, so 'representational' is not shown; where the
+   paper ran Adam controls, at 2 and 3 inputs, the barrier is one of search.)
+2. **Depth + capacity interact**: 2L tanh improves 43.3%->76.7% with doubled neurons (p=0.017)
 3. **Parity-4 bottleneck shifts**: At 2L with 40 neurons, Parity-4 is solved 30/30; AND-4 and OR-4 become the new bottlenecks
 4. **Per-task and sin conditions unaffected**: More capacity without depth doesn't help search
 5. **Failed Parity-4 accuracy identical**: 0.77 avg at both N=20 and N=40 for 1L tanh, same ceiling
@@ -947,27 +969,27 @@ Parity-4 bottleneck eliminated at 2L with increased capacity: all 30 seeds solve
 ## 23. Frozen Substrate Generalization: E24
 
 **Config**: Direct-encoded neuromodulated MLPs (1 hidden layer, 10 neurons), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B NT vectors, s=5.0, 30 seeds per condition.
-**Purpose**: Test whether weights trained on threshold tasks (AND/OR/NAND/NOR) with uniform tanh can solve XOR when activation is switched to sin. If so, the barrier is at test-time configuration; if not, it's in the training dynamics. 4 conditions × 30 seeds = 120 runs.
+**Purpose**: Test whether weights trained on threshold tasks (AND/OR/NAND/NOR) with uniform tanh can solve XOR when activation is switched to sin. If so, the barrier is at test-time configuration; if not, it's in the training dynamics. 4 conditions x 30 seeds = 120 runs.
 
 ### Conditions
 
-- **frozen_threshold_xor_eval**: Train on 4 threshold tasks (uniform tanh) → freeze weights → evaluate all 5 tasks with per-task activation (sin for XOR)
+- **frozen_threshold_xor_eval**: Train on 4 threshold tasks (uniform tanh) -> freeze weights -> evaluate all 5 tasks with per-task activation (sin for XOR)
 - **random_xor_eval**: Evaluate XOR with sin activation on random (untrained) population, baseline for what sin can achieve without threshold training
-- **retrained_5task**: Train on 4 threshold tasks → retrain all 5 tasks with per-task activation (unfrozen)
+- **retrained_5task**: Train on 4 threshold tasks -> retrain all 5 tasks with per-task activation (unfrozen)
 - **from_scratch_5task**: Train all 5 tasks from random initialization with per-task activation
 
 ### Results
 
 | Condition | Converged | Rate | Median Gen | Range | Key Metric |
 |-----------|-----------|------|-----------|-------|------------|
-| frozen_threshold→XOR | 0/30 | 0.0% | N/A | N/A | XOR acc=0.500 (chance) |
-| random_init→XOR | 30/30 | 100% | N/A | N/A | best_acc=1.000 |
+| frozen_threshold->XOR | 0/30 | 0.0% | N/A | N/A | XOR acc=0.500 (chance) |
+| random_init->XOR | 30/30 | 100% | N/A | N/A | best_acc=1.000 |
 | retrained 5-task | 30/30 | 100% | 2 | 1–5 | Full convergence |
 | from_scratch 5-task | 30/30 | 100% | 3 | 1–5 | Full convergence |
 
 ### Key Findings
 
-1. **Frozen threshold weights provide ZERO XOR transfer**: 0/30 XOR solved, mean accuracy exactly 0.500 (chance = 2/4 patterns correct)
+1. **Frozen threshold weights provide zero XOR transfer**: 0/30 XOR solved, mean accuracy exactly 0.500 (chance = 2/4 patterns correct)
 2. **Barrier is in training dynamics, not evaluation**: Tanh-trained weights learn monotonic decision boundaries incompatible with parity
 3. **Random weights + sin = 30/30 XOR**: Confirms sin is sufficient for XOR; the frozen weights are the problem
 4. **Retraining converges instantly**: Median 2 gen (retrained) vs median 3 gen (from scratch). Threshold training neither helps nor hurts
@@ -976,8 +998,10 @@ Parity-4 bottleneck eliminated at 2L with increased capacity: all 30 seeds solve
 
 ### Interpretation
 
-This experiment closes the loop on the activation barrier mechanism. The barrier operates at three levels, all now confirmed:
+With E22b and E18, this experiment places the activation barrier at three levels:
 - **Representational** (E22b): More capacity doesn't help. The function class is wrong
+  (correction: E22b shows that capacity does not help this search, not that the function class
+  is wrong; see Section 22.)
 - **Temporal** (E24): The barrier is during training, not at evaluation. Switching activation post-hoc doesn't work
 - **Structural** (E18): Depth overcomes it by providing intermediate features, the only parametric solution
 
@@ -988,7 +1012,7 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 ## 24. Multi-Layer Neuromod Extension (E18 ext): 4+5 Layer
 
-**Config**: Direct-encoded neuromodulated MLPs (4 and 5 hidden layers, 10 neurons each), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B NT vectors, s=5.0, 100 gen. Two conditions per depth: uniform tanh, per-task activation. 2 depths × 2 conditions × 30 seeds = 120 runs (extending E18 from 180 to 300 total).
+**Config**: Direct-encoded neuromodulated MLPs (4 and 5 hidden layers, 10 neurons each), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B NT vectors, s=5.0, 100 gen. Two conditions per depth: uniform tanh, per-task activation. 2 depths x 2 conditions x 30 seeds = 120 runs (extending E18 from 180 to 300 total).
 
 ### Results
 
@@ -1023,7 +1047,7 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 ## 25. Higher Arity 5-Input (E25)
 
-**Config**: Direct-encoded neuromodulated MLPs (1 hidden layer 25 neurons or 2 hidden layers 25+25), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B NT vectors, s=5.0, 200 gen. Tasks: Parity-5 (32 input patterns), AND-5, OR-5. 4 conditions × 30 seeds = 120 runs.
+**Config**: Direct-encoded neuromodulated MLPs (1 hidden layer 25 neurons or 2 hidden layers 25+25), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B NT vectors, s=5.0, 200 gen. Tasks: Parity-5 (32 input patterns), AND-5, OR-5. 4 conditions x 30 seeds = 120 runs. **Correction:** a run converges when every task reaches 0.95 accuracy; all 62 converged runs stopped at 31 of 32 rows on their weakest task, and none of the 120 is exact on all three tasks.
 
 ### Results
 
@@ -1038,7 +1062,7 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 1. **Monotonic barrier absolute at 5-input**: 0/30 for uniform tanh
 2. **Per-task activation most efficient**: 83.3% at 276 params vs 60% at 1,026 params (2-layer)
-3. **Sin effectiveness drops with arity**: 100% (2-input) → 63.3% (5-input), gradient-free optimization harder at higher arity
+3. **Sin effectiveness drops with arity**: 100% (2-input) -> 63.3% (5-input), gradient-free optimization harder at higher arity
 4. **Genuine difficulty increase**: Even best condition (per-task) drops from 100% (2-input) to 83.3% (5-input)
 
 ### Data Location
@@ -1048,19 +1072,19 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 ## 26. Indirect Encoding Depth (E26)
 
-**Config**: CPPN-based indirect encoding (6 inputs → 20 hidden sin neurons → 1 output, ~161 CPPN parameters) generating substrate weights for 1-, 2-, and 3-layer architectures. Per-task activation, Schema B NT vectors, (μ+λ)-ES (pop=750, μ=75, σ=0.3), 200 gen. Tasks: XOR, AND, OR, NAND, NOR. 3 conditions × 30 seeds = 90 runs.
+**Config**: CPPN-based indirect encoding (6 inputs -> 20 hidden sin neurons -> 1 output, ~161 CPPN parameters) generating substrate weights for 1-, 2-, and 3-layer architectures. Per-task activation, Schema B NT vectors, (μ+λ)-ES (pop=750, μ=75, σ=0.3), 200 gen. Tasks: XOR, AND, OR, NAND, NOR. 3 conditions x 30 seeds = 90 runs.
 
 ### Results
 
 | Condition | Converged | Rate | Median Gen | Compression |
 |-----------|-----------|------|-----------|-------------|
-| 1-layer | 30/30 | 100% | 26 | 1.0× |
-| 2-layer | 29/30 | 96.7% | 26 | 4.1× |
-| 3-layer | 23/30 | 76.7% | 84 | 7.2× |
+| 1-layer | 30/30 | 100% | 26 | 1.0x |
+| 2-layer | 29/30 | 96.7% | 26 | 4.1x |
+| 3-layer | 23/30 | 76.7% | 84 | 7.2x |
 
 ### Key Findings
 
-1. **2-layer is the sweet spot**: 96.7% with 4.1× parameter compression and no convergence penalty vs 1-layer
+1. **2-layer is the sweet spot**: 96.7% with 4.1x parameter compression and no convergence penalty vs 1-layer
 2. **3-layer degrades**: 76.7% success, median jumps to 84 gen, failures plateau at 0.75 fitness
 3. **AND/NAND bottleneck**: 71% of 3-layer failures are on AND or NAND tasks
 4. **Real parameter compression**: CPPN generates increasingly more substrate parameters with depth while CPPN size stays constant
@@ -1072,7 +1096,7 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 ## 27. Task Scaling 2-Layer (E27)
 
-**Config**: Direct-encoded neuromodulated MLPs (2 hidden layers, 10 neurons each), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B-extended NT vectors, s=5.0, 200 gen. All 10 non-trivial 2-input Boolean functions. 4 conditions × 30 seeds = 120 runs.
+**Config**: Direct-encoded neuromodulated MLPs (2 hidden layers, 10 neurons each), (μ+λ)-ES (pop=750, μ=75, σ=0.3), Schema B-extended NT vectors, s=5.0, 200 gen. All 10 non-trivial 2-input Boolean functions. 4 conditions x 30 seeds = 120 runs.
 
 ### Results
 
@@ -1085,7 +1109,7 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 ### Key Findings
 
-1. **Depth extends scaling**: 6 tasks (1-layer) → 8 tasks (2-layer) with 100% in both conditions
+1. **Depth extends scaling**: 6 tasks (1-layer) -> 8 tasks (2-layer) with 100% in both conditions
 2. **10-task cliff**: New barrier at 10 tasks, 30.0–43.3%
 3. **Implication family bottleneck**: All 6 symmetric tasks (XOR, AND, OR, NAND, NOR, XNOR) achieve 100%; the 4 asymmetric tasks (IMPLY, NIMPLY, CONVERSE, CONVERSE-NIMPLY) are sole failure points
 4. **Per-task hurts at 10 tasks**: 30.0% vs 43.3% (p=0.422), optimization complexity outweighs representational benefit at extreme task counts
@@ -1097,7 +1121,7 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 
 ## 28. 2D Synthetic Classification (E28)
 
-**Config**: Direct-encoded neuromodulated MLPs, (μ+λ)-ES (pop=750, μ=75, σ=0.3), s=5.0, 200 gen. Tasks: concentric circles (non-linear boundary), linearly separable blobs, half-moons (200 data points each). Fitness = classification accuracy, threshold ≥ 0.95. 4 conditions × 30 seeds = 120 runs.
+**Config**: Direct-encoded neuromodulated MLPs, (μ+λ)-ES (pop=750, μ=75, σ=0.3), s=5.0, 200 gen. Tasks: concentric circles (non-linear boundary), linearly separable blobs, half-moons (200 data points each). Fitness = classification accuracy, threshold ≥ 0.95. 4 conditions x 30 seeds = 120 runs.
 
 ### Results
 
@@ -1115,36 +1139,38 @@ This experiment closes the loop on the activation barrier mechanism. The barrier
 3. **Depth provides only path to improvement**: 2-layer tanh 13.3% (only condition with any convergence)
 4. **Half-moon bottleneck**: Noise overlap near decision boundary prevents reaching 0.95 threshold
 5. **Domain-dependent interaction**: Boolean tasks have structural impossibility barriers; continuous tasks have soft optimization barriers where depth matters more than activation choice
+   (correction: the paper calls the Boolean barrier an evolutionary search barrier, not a
+   representational limit.)
 
 ### Data Location
 `papers/emr-neuromodulation/results/e28_synthetic_2d/`
 
 ---
 
-## Extended-Generation Confirmation (10×): Indirect EMR-HyperNEAT (2026-06-07)
+## Extended-Generation Confirmation (10x): Indirect EMR-HyperNEAT (2026-06-07)
 
-**Reviewer 4 (ALIFE 2026) request**: does the uniform-tanh barrier survive a 10× generation budget, or is it just insufficient runtime?
+**Question (ALIFE 2026 review)**: does the uniform-tanh barrier survive a 10x generation budget, or is it just insufficient runtime?
 
-**Setup**: INDIRECT EMR-HyperNEAT (CPPN substrate, `multihead_palette_neuromodulation`, `palette_mode='uniform'`, product aggregation, Schema-B NT, Pop=750, max_depth=4), uniform tanh, 5-task (XOR+AND+OR+NAND+NOR), **1000 generations** (10× the 100-gen baseline), 30 seeds. Runner: `benchmark_extended_generations_indirect.py`. ~30 min/seed.
+**Setup**: Indirect EMR-HyperNEAT (CPPN substrate, `multihead_palette_neuromodulation`, `palette_mode='uniform'`, product aggregation, Schema-B NT, Pop=750, max_depth=4), uniform tanh, 5-task (XOR+AND+OR+NAND+NOR), **1000 generations** (10x the 100-gen baseline), 30 seeds. Runner: `scripts/runners/benchmark_extended_generations_indirect.py`. ~30 min/seed.
 
 | Condition | Result | XOR | Min fitness |
 |-----------|--------|-----|-------------|
 | Indirect uniform tanh, 5-task, 1000 gens | **0/30 converged** | 0.750 (all seeds) | 0.750 (all seeds) |
 
-**Finding**: the 75% XOR ceiling is unchanged at 10× the generation budget. Every one of the 30 seeds plateaus at exactly XOR=0.750 (clean HMR backend; the barrier is backend-agnostic; EMR also gives 0/30 XOR=0.75; see the EMR migration N=30 re-validation). Confirms a genuine evolutionary convergence barrier (for the (μ+λ)-ES tested), not insufficient runtime. `population: 750` verified in each JSON (the `pop_size` wiring bug does not affect this pipeline).
+**Finding**: the 75% XOR ceiling is unchanged at 10x the generation budget. Every one of the 30 seeds plateaus at exactly XOR=0.750 (clean HMR backend; the barrier is backend-agnostic; EMR also gives 0/30 XOR=0.75; see the EMR migration N=30 re-validation). Confirms a genuine evolutionary convergence barrier (for the (μ+λ)-ES tested; correction: this run evolves with NEAT), not insufficient runtime. `population: 750` verified in each JSON (the `pop_size` wiring bug does not affect this pipeline).
 
-**Caveat (encoding)**: the DIRECT-encoded MLP control is a different, weaker regime: 2-task XOR+AND converges ~96.7% at 1000 gens (`benchmark_extended_generations.py`). Only the INDIRECT encoding exhibits the headline barrier; the extended-generation confirmation must use the indirect pipeline.
+**Caveat (encoding)**: the direct-encoded MLP control is a different, weaker regime: 2-task XOR+AND converges ~96.7% at 1000 gens (`scripts/runners/benchmark_extended_generations.py`). Only the indirect encoding exhibits the headline barrier; the extended-generation confirmation must use the indirect pipeline.
 
 ### Data Location
-`papers/emr-neuromodulation/results/extended_generations_indirect/` (gitignored)
+`papers/emr-neuromodulation/results/extended_generations_indirect/`
 
 ---
 
-## HMR → EMR Migration Validation (2026-06-08)
+## HMR -> EMR Migration Validation (2026-06-08)
 
-The neuromod runner (`multihead_palette_neuromodulation.py`) was migrated from the HMR backend to the EMR backend (now `backend='emr'` by default; `backend='hmr'` reproduces the exact published baseline). The neuromod forward (Eqs 1–3) is the runner's own and unchanged; only the genome→substrate decode differs. EMR's decode initially used a first-input-weight approximation; wiring the `use_self_connection_query` flag (gated, default-off) makes it source receptors/base-gains from the CPPN self-connection query, the same source as HMR/the paper.
+The neuromod runner (`multihead_palette_neuromodulation.py`) was migrated from the HMR backend to the EMR backend (EMR became the default; the HMR engine, which reproduces the exact published baseline, stays selectable in release 0.1.0, and 0.2.0 has EMR only). The neuromod forward (Eqs 1–3) is the runner's own and unchanged; only the genome->substrate decode differs. By default, EMR's decode uses a first-input-weight approximation; the `use_self_connection_query` flag (gated, default-off) makes it source receptors/base-gains from the CPPN self-connection query, the same source as HMR/the paper.
 
-**N=30 re-validation under EMR** (`validate_emr_migration.py --n30`, 30 paper seeds, 100 gens, Pop=750):
+**N=30 re-validation under EMR** (`validate_emr_migration.py --n30`, a research-repository script not shipped here; 30 paper seeds, 100 gens, Pop=750):
 
 | Condition | EMR result | Paper (HMR) |
 |-----------|-----------|-------------|
@@ -1153,6 +1179,6 @@ The neuromod runner (`multihead_palette_neuromodulation.py`) was migrated from t
 
 EMR reproduces the headline conclusions and the exact 75% ceiling. Per-seed convergence gens differ from HMR (distinct code paths; not byte-identical), as expected.
 
-**Indirect smoke test under EMR** (`smoke_test_emr_indirect.py`, 1 seed, 60 gens), every distinct indirect config runs and reproduces the paper's direction (**7/7**): per-task→100%, uniform-tanh→0.75 barrier, uniform-sin→converge, min-aggregation→converge, flat-NT neuromod ablation→fail (min=0.50; XOR solved but threshold tasks at chance without task-specific NT), 2-task per-task→converge, 2-task uniform→0.75 barrier.
+**Indirect smoke test under EMR** (`smoke_test_emr_indirect.py`, a research-repository script not shipped here; 1 seed, 60 gens), every distinct indirect config runs and reproduces the paper's direction (**7/7**): per-task -> 100%, uniform-tanh -> 0.75 barrier, uniform-sin -> converge, min-aggregation -> converge, flat-NT neuromod ablation -> fail (min=0.50; XOR solved but threshold tasks at chance without task-specific NT), 2-task per-task -> converge, 2-task uniform -> 0.75 barrier.
 
-**Scope:** the migration affects only the 18 INDIRECT scripts (they use the runner). The ~27 direct-encoded control scripts (monotonic ablation, Adam, oscillatory-3input, pop/topology sweeps) use separate code and are unaffected.
+**Scope:** the migration affects only the 18 indirect scripts of the research monorepo (they use the runner). The ~27 direct-encoded control scripts (monotonic ablation, Adam, oscillatory-3input, pop/topology sweeps) use separate code and are unaffected.

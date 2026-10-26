@@ -2,10 +2,10 @@
 
 Hybrid combining Circadian rhythm oscillations with Critical Period developmental windows.
 
-Key synergies:
+How the two combine:
 1. Master clock (period=20) provides rhythmic exploration/exploitation cycles
-2. Critical period provides developmental trajectory (open → closed)
-3. NOVEL: Critical period MODULATES oscillation amplitude
+2. Critical period provides developmental trajectory (open -> closed)
+3. Critical period MODULATES oscillation amplitude
    - Open period: high amplitude oscillations (wide exploration)
    - Closed period: damped oscillations (stable exploitation)
 4. Phase entrainment strength also varies with openness
@@ -13,7 +13,7 @@ Key synergies:
 Biological basis:
 - Circadian rhythms are stronger during development
 - Critical periods may modulate oscillatory dynamics
-- Sleep (circadian) is crucial during developmental sensitive periods
+- Sleep (circadian) is important during developmental sensitive periods
 - Combines temporal cycles with developmental trajectory
 
 Expected: Strong rhythmic exploration early, damped stable cycles later

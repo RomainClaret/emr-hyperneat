@@ -8,7 +8,7 @@ Extends CriticalHebbian to symmetric palette evolution with:
 5. Protected indices for sin/extreme aggregations
 6. Affinity floors for guaranteed retention
 
-Key innovation: Learn which activation-aggregation COMBINATIONS work together,
+Learn which activation-aggregation COMBINATIONS work together,
 while maintaining guaranteed retention of critical functions.
 
 Biological rationale:
@@ -85,7 +85,7 @@ class CriticalHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         # Phase-specific Hebbian modulation
         exploration_lr_multiplier: float = 1.5,
         confirmation_lr_multiplier: float = 0.5,
-        # Memory cell parameters (from winning patterns)
+        # Memory cell parameters
         memory_threshold: float = 0.75,
         memory_sustain_generations: int = 8,
         memory_decay_rate: float = 0.05,
@@ -302,7 +302,7 @@ class CriticalHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         act_active = (act_mask > 0.5).astype(jnp.float32)
         agg_active = (agg_mask > 0.5).astype(jnp.float32)
 
-        # --- Activation domain update ---
+        # Activation domain update
         act_co_active = jnp.outer(act_active, act_active)
         if fitness_signal >= 0:
             act_weight_delta = lr * fitness_signal * act_co_active
@@ -314,7 +314,7 @@ class CriticalHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         new_act_weights = jnp.clip(act_weights + act_weight_delta, 0.0, 1.0)
         new_act_affinity = jnp.clip(act_affinity + act_affinity_delta, 0.0, 1.0)
 
-        # --- Aggregation domain update ---
+        # Aggregation domain update
         agg_co_active = jnp.outer(agg_active, agg_active)
         if fitness_signal >= 0:
             agg_weight_delta = lr * fitness_signal * agg_co_active
@@ -326,7 +326,7 @@ class CriticalHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         new_agg_weights = jnp.clip(agg_weights + agg_weight_delta, 0.0, 1.0)
         new_agg_affinity = jnp.clip(agg_affinity + agg_affinity_delta, 0.0, 1.0)
 
-        # --- Cross-domain update ---
+        # Cross-domain update
         cross_active = jnp.outer(act_active, agg_active)
         if fitness_signal >= 0:
             cross_delta = cross_lr * fitness_signal * cross_active

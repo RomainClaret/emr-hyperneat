@@ -5,7 +5,7 @@ Dopaminergic signals reinforce synapses that were active during reward.
 Cross-modal learning in the brain allows one sensory modality to guide
 associations in another (e.g., hearing-vision associations).
 
-Key mechanisms for SYMMETRIC discovery (both activation AND aggregation):
+Mechanisms for SYMMETRIC discovery (both activation AND aggregation):
 1. Cross-affinity matrix tracks which activation-aggregation pairs succeed together
 2. Double learning rate when BOTH domains improve simultaneously
 3. Sin-guided protection: When sin (idx 4) pairs successfully with extreme aggs,
@@ -13,7 +13,7 @@ Key mechanisms for SYMMETRIC discovery (both activation AND aggregation):
 4. Bidirectional reinforcement: Aggregation success boosts activation affinity too
 5. Protected indices (0.1% deactivation) for sin and extreme aggregations
 
-Expected: Enhanced cross-domain synergy through bidirectional affinity learning.
+Expected: Stronger cross-domain pairings through bidirectional affinity learning.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -44,9 +44,9 @@ class CrossDomainReinforcementSymmetricStrategy(PaletteEvolutionStrategy):
 
     Discovers BOTH activation and aggregation functions through unified evolution
     with bidirectional cross-domain reinforcement. When both domains contribute
-    to fitness improvement, learning is enhanced in both directions.
+    to fitness improvement, learning is faster in both directions.
 
-    Key improvements over dual version:
+    Improvements over the dual version:
     - Protected indices for sin and extreme aggregations
     - Bidirectional affinity updates (not just act->agg)
     - Affinity floors for guaranteed retention
@@ -116,7 +116,7 @@ class CrossDomainReinforcementSymmetricStrategy(PaletteEvolutionStrategy):
         self.extreme_agg_affinity_floor = extreme_agg_affinity_floor
         self.memory_formation_threshold = memory_formation_threshold
         self.memory_formation_count = memory_formation_count
-        # CRITICAL: Include sin (idx 4) and extreme aggs (idx 2,3) in initial palettes
+        # Include sin (idx 4) and extreme aggs (idx 2,3) in initial palettes
         # This ensures they start active and can be protected from the beginning
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]  # tanh, sigmoid, relu, identity, sin
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]  # sum, mean, max, min
@@ -253,7 +253,7 @@ class CrossDomainReinforcementSymmetricStrategy(PaletteEvolutionStrategy):
         """Update cross-domain affinity bidirectionally with reinforcement.
 
         When both domains contribute to fitness improvement, learning is
-        enhanced in both directions. This is the key mechanism for
+        faster in both directions. This is the key mechanism for
         symmetric discovery.
 
         Returns:

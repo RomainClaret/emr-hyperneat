@@ -128,8 +128,8 @@ class TestOffloadOnDevice:
         """`run_until_threshold` + `depth_offload` survives a depth standard cannot hold.
 
         The CPU suite proves the dispatch happens. This proves the dispatch is worth
-        having: before the fix, this configuration ran the standard on-device path and
-        would have hit exactly the out-of-memory failure offload exists to prevent.
+        having: on the standard on-device path this configuration would hit exactly
+        the out-of-memory failure offload exists to prevent.
         """
         algorithm = EMRHyperNEAT()
         config_obj = algorithm.create_config(_config(deep_depth, 'depth_offload'))

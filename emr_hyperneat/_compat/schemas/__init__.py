@@ -42,14 +42,6 @@ from .hyperneat_schema import (
     CPPNActivationConfig,
     SubstrateConfig,
 )
-from .experiment_schema import (
-    ExperimentConfig,
-    PerformanceConfig,
-    MetricsConfig,
-    CheckpointConfig,
-    InfrastructureConfig,
-    OutputConfig,
-)
 
 __all__ = [
     # Base configs
@@ -73,12 +65,4 @@ __all__ = [
     'CPPNMutationConfig',
     'CPPNActivationConfig',
     'SubstrateConfig',
-
-    # Experiment configs
-    'ExperimentConfig',
-    'PerformanceConfig',
-    'MetricsConfig',
-    'CheckpointConfig',
-    'InfrastructureConfig',
-    'OutputConfig',
 ]

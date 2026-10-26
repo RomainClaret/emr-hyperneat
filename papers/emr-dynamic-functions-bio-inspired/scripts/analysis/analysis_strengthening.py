@@ -4,7 +4,7 @@
 Reads result JSONs from the strengthening experiments and produces:
 1. LaTeX-ready table rows for paper integration
 2. Statistical summaries (solve rate, CI, median gen, osc%)
-3. Parity scaling trend analysis (P4→P5→P6)
+3. Parity scaling trend analysis (P4->P5->P6)
 4. Non-parity problem analysis (Two Moons, Visual Discrimination)
 5. Timescale rescaling validation (P1b)
 6. N=60 extension with merged statistics (P2a)
@@ -88,7 +88,7 @@ def load_results(results_dir: Path, strategy: str) -> Optional[Dict]:
             return json.load(f)
     # Try without _dual suffix (original naming)
     base_name = strategy.replace('_dual', '')
-    # Handle renamed strategies (old → new naming)
+    # Handle renamed strategies (old -> new naming)
     alt_names = {
         'critical_period_refined': 'critical_period',
         'adult_neurogenesis': 'adult_neurogenesis',
@@ -98,7 +98,7 @@ def load_results(results_dir: Path, strategy: str) -> Optional[Dict]:
     if path.exists():
         with open(path) as f:
             return json.load(f)
-    # Try alternate name mapping (e.g., critical_period_refined → critical_period)
+    # Try alternate name mapping (e.g., critical_period_refined -> critical_period)
     alt_name = alt_names.get(base_name, None)
     if alt_name and alt_name != base_name:
         path = results_dir / f"{alt_name}.json"
@@ -307,7 +307,7 @@ def analyze_gaussian_xor():
 
 
 def analyze_parity6():
-    """Analyze E2: Parity-6 completion results (expand existing 4→8 strategies)."""
+    """Analyze E2: Parity-6 completion results (expand existing 4->8 strategies)."""
     results_dir = RESULTS_BASE / "parity6_single_task"
     if not results_dir.exists():
         print("No Parity-6 results found.")
@@ -453,7 +453,7 @@ def analyze_parity5():
 
 
 def analyze_dual_domain():
-    """Analyze E4: Dual-domain completion results (expand 5→8 strategies)."""
+    """Analyze E4: Dual-domain completion results (expand 5->8 strategies)."""
     results_dir = RESULTS_BASE / "dual_domain"
     if not results_dir.exists():
         print("No dual-domain results found.")
@@ -713,7 +713,7 @@ def analyze_visual_discrimination():
 
 
 def analyze_parity_scaling(p4_metrics: Optional[Dict] = None):
-    """Analyze P4→P5→P6 scaling trends across strategies with full statistics."""
+    """Analyze P4->P5->P6 scaling trends across strategies with full statistics."""
     print("\n" + "=" * 70)
     print("PARITY SCALING ANALYSIS (P4 → P5 → P6)")
     print("=" * 70)
@@ -855,7 +855,7 @@ def count_total_runs():
             continue
         dir_total = 0
         counted_files = []
-        # First pass: count individual (non-combined) files
+        # Count runs in the individual and the combined files separately
         individual_count = 0
         combined_count = 0
         for f in sorted(subdir.iterdir()):
@@ -887,7 +887,7 @@ def count_total_runs():
 
 
 def analyze_oscillatory_barrier():
-    """Comprehensive oscillatory barrier analysis across all single-task experiments."""
+    """Oscillatory barrier analysis across all single-task experiments."""
     print("\n" + "=" * 70)
     print("OSCILLATORY BARRIER ANALYSIS (all single-task experiments)")
     print("=" * 70)
@@ -1186,7 +1186,7 @@ def analyze_pop_sensitivity_p5():
     POP_STRATEGIES = ['circadian_rhythm_dual', 'baseline_dual', 'adult_neurogenesis_dual']
     POP_SIZES = [200, 400, 800]
 
-    # Collect metrics for each strategy × pop size
+    # Collect metrics for each strategy x pop size
     all_metrics = {}  # (strategy, pop) -> metrics
     for strategy in POP_STRATEGIES:
         for pop in POP_SIZES:
@@ -1288,7 +1288,7 @@ def analyze_pop_sensitivity_p5():
 def analyze_topology_full():
     """Analyze P2c: Full 8-Strategy Topology Sensitivity on Single-Task P4.
 
-    Compares feedforward (existing Table 3) vs full_recurrent (new) for all 8 strategies.
+    Compares feedforward (Table 3) vs full_recurrent for all 8 strategies.
     """
     topo_dir = RESULTS_BASE / "topology_sensitivity_single_task"
     ff_dir = RESULTS_BASE / "single_task"

@@ -1,12 +1,12 @@
 """Strategy 68S: Circadian Clonal Symmetric (Clone Priority for Protected Lineages).
 
-Extends CircadianClonalDualStrategy to symmetric mode with winning patterns:
+Extends CircadianClonalDualStrategy to symmetric mode with:
 - Clone priority for sin/extreme lineages
 - Affinity floors for sin and extreme aggregations
 - Memory cell crystallization for sustained performance
 - Cross-domain clonal coordination
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Lineage priority - sin/max/min lineages get clone priority
 2. Circadian-gated cloning - clones inherit parent's phase relationship
 3. Cross-domain lineage coupling - successful pairs clone together
@@ -74,7 +74,7 @@ class CircadianClonalSymmetricState:
 class CircadianClonalSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with circadian-gated cloning and protection.
 
-    Applies winning patterns:
+    Mechanisms:
     - Protected lineages get clone priority
     - Affinity floors (sin=0.6, extreme_agg=0.5)
     - Memory cell crystallization (8 gens sustained)
@@ -95,7 +95,7 @@ class CircadianClonalSymmetricStrategy(PaletteEvolutionStrategy):
         lineage_boost_rate: float = 0.15,
         lineage_decay: float = 0.98,
         protected_lineage_priority: float = 1.5,  # 50% higher priority
-        # Protection parameters (winning patterns)
+        # Protection parameters
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
         protected_deactivation_prob: float = 0.001,  # 0.1%
@@ -139,7 +139,7 @@ class CircadianClonalSymmetricStrategy(PaletteEvolutionStrategy):
         self.min_active_act = min_active_act
         self.min_active_agg = min_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

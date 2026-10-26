@@ -10,7 +10,7 @@ Biological Basis:
 - New learning builds on consolidated foundations
 - "Scaffold" neurons support learning of new circuits
 
-Key Insight:
+Rationale:
 - Current strategies risk losing good discoveries to exploration
 - Progressive architecture GUARANTEES no forgetting of frozen functions
 - New tasks can only expand the palette, not contract it
@@ -32,7 +32,7 @@ Progressive Mechanism:
     if len(active_additions) > max_additions_per_task:
         prune least useful additions
 
-Expected improvements:
+Intended effects:
 - GUARANTEED zero forgetting of frozen functions
 - Monotonic capability growth over tasks
 - Explicit separation of preserved vs experimental
@@ -320,7 +320,7 @@ class ProgressivePaletteStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update contribution tracking
+        # Update contribution tracking
         new_contributions = self._update_contributions(
             state['addition_contributions'],
             state['active_additions'],
@@ -328,7 +328,7 @@ class ProgressivePaletteStrategy(PaletteEvolutionStrategy):
             best_fitness,
         )
 
-        # Step 2: Check for freeze
+        # Check for freeze
         new_frozen, new_additions, new_freeze_counter, freeze_event = self._check_for_freeze(
             best_fitness,
             state['freeze_counter'],
@@ -336,7 +336,7 @@ class ProgressivePaletteStrategy(PaletteEvolutionStrategy):
             state['active_additions'],
         )
 
-        # Step 3: Mutate additions (only if not just frozen)
+        # Mutate additions (only if not just frozen)
         if not freeze_event:
             new_additions = self._mutate_additions(
                 new_frozen,
@@ -345,7 +345,7 @@ class ProgressivePaletteStrategy(PaletteEvolutionStrategy):
                 k1,
             )
 
-        # Step 4: Create new mask
+        # Create new mask
         new_mask = self._update_mask_from_palette(new_frozen, new_additions)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

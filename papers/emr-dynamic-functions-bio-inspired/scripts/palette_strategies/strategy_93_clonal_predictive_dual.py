@@ -4,7 +4,7 @@ Combines clonal_hybrid_dual with predictive coding:
 - Base: Strategy 91 (Clonal+Tag+Homeostatic) - 100% Parity-5, 100% sin retention
 - Extension: Strategy 24 (Predictive Coding) - Prediction error drives learning
 
-Key innovation: Prediction error identifies truly useful functions (not just correlated).
+Prediction error identifies truly useful functions (not just correlated).
 Surprising functions (high prediction error when beneficial) capture FASTER.
 
 Bio inspiration: Cortical predictive coding proposes that learning is driven by
@@ -39,7 +39,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
     Extend clonal_hybrid_dual
     with predictive coding mechanisms.
 
-    Critical interaction: Functions that produce UNEXPECTED fitness improvements
+    Interaction: Functions that produce UNEXPECTED fitness improvements
     (positive prediction error) capture faster than merely correlated functions.
     This should discriminate between causally useful and coincidentally active.
     """
@@ -49,7 +49,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Clonal selection parameters (from strategy 91) ===
+        # Clonal selection parameters (from strategy 91)
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
@@ -57,7 +57,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         hypermutation_strength: float = 0.2,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Tagging parameters (from strategy 91/84) ===
+        # Tagging parameters (from strategy 91/84)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -65,24 +65,24 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
         captured_hypermutation_protection: float = 0.9,
-        # === PREDICTIVE CODING PARAMETERS (NEW from strategy 24) ===
+        # PREDICTIVE CODING PARAMETERS (from strategy 24)
         prediction_lr: float = 0.15,           # How fast predictions update
         surprise_threshold: float = 0.15,      # Above = "confused" state
         capture_surprise_multiplier: float = 1.4,  # Surprising = faster capture
         prediction_smoothing: float = 0.4,     # EMA smoothing for errors
         surprise_exploration_boost: float = 1.3,   # Explore more when confused
-        # === Homeostatic parameters (from strategy 91/84) ===
+        # Homeostatic parameters (from strategy 91/84)
         target_extreme_ratio: float = 0.60,
         discovery_bonus: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -105,7 +105,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         self.extreme_tag_boost = extreme_tag_boost
         self.captured_hypermutation_protection = captured_hypermutation_protection
 
-        # Predictive coding (NEW)
+        # Predictive coding
         self.prediction_lr = prediction_lr
         self.surprise_threshold = surprise_threshold
         self.capture_surprise_multiplier = capture_surprise_multiplier
@@ -154,7 +154,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         act_captured = jnp.zeros(NUM_ACTIVATIONS)
         agg_captured = jnp.zeros(NUM_AGGREGATIONS)
 
-        # Predictive coding state (NEW)
+        # Predictive coding state
         act_predictions = jnp.ones(NUM_ACTIVATIONS) * 0.5  # Expected usefulness
         agg_predictions = jnp.ones(NUM_AGGREGATIONS) * 0.5
         act_prediction_errors = jnp.zeros(NUM_ACTIVATIONS)  # Smoothed errors
@@ -176,7 +176,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
             'act_captured': act_captured,
             'agg_captured': agg_captured,
             'tag_history': [],
-            # Predictive coding (NEW)
+            # Predictive coding
             'act_predictions': act_predictions,
             'agg_predictions': agg_predictions,
             'act_prediction_errors': act_prediction_errors,
@@ -187,7 +187,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
             'cross_affinity': cross_affinity,
             # Stats
             'capture_events': 0,
-            'surprise_captures': 0,  # NEW: captures boosted by surprise
+            'surprise_captures': 0,  # Captures boosted by surprise
             'hypermutation_events': 0,
             'diversity_rescues': 0,
             # General state
@@ -326,7 +326,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, int, int]:
         """Attempt capture with surprise-boosted threshold.
 
-        KEY INNOVATION: Functions with positive prediction error (better than expected)
+        Functions with positive prediction error (better than expected)
         have LOWER capture threshold (capture_surprise_multiplier > 1).
         This means surprising successes capture faster.
 
@@ -552,7 +552,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         # Update fitness baseline (EMA)
         new_fitness_baseline = 0.9 * state['fitness_baseline'] + 0.1 * best_fitness
 
-        # === PREDICTIVE CODING ===
+        # PREDICTIVE CODING
         # Compute actual contributions
         act_actuals = self._compute_actual_contributions(
             state['act_mask'], best_fitness, state['fitness_baseline'], NUM_ACTIVATIONS
@@ -580,7 +580,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         # Compute global surprise
         new_global_surprise = self._compute_surprise(new_act_pred_errors, new_agg_pred_errors)
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -590,7 +590,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE (with surprise boost) ===
+        # CAPTURE (with surprise boost)
         new_act_captured, new_agg_captured, capture_count, surprise_capture_count = \
             self._attempt_capture_with_surprise(
                 new_act_tags, new_agg_tags,
@@ -599,7 +599,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
                 new_tag_history, generation, improved
             )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity, hypermut_count = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], state['agg_mask'],
@@ -609,7 +609,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
             new_global_surprise, k1
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_palette_by_affinity(
             new_act_aff, new_act_captured, new_act_tags, new_act_pred_errors,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -622,7 +622,7 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
             prefer_indices=list(CORE_EXTREME_AGGS)
         )
 
-        # === HOMEOSTATIC TRACKING ===
+        # HOMEOSTATIC TRACKING
         extreme_ratio = self._compute_extreme_ratio(new_agg_mask)
 
         act_changed = not jnp.allclose(state['act_mask'], new_act_mask)
@@ -685,8 +685,8 @@ class ClonalPredictiveDualStrategy(PaletteEvolutionStrategy):
             'sin_affinity': float(new_act_aff[4]),
             'sin_captured': bool(new_act_captured[4] > 0.5),
             'capture_events': new_state['capture_events'],
-            'surprise_captures': new_state['surprise_captures'],  # NEW
-            # Predictive coding metrics (NEW)
+            'surprise_captures': new_state['surprise_captures'],
+            # Predictive coding metrics
             'global_surprise': new_global_surprise,
             'sin_prediction_error': float(new_act_pred_errors[4]),
             'max_agg_prediction_error': float(new_agg_pred_errors[2]) if len(new_agg_pred_errors) > 2 else 0.0,

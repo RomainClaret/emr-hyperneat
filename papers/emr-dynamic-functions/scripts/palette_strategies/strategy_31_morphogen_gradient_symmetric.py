@@ -1,12 +1,12 @@
 """Strategy 31S: Morphogen Gradient Symmetric (Protected Concentration Floors).
 
-Extends MorphogenGradientDualStrategy to symmetric mode with winning patterns:
+Extends MorphogenGradientDualStrategy to symmetric mode with:
 - Protected indices have concentration floor preventing deactivation
 - Affinity floors for sin and extreme aggregations
 - Memory cell crystallization for sustained performance
 - Cross-domain morphogen coupling
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Concentration floor - sin/max/min always have minimum concentration
 2. Spatial organization with protected positions
 3. Cross-domain gradient influence
@@ -70,7 +70,7 @@ class MorphogenGradientSymmetricState:
 class MorphogenGradientSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with morphogen gradients and protection.
 
-    Applies winning patterns:
+    Mechanisms:
     - Protected indices have concentration floor
     - Affinity floors (sin=0.6, extreme_agg=0.5)
     - Memory cell crystallization (8 gens sustained)
@@ -110,7 +110,7 @@ class MorphogenGradientSymmetricStrategy(PaletteEvolutionStrategy):
         # Source dynamics
         source_learning_rate: float = 0.08,
         source_momentum: float = 0.7,
-        # Protection parameters (winning patterns)
+        # Protection parameters
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
         protected_deactivation_prob: float = 0.001,
@@ -144,7 +144,7 @@ class MorphogenGradientSymmetricStrategy(PaletteEvolutionStrategy):
         self.max_agg_palette = max_agg_palette
         self.min_agg_palette = min_agg_palette
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

@@ -3,7 +3,7 @@
 Biological Basis: Winner-take-all circuits use max-pooling operations.
 Cortical lateral inhibition creates competition where strongest signal wins.
 
-Key mechanism: Explicitly bias toward extreme aggregations (max/min/maxabs).
+Mechanism: Explicitly bias toward extreme aggregations (max/min/maxabs).
 Bias increases as fitness stagnates (harder problem signal).
 
 Hypothesis: Hard parity problems (P5, P6) require extreme-value aggregations.

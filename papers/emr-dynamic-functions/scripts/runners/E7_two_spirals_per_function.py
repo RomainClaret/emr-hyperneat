@@ -33,9 +33,7 @@ from emr_hyperneat.emrhyperneat import (
 )
 
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 OUTPUT_DIR = str(Path(__file__).resolve().parents[2] / "results" / "two_spirals_per_function_n30")
 SEEDS = list(range(42, 72))  # 30 seeds
@@ -51,9 +49,7 @@ FUNCTION_CATEGORIES = {
 }
 
 
-# ============================================================================
 # Data classes
-# ============================================================================
 
 
 @dataclass
@@ -69,9 +65,7 @@ class TrialMetrics:
     elapsed_seconds: float
 
 
-# ============================================================================
 # Trial runner
-# ============================================================================
 
 
 def run_single_trial(
@@ -166,9 +160,7 @@ def run_single_trial(
     )
 
 
-# ============================================================================
 # Resume logic
-# ============================================================================
 
 
 def load_existing_results(output_dir: str, function_name: str) -> Dict[str, Any]:
@@ -194,9 +186,7 @@ def get_completed_seeds(existing: Dict[str, Any]) -> set:
     return {r['seed'] for r in existing['results']}
 
 
-# ============================================================================
 # Per-function experiment
-# ============================================================================
 
 
 def run_function_experiment(
@@ -301,9 +291,7 @@ def _build_function_result(
     }
 
 
-# ============================================================================
 # Status listing
-# ============================================================================
 
 
 def print_status(output_dir: str, functions: List[str], seeds: List[int]):
@@ -335,9 +323,7 @@ def print_status(output_dir: str, functions: List[str], seeds: List[int]):
           f"({total_completed/total_expected*100:.0f}% complete)")
 
 
-# ============================================================================
 # Summary table
-# ============================================================================
 
 
 def print_summary_table(all_results: Dict[str, Dict]):
@@ -390,9 +376,7 @@ def print_summary_table(all_results: Dict[str, Dict]):
               f"({'oscillatory advantage' if diff > 0 else 'no oscillatory advantage'})")
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 
 def main():

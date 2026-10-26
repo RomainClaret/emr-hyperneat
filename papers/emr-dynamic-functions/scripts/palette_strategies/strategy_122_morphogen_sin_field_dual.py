@@ -3,7 +3,7 @@
 Combines Morphogen Gradients (#31) with Critical Period (#9) and sin-preference.
 Sin has a special morphogen source active only during exploration window.
 
-Key Innovation:
+Mechanism:
 - Sin has a strong morphogen source during exploration phase
 - This creates spatial bias toward sin discovery early
 - Morphogen concentration influences mutation probability
@@ -39,7 +39,7 @@ class MorphogenSinFieldDualStrategy(PaletteEvolutionStrategy):
     strong attraction during exploration. Gradient fields bias which
     functions get added.
 
-    Critical innovation: Time-limited sin-specific morphogen source.
+    Time-limited sin-specific morphogen source.
     """
 
     name = "morphogen_sin_field_dual"
@@ -47,32 +47,32 @@ class MorphogenSinFieldDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Sin morphogen source parameters ===
+        # Sin morphogen source parameters
         sin_source_strength: float = 2.0,
         sin_source_active_until: int = 30,
         sin_position_attraction: float = 0.15,
         sin_idx: int = 4,
-        # === General morphogen ===
+        # General morphogen
         base_diffusion_rate: float = 0.1,
         morphogen_decay: float = 0.95,
-        # === Critical period phases ===
+        # Critical period phases
         exploration_phase_end: int = 30,
         confirmation_phase_end: int = 60,
         exploration_mutation_rate: float = 0.15,
         confirmation_mutation_rate: float = 0.08,
         consolidation_mutation_rate: float = 0.03,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         tag_threshold: float = 0.5,
         tag_decay: float = 0.9,
         captured_protection: float = 0.85,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -236,7 +236,7 @@ class MorphogenSinFieldDualStrategy(PaletteEvolutionStrategy):
         for idx in CORE_EXTREME_AGGS:
             agg_morphogen = agg_morphogen.at[idx].add(0.3)
 
-        # === ACTIVATION UPDATE ===
+        # ACTIVATION UPDATE
         act_mask = state['act_mask']
         act_affinities = state['act_affinities']
         act_tags = state['act_tags'] * self.tag_decay
@@ -262,7 +262,7 @@ class MorphogenSinFieldDualStrategy(PaletteEvolutionStrategy):
                 act_mask = act_mask.at[new_idx].set(1.0)
                 morphogen_adds += 1
 
-        # === AGGREGATION UPDATE ===
+        # AGGREGATION UPDATE
         agg_mask = state['agg_mask']
         agg_affinities = state['agg_affinities']
         agg_tags = state['agg_tags'] * self.tag_decay

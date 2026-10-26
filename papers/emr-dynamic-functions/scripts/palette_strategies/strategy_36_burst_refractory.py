@@ -10,10 +10,10 @@ Biological Basis:
 - Burst firing followed by silence is common neural pattern
 - Prevents runaway excitation and allows information processing phases
 
-Key Insight:
+Rationale:
 - Current strategies don't model temporal activity patterns
 - Burst firing followed by refractory creates natural attention windows
-- Functions cycle through active → burst → refractory → recovery
+- Functions cycle through active -> burst -> refractory -> recovery
 - Prevents getting stuck in local optima through forced exploration
 
 Refractory Mechanism:
@@ -33,8 +33,8 @@ Refractory Mechanism:
         selection_weight[f] *= refractory_factor
         refractory_countdown[f] -= 1
 
-Expected improvements:
-- Natural attention windows (burst → silence cycles)
+Intended effects:
+- Natural attention windows (burst -> silence cycles)
 - Prevention of runaway function dominance
 - Forced periodic exploration during refractory
 - Self-organizing temporal patterns
@@ -301,7 +301,7 @@ class BurstRefractoryStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update consecutive activity and refractory states
+        # Update consecutive activity and refractory states
         (new_consecutive, new_absolute, new_relative,
          burst_events, refractory_exits) = self._update_consecutive_and_refractory(
             state['consecutive_active'],
@@ -310,7 +310,7 @@ class BurstRefractoryStrategy(PaletteEvolutionStrategy):
             state['mask'],
         )
 
-        # Step 2: Update base weights
+        # Update base weights
         new_base_weights = self._update_base_weights(
             state['selection_weights'],
             state['mask'],
@@ -318,7 +318,7 @@ class BurstRefractoryStrategy(PaletteEvolutionStrategy):
             refractory_exits,
         )
 
-        # Step 3: Compute effective weights
+        # Compute effective weights
         effective_weights = self._compute_effective_weights(
             new_base_weights,
             new_consecutive,
@@ -326,7 +326,7 @@ class BurstRefractoryStrategy(PaletteEvolutionStrategy):
             new_relative,
         )
 
-        # Step 4: Select new palette
+        # Select new palette
         new_mask = self._select_palette(effective_weights, k1)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

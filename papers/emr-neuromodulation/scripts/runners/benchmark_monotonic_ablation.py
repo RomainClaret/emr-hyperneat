@@ -3,10 +3,10 @@
 
 Tests H2 claim that "all monotonic activations fail" by testing 5 monotonic
 activations beyond just tanh. The mathematical argument (monotonic function
-maps sum=1→HIGH, so sum=2→HIGH) is activation-agnostic, but empirical
+maps sum=1->HIGH, so sum=2->HIGH) is activation-agnostic, but empirical
 confirmation across the monotonic class is needed.
 
-Conditions (5 × 30 seeds = 150 runs):
+Conditions (5 x 30 seeds = 150 runs):
   1. uniform_tanh, replication control (known 76.7% at 2-input)
   2. uniform_sigmoid, bounded monotonic, different saturation profile
   3. uniform_relu, unbounded monotonic, zero for negatives
@@ -42,9 +42,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'monotonic_ablation'
 
@@ -74,9 +72,7 @@ NT_VECTORS = {
     'nor':  jnp.array([0.50, 0.50, 0.50, 0.0]),
 }
 
-# ============================================================================
 # Activation functions, all monotonic
-# ============================================================================
 
 def _leaky_relu(x):
     """Leaky ReLU with slope 0.01 for negative inputs."""
@@ -103,9 +99,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -125,9 +119,7 @@ def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
     return jax.vmap(init_params)(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
@@ -163,9 +155,7 @@ def get_forward_fn(activation_name: str):
     return _FORWARD_CACHE[activation_name]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, activation_name: str) -> Tuple[float, Dict[str, float]]:
     per_task = {}
@@ -188,9 +178,7 @@ def eval_single_multitask(params: Dict, activation_name: str) -> Tuple[float, Di
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -308,9 +296,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -357,9 +343,7 @@ def summarize_condition(results_dir: Path, condition: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

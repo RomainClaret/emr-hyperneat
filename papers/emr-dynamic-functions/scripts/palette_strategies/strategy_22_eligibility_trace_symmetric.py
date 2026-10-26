@@ -6,7 +6,7 @@ Extends EligibilityTraceStrategy with symmetric discovery features:
 - Memory cells from sustained high eligibility + high dopamine
 - Affinity floors and discovery tracking for both domains
 
-Key mechanisms:
+Mechanisms:
 1. Eligibility traces: Decaying record of function activity
 2. Dopamine: Global reward signal (fitness improvement)
 3. Three-factor rule: affinity += lr × dopamine × eligibility
@@ -47,7 +47,7 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
     When dopamine (reward) arrives, functions with high eligibility
     receive credit and can become memory cells.
 
-    Key innovations:
+    Mechanisms:
     - Dual eligibility per domain (activation and aggregation)
     - Cross-domain eligibility (success in one domain influences other)
     - Memory cells from sustained high eligibility + dopamine
@@ -70,7 +70,7 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
         dopamine_baseline_momentum: float = 0.9,   # EMA for baseline fitness
         dopamine_sensitivity: float = 1.5,         # How much fitness diff matters
         dopamine_learning_rate: float = 0.15,      # How much DA affects affinity
-        # Memory cell parameters (high trace + high DA → memory)
+        # Memory cell parameters (high trace + high DA -> memory)
         memory_cell_eligibility_threshold: float = 0.5,  # Eligibility needed for memory
         memory_cell_dopamine_threshold: float = 0.3,     # DA needed for memory
         memory_cell_gens: int = 8,                       # Generations to maintain both
@@ -481,13 +481,13 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
             if i not in agg_ever_discovered and i not in current_agg_palette
         ]
 
-        # Step 1: Compute dopamine signal (shared across domains)
+        # Compute dopamine signal (shared across domains)
         dopamine, new_baseline = self._compute_dopamine(
             best_fitness,
             state['dopamine_baseline']
         )
 
-        # Step 2: Compute cross-domain eligibility boosts
+        # Compute cross-domain eligibility boosts
         # If one domain has memory cells, boost eligibility in the other
         act_cross_boost = self.cross_eligibility_boost if jnp.any(state['agg_memory_cells']) else 0.0
         agg_cross_boost = self.cross_eligibility_boost if jnp.any(state['act_memory_cells']) else 0.0
@@ -497,7 +497,7 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
             act_cross_boost *= (1.0 + dopamine)
             agg_cross_boost *= (1.0 + dopamine)
 
-        # Step 3: Update eligibility traces
+        # Update eligibility traces
         new_act_elig = self._update_eligibility(
             state['act_eligibility'], state['act_mask'],
             state['act_previous_mask'], act_cross_boost
@@ -507,7 +507,7 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_previous_mask'], agg_cross_boost
         )
 
-        # Step 4: Three-factor learning update to affinity
+        # Three-factor learning update to affinity
         new_act_aff = self._update_affinity(
             state['act_affinity'], new_act_elig, dopamine,
             state['act_memory_cells'], act_new_candidates
@@ -520,7 +520,7 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
         # Apply affinity floors
         new_act_aff, new_agg_aff = self._apply_affinity_floors(new_act_aff, new_agg_aff)
 
-        # Step 5: Update memory cells
+        # Update memory cells
         new_act_mc, new_act_mem_cells = self._update_memory_cells_from_eligibility(
             new_act_elig, new_act_aff, state['act_mask'], dopamine,
             state['act_memory_counts'], state['act_memory_cells']
@@ -530,7 +530,7 @@ class EligibilityTraceSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_memory_counts'], state['agg_memory_cells']
         )
 
-        # Step 6: Apply mutation with DA modulation
+        # Apply mutation with DA modulation
         new_act_mask, act_mut_info, act_disc_to_pal = self._mutate_palette(
             k1, state['act_mask'], new_act_aff, new_act_elig, new_act_mem_cells,
             dopamine, self.act_min_active, self.act_max_active, act_new_candidates

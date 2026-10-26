@@ -36,7 +36,7 @@ from conftest import GPU_TRAJECTORY_RTOL  # type: ignore[import-not-found]
 # bit-identical to the research implementation (seed=42, pop=50, max_depth=3, XOR).
 #
 # Recorded under the default ``variance_rule: canonical``: ``best`` did not
-# move (the best genome's substrate is unchanged), ``mean`` did. The 0.3.x values are
+# move (the best genome's substrate is unchanged), ``mean`` did. The legacy-rule values are
 # still reproducible with ``variance_rule: legacy`` (arm64 mean 0.6244490743).
 #
 # ``best`` is a maximum over the population, so it is order-independent. ``mean`` sums 50
@@ -46,10 +46,10 @@ from conftest import GPU_TRAJECTORY_RTOL  # type: ignore[import-not-found]
 # It is kept as a guard: if a genuine per-architecture regression appears, the 1e-9
 # tolerance is already in place, without loosening it until a platform gap fits under it.
 #
-# The processor is NOT what drives substrate divergence between otherwise identical runs.
+# The processor is not what drives substrate divergence between otherwise identical runs.
 # JAX's ``jax_threefry_partitionable`` default was ``False`` through 0.4.38 and is ``True``
 # from 0.5.0, and it changes the initial population drawn from a given seed. This package
-# supports jax>=0.5,<0.7, where it is always ``True`` -- part of why the ``golden_cpu``
+# supports jax>=0.5,<0.7, where it is always ``True``: part of why the ``golden_cpu``
 # marker gates on the pinned JAX. Comparing against numbers recorded on jax 0.4.x needs
 # the flag set explicitly.
 GOLDEN_GEN0_BEST = 0.7304084301
@@ -133,6 +133,10 @@ def _golden_generation_zero_on_cpu():
         "print('GOLDEN_JSON=' + json.dumps(list(test_golden._golden_generation_zero())))\n"
     )
     env = {**os.environ, "JAX_PLATFORMS": "cpu", "TF_CPP_MIN_LOG_LEVEL": "3"}
+    # As in the paper-validation tests: an inherited JAX_PLATFORM_NAME or JAX_BACKEND_TARGET
+    # of gpu asks JAX for a backend that JAX_PLATFORMS=cpu never loads.
+    env.pop("JAX_PLATFORM_NAME", None)
+    env.pop("JAX_BACKEND_TARGET", None)
     proc = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=900,
     )

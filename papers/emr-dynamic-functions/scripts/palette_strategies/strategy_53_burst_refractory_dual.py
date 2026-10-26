@@ -3,7 +3,7 @@
 Extends BurstRefractoryStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using refractory period dynamics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual refractory tracking - separate burst/refractory states for act and agg
 2. Independent burst thresholds - each domain can have different burst sensitivity
 3. Cross-domain recovery - functions can boost recovery in the other domain

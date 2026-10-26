@@ -4,6 +4,7 @@
 
 > Paper: **[PDF](https://claret.tech/pdf/claret2026neuromodulation)** · DOI [10.1162/ISAL.a.968](https://doi.org/10.1162/ISAL.a.968) (ALIFE 2026). BibTeX in [Citation](#citation) below.
 > The PDF is hosted at claret.tech, not committed to this repository.
+> Code release: **emr-hyperneat 0.1.0** (tag [`v0.1.0`](https://github.com/RomainClaret/emr-hyperneat/tree/v0.1.0/papers/emr-neuromodulation)); run a command below on it with `python scripts/replicate.py run emr-neuromodulation -- <command>` from the repository root ([choosing a release](../../docs/reproducing-experiments.md#choosing-a-release)).
 
 This paper adds **neuromodulation** to EMR-HyperNEAT: per-neuron receptor densities modulated by
 task-specific neurotransmitter vectors `[DA, 5HT, NE, ACh]`, letting one evolved substrate solve
@@ -13,8 +14,19 @@ per-task neuron-type diversity (oscillatory activations + neuromodulatory gating
 
 ## Self-contained benchmarks (`scripts/runners/benchmark_*.py`)
 
-The 24 benchmark runners implement their own evolution strategy and neuromodulation **inline**
-(no dependency on the EMR algorithm package) and run standalone:
+Twenty of the 24 benchmark runners implement their own optimizer and neuromodulation
+**inline** (no dependency on the EMR algorithm package) and run standalone. The other four call
+the shared runner described below, which runs EMR: `benchmark_expanded_random_nt.py`,
+`benchmark_extended_generations_indirect.py`, `benchmark_nt_geometry_ablation.py` and
+`benchmark_seed_upgrade.py`. Their published runs used the HMR engine (see
+[below](#the-indirect-headline-result-requires-the-algorithm), and
+[on release 0.1.0](#reproducing-the-published-runs-on-release-010) for running them there). From
+0.2.0 `benchmark_seed_upgrade.py` imports the runner from its own folder and writes to
+`results/benchmark_n30_emr/`, apart from the published runs in `results/benchmark_n30/`; at v0.1.0
+it fails at import. From 0.2.0 `benchmark_expanded_random_nt.py` and
+`benchmark_nt_geometry_ablation.py` write to `results/expanded_random_nt_emr/` and
+`results/nt_geometry_ablation_emr/`, apart from their published runs. The standalone ones run
+directly:
 
 ```bash
 JAX_PLATFORMS=cpu python scripts/runners/benchmark_4class_xor.py --seeds 30 --generations 200
@@ -23,9 +35,13 @@ JAX_PLATFORMS=cpu python scripts/runners/benchmark_5task_3input.py
 ```
 
 These cover the direct-encoding controls and ablations: monotonic-activation ablation,
-oscillatory-class generalization, optimizer independence (Adam vs ES), NT-geometry and
-threshold-sensitivity ablations, arity/capacity studies, and the topology sweeps. Each writes to
-this paper's `results/<experiment>/` (paper-local, resolved from `__file__`).
+oscillatory-class generalization, optimizer independence (Adam vs ES), arity/capacity studies,
+and the topology sweeps. The NT-geometry ablation (`benchmark_nt_geometry_ablation.py`) is not
+one of them: it runs on the shared runner, with indirect encoding. The threshold-sensitivity
+analysis is `scripts/analysis/analysis_threshold_sensitivity.py`, which re-analyzes existing
+results. Each standalone runner writes to this paper's `results/<experiment>/` (paper-local,
+resolved from `__file__`), except `benchmark_extended_generations.py`, which writes under
+`scripts/runners/results/`.
 
 ## Analysis and figures
 
@@ -42,16 +58,64 @@ python scripts/figures/generate_fig_pertask_hero_result.py     # needs results/p
 ```
 
 > `fig_pertask_hero_result` reads the per-head run logs (`results/palette_per_head_20260118_185*.json`),
-> which ship in the data release; the other two figures are self-contained.
+> which are not in the data release (the command block's "(data release)" is wrong), so this
+> figure cannot be regenerated from it; the other two figures are self-contained.
 
 ## The indirect (headline) result requires the algorithm
 
 The headline *indirect-encoding* multi-task barrier was produced by driving the substrate
 algorithm's neuromodulation pathway (neurotransmitter presets, per-head palettes)
-through the shared runner `scripts/runners/multihead_palette_neuromodulation.py` (default `backend='emr'`;
-pass `backend='hmr'` for the exact published baseline via `emr_hyperneat/_hmr_frozen/`). The
-`scripts/analysis/probe_emr_config.py` validator confirms the EMR neuromodulation pathway is configured
-correctly. The 24 self-contained benchmarks and all analysis/figures above do not require them.
+through the shared runner `scripts/runners/multihead_palette_neuromodulation.py`. From 0.2.0 the
+runner runs EMR only. The published runs used the HMR engine, which release 0.1.0 ships and
+0.2.0 does not; the runner of 0.1.0 selects it through its `backend` parameter (its
+default is EMR). The `scripts/analysis/probe_emr_config.py` validator loads the shared runner from
+`scripts/runners/`: run it from this folder as `python scripts/analysis/probe_emr_config.py` (at
+v0.1.0, as `PYTHONPATH=scripts/runners python scripts/analysis/probe_emr_config.py`). It
+confirms that the EMR neuromodulation pathway is configured correctly. The 20 self-contained
+benchmarks and all analysis/figures above do not require them.
+
+## Reproducing the published runs on release 0.1.0
+
+The four scripts that call the shared runner pass it no `backend`, so on release 0.1.0 they run its
+default, EMR, and `benchmark_seed_upgrade.py` fails at import there (it imports the runner from a
+research path). This form, from the repository root, runs them on the HMR engine of release 0.1.0,
+as the published runs did:
+
+```bash
+python scripts/replicate.py run emr-neuromodulation --release 0.1.0 -- python -c "
+import functools, runpy, sys, types
+sys.path.insert(0, 'scripts/runners')
+import multihead_palette_neuromodulation as runner
+runner.run_multihead_palette_experiment = functools.partial(runner.run_multihead_palette_experiment, backend='hmr')
+for name in ('experiments', 'experiments.neuromodulation'):
+    sys.modules.setdefault(name, types.ModuleType(name))
+sys.modules['experiments.neuromodulation.multihead_palette_neuromodulation'] = runner
+sys.argv = ['scripts/runners/benchmark_seed_upgrade.py', '--seeds', '3']
+runpy.run_path(sys.argv[0], run_name='__main__')"
+```
+
+`sys.argv` names the script and its arguments; the same lines serve
+`benchmark_expanded_random_nt.py`, `benchmark_extended_generations_indirect.py` and
+`benchmark_nt_geometry_ablation.py` (the two `experiments` lines matter only for
+`benchmark_seed_upgrade.py`). A run on the HMR engine prints its configuration lines, for example
+`[Neuromodulation] Mode: true_neuromodulation_4nt_option_a_tanh`, which an EMR run does not print.
+On 0.1.0 the scripts write to the published folders of the release checkout
+(`.replicate/v0.1.0/papers/emr-neuromodulation/results/`) and skip a run whose file exists there.
+
+At the validation configuration, one seed per configuration (42 where the row names none) with full
+generation budgets, both engines on one x86 server (two Intel Xeon E5-2683 v4, one CPU per run,
+`XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`, jax 0.6.1), EMR in release 0.2.0 gives the
+right-hand column where the HMR engine of release 0.1.0 gave the left. A cell is the generation of
+the first solve, or not solved, with the best fitness; one seed shows where the two engines agree
+and differ, not a solve rate. The five runs end the same way on both engines.
+
+| Run | HMR engine (release 0.1.0) | EMR (release 0.2.0) |
+|---|---|---|
+| `benchmark_seed_upgrade.py --conditions 1task_xor` (seed 0) | converged at 22 (lowest task 1.000000) | converged at 22 (lowest task 1.000000) |
+| `benchmark_seed_upgrade.py --conditions 5task_xor_and_or_nand_nor` (seed 0) | not converged (lowest task 0.750000) | not converged (lowest task 0.750000) |
+| `benchmark_expanded_random_nt.py --set-indices 10` (seed 1) | not converged (lowest task 0.750000) | not converged (lowest task 0.750000) |
+| `benchmark_extended_generations_indirect.py --generations 100` (seed 42) | not converged (lowest task 0.750000) | not converged (lowest task 0.750000) |
+| `benchmark_nt_geometry_ablation.py`, condition D1_or_nor_ach_inversion (seed 1) | converged at 0 (lowest task 1.000000) | converged at 0 (lowest task 1.000000) |
 
 ## Citation
 

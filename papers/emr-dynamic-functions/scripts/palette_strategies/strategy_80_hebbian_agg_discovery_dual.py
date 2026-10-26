@@ -3,12 +3,12 @@
 Bio inspiration: Synaptic co-occurrence learning - "cells that fire together wire together."
 Extended to cross-domain: activation-aggregation pairs that succeed together become linked.
 
-Key innovation:
+Mechanism:
 - 18x6 cross-domain Hebbian matrix tracking activation-aggregation pairs
 - Boosted learning rate for sin-extreme pairs (1.5x multiplier)
 - Cross-domain consolidation protects successful pairs from mutation
 
-Expected: Better sin-max/min synergy discovery through explicit pair learning.
+Expected: Better discovery of sin-max/min pairs through explicit pair learning.
 """
 
 from typing import Dict, Any, List, Optional, Tuple

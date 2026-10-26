@@ -3,7 +3,7 @@
 Combines Morphogen gradients (#31) with Critical Period plasticity (#9).
 Gradient steepness determines function plasticity (high gradient = high learning).
 
-Key Innovation:
+Mechanism:
 - Functions at morphogen concentration edges have higher plasticity
 - Edge positions = transition regions = high gradient
 - High plasticity = faster affinity updates, more likely to be mutated
@@ -39,7 +39,7 @@ class MorphogenGradientPlasticityDualStrategy(PaletteEvolutionStrategy):
     Functions at gradient edges have higher plasticity,
     leading to more dynamic exploration at palette boundaries.
 
-    Critical innovation: Edge plasticity creates adaptive exploration zones.
+    Edge plasticity creates adaptive exploration zones.
     """
 
     name = "morphogen_gradient_plasticity_dual"
@@ -47,29 +47,29 @@ class MorphogenGradientPlasticityDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Gradient plasticity ===
+        # Gradient plasticity
         gradient_plasticity_scale: float = 2.0,
         gradient_decay_per_gen: float = 0.95,
         edge_plasticity_bonus: float = 1.5,
         edge_threshold: float = 0.3,
-        # === Morphogen parameters ===
+        # Morphogen parameters
         morphogen_emission_rate: float = 0.3,
         morphogen_decay: float = 0.90,
-        # === Sin preference ===
+        # Sin preference
         sin_idx: int = 4,
         sin_edge_attraction: float = 0.25,
-        # === Mutation parameters ===
+        # Mutation parameters
         base_mutation_rate: float = 0.10,
         plasticity_mutation_boost: float = 0.15,
-        # === General parameters ===
+        # General parameters
         base_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -209,7 +209,7 @@ class MorphogenGradientPlasticityDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE MORPHOGEN FIELDS ===
+        # UPDATE MORPHOGEN FIELDS
         act_morphogen = state['act_morphogen'] * self.morphogen_decay
         agg_morphogen = state['agg_morphogen'] * self.morphogen_decay
 
@@ -230,7 +230,7 @@ class MorphogenGradientPlasticityDualStrategy(PaletteEvolutionStrategy):
             if float(agg_mask[i]) > 0.5:
                 agg_morphogen = agg_morphogen.at[i].add(self.morphogen_emission_rate)
 
-        # === UPDATE PLASTICITY BASED ON GRADIENT ===
+        # UPDATE PLASTICITY BASED ON GRADIENT
         for i in range(NUM_ACTIVATIONS):
             gradient = self._calculate_gradient(act_morphogen, i, NUM_ACTIVATIONS)
             # High gradient = high plasticity
@@ -250,7 +250,7 @@ class MorphogenGradientPlasticityDualStrategy(PaletteEvolutionStrategy):
         act_plasticity = jnp.clip(act_plasticity, 0.1, 2.0)
         agg_plasticity = jnp.clip(agg_plasticity, 0.1, 2.0)
 
-        # === ACTIVATION MUTATION (plasticity-weighted) ===
+        # ACTIVATION MUTATION (plasticity-weighted)
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates:
             # Mutation probability based on plasticity
@@ -272,7 +272,7 @@ class MorphogenGradientPlasticityDualStrategy(PaletteEvolutionStrategy):
                 if self._is_edge_position(act_morphogen, new_idx, NUM_ACTIVATIONS):
                     edge_mutations += 1
 
-        # === AGGREGATION MUTATION (plasticity-weighted) ===
+        # AGGREGATION MUTATION (plasticity-weighted)
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates:
             weights = []

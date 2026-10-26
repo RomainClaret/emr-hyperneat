@@ -3,13 +3,13 @@
 EMR has three ways of getting through one generation. They compute the same thing
 and differ only in where the intermediate arrays live:
 
-- `STANDARD` queries every candidate position at once. Fastest, and the highest
-  peak memory. This is the path the published results and the golden tests lock,
+- `STANDARD` queries every candidate position at once, with the highest peak
+  memory. This is the path the published results and the golden tests lock,
   so it is the default and it is never routed through this package.
-- `STREAMING` builds the weight matrices level by level, so only one level's
-  queries are resident at a time. Roughly 3-10x slower per generation, and the
-  difference between running depth 8+ and running out of memory.
-- `DEPTH_OFFLOAD` additionally keeps the assembled matrices in host RAM (or a
+- `STREAMING` builds the weight matrices level by level, so one level's queries, and the next
+  level's input queries for its variance, are resident at once; W1 and W2 are still assembled
+  at full size.
+- `DEPTH_OFFLOAD` also keeps the assembled matrices in host RAM (or a
   memmap) and moves each chunk to the device only to evaluate it. This is the
   only mode that reaches depth 11+, where the matrices exceed device memory
   outright.
@@ -17,8 +17,8 @@ and differ only in where the intermediate arrays live:
 `STREAMING` swaps one step inside the normal generation loop, so it composes with
 everything else the loop does. `DEPTH_OFFLOAD` cannot: never materializing the
 full matrices means its build and its evaluation are fused, so it replaces the
-generation instead of a step within it. That asymmetry is real, and it is why the
-dispatcher has two extension points rather than one.
+generation instead of a step within it. That asymmetry is why the dispatcher has
+two extension points rather than one.
 
 """
 
@@ -31,9 +31,18 @@ from typing import Any, Dict, Optional
 __all__ = [
     "ExecutionMode",
     "ExecutionConfig",
+    "EXECUTION_KEYS",
+    "GENERATION_LOOPS",
     "resolve_mode",
     "parse_execution_config",
 ]
+
+
+#: execution.generation_loop: how run_until_threshold iterates its generations on one device.
+#: 'python': one generation call per generation, every feature. 'while_loop': the HMR engine's GPU
+#: loop, the plain feed-forward generation compiled inside jax.lax.while_loop; performance only, up
+#: to rounding.
+GENERATION_LOOPS = ("python", "while_loop")
 
 
 class ExecutionMode(str, Enum):
@@ -57,23 +66,22 @@ class ExecutionMode(str, Enum):
 class ExecutionConfig:
     """Every knob controlling execution mode and its memory budgets.
 
-    Before unification these lived as sixteen private attributes set only through
-    imperative `configure_offloading` / `configure_sharding` calls, which meant a
-    YAML-driven experiment could not reach them at all. They are gathered here so
-    the config file and the setters write the same place.
+    The config file and the imperative `configure_offloading` / `configure_sharding`
+    setters write the same fields here, so a YAML-driven experiment reaches every
+    one of them.
 
-    Defaults reproduce the pre-unification behaviour of the standard path exactly:
+    Defaults reproduce the pre-unification behavior of the standard path exactly:
     `mode` is STANDARD, so nothing about an existing run changes unless asked.
     """
 
-    # --- mode selection --------------------------------------------------
+    # mode selection
     mode: ExecutionMode = ExecutionMode.STANDARD
     depth_threshold: int = 9
     """Depth at or above which AUTO selects DEPTH_OFFLOAD."""
     streaming_depth_threshold: int = 8
     """Depth at or above which AUTO selects STREAMING."""
 
-    # --- CPPN query chunking ---------------------------------------------
+    # CPPN query chunking
     cppn_pos_chunk_size: int = 100_000
     target_shard_gb: float = 0.5
     max_lookahead_positions: int = 5_000_000
@@ -81,7 +89,7 @@ class ExecutionConfig:
 
     Skipping is not free: zeroed variance halts subdivision at and below that
     level, so the discovered substrate changes. It is therefore opt-in rather than
-    an invisible consequence of depth -- see `truncate_variance_lookahead`.
+    an invisible consequence of depth (see `truncate_variance_lookahead`).
     """
     truncate_variance_lookahead: bool = False
     """Whether `max_lookahead_positions` may alter the substrate. Default off.
@@ -92,36 +100,60 @@ class ExecutionConfig:
     skip_dead_levels: bool = True
     """Stop descending once a level has no reached positions.
 
-    Behaviourally identical -- an unreached level contributes exactly zeros through
-    `jnp.where(mask & ..., W1_raw, 0.0)` against a pre-zeroed buffer -- but it changes
+    Behaviorally identical (an unreached level contributes exactly zeros through
+    `jnp.where(mask & ..., W1_raw, 0.0)` against a pre-zeroed buffer), but it changes
     the cost profile, so it is on by default and can be turned off. Acts on
-    the depth-offload path only. Measured on the HMR path at 1.88x (d7), 9.51x (d9) and
-    27.17x (d10) with byte-identical reach and fitness, because subdivision stops at
-    level 3 at the default threshold and everything below is empty. (The CHANGELOG's
-    2.37x/9.77x figures are the EMR path at pop 1000; the two sets are different
-    measurements, not a disagreement.)
+    the depth-offload path only. Reach and fitness are the same with it off
+    (`test_depth_lookahead.py`); the saving grows with depth, because at the default
+    threshold subdivision stops at level 3 and every level below is empty.
     """
 
-    # --- evaluation chunking ---------------------------------------------
+    # evaluation chunking
     eval_chunk_levels: int = 3
     eval_chunk_positions: int = 1_000_000
     target_eval_shard_gb: float = 1.0
     recurrent_target_memory_gb: float = 2.0
 
-    # --- host residency ---------------------------------------------------
+    # host residency
     target_cpu_gb: float = 32.0
     max_population_chunk: Optional[int] = None
     use_cpu_grid: bool = False
     """Keep the grid itself in host RAM. Needed from depth 12, where the grid
     structure alone exceeds device memory."""
 
-    # --- spill to disk -----------------------------------------------------
+    # spill to disk
     use_memmap: bool = True
     memmap_path: str = "/tmp/emr_memmap"
     enable_disk_offload: bool = False
     disk_offload_path: str = "/tmp/emr_offload"
 
-    # --- diagnostics -------------------------------------------------------
+    # active-set compaction
+    compaction_bucket: str = "auto"
+    """Shape of the compacted recurrent evaluation space: `auto` or `exact`.
+
+    The recurrent evaluation runs on the population's union of reached positions, a size
+    that changes from generation to generation once the union leaves part of the grid unused
+    (depth 3 and deeper). `exact` evaluates on exactly that many positions, so every step
+    after compaction meets a new shape and recompiles (18 to 54 executables per generation
+    on two RTX 2080 Ti at depth 3, population 1000). `auto` pads the compact space to
+    a bucketed size with virtual positions after the real ones: zero weights in and out, no
+    hidden-to-hidden connection, mask False, so a bucket size compiles once and results do
+    not change. Acts on the standard and streaming paths; depth offload keeps exact shapes.
+    """
+
+    # the generation loop
+    generation_loop: str = "python"
+    """How run_until_threshold iterates its generations on one device: `python` or `while_loop`.
+
+    `while_loop` (the HMR engine's GPU loop) compiles the plain feed-forward generation inside
+    `jax.lax.while_loop` and reads the results back once. Performance only, up to rounding: the
+    fitness can differ from `python`'s by a float32 ulp, the generation count, stop and key do not.
+    It refuses every setting outside that generation (hidden-to-hidden connections, per-node
+    functions other than `global`, LEO, neuromodulation, multi-task, streaming, depth offload,
+    palettes, the node-list model, the multi-device routes).
+    """
+
+    # diagnostics
     verbose: bool = False
 
     def resolve(self, max_depth: int) -> ExecutionMode:
@@ -199,8 +231,13 @@ _DIRECT_KEYS = (
     "memmap_path",
     "enable_disk_offload",
     "disk_offload_path",
+    "compaction_bucket",
+    "generation_loop",
     "verbose",
 )
+#: Every key of the `execution:` block; EMRHyperNEAT.create_config raises on any other, so a
+#: misspelled setting cannot silently run the default.
+EXECUTION_KEYS = frozenset(("mode",) + _DIRECT_KEYS)
 
 
 def parse_execution_config(
@@ -216,7 +253,7 @@ def parse_execution_config(
 
     Keys absent from the config are left as they are on `base` rather than reset to
     the class defaults. That is what lets `configure_offloading()` be called before
-    `create_config()` without the config parse silently discarding it -- the two
+    `create_config()` without the config parse silently discarding it: the two
     ways of setting execution options have to compose, not compete.
 
     Args:
@@ -254,5 +291,15 @@ def parse_execution_config(
     for key in _DIRECT_KEYS:
         if key in block:
             setattr(config, key, block[key])
+    if config.compaction_bucket not in ("auto", "exact"):
+        raise ValueError(
+            "execution.compaction_bucket must be 'auto' or 'exact', got "
+            f"{config.compaction_bucket!r}"
+        )
+    if config.generation_loop not in GENERATION_LOOPS:
+        raise ValueError(
+            "execution.generation_loop must be 'python' or 'while_loop', got "
+            f"{config.generation_loop!r}"
+        )
 
     return config

@@ -1,13 +1,12 @@
 """Chunk-size arithmetic shared by the EMR execution strategies.
 
 Every strategy that trades speed for memory has to answer the same question: how
-many genomes, positions or samples fit in a given byte budget. That arithmetic was
-previously duplicated as private methods on two subclasses and as a module-level
-helper on a third, so the three could drift. It is collected here as pure
-functions -- no algorithm state, no JAX -- which also makes it directly testable.
+many genomes, positions or samples fit in a given byte budget. The arithmetic lives
+here once, as pure functions (no algorithm state, no JAX), so the strategies cannot
+drift apart and the functions are directly testable.
 
-All budgets are in GB and use 1e9 bytes per GB, matching the constants the
-original call sites were tuned against.
+All budgets are in GB and use 1e9 bytes per GB, matching the constants the call
+sites are tuned against.
 """
 
 from __future__ import annotations
@@ -18,11 +17,11 @@ from typing import Optional, Tuple
 BYTES_PER_FLOAT32 = 4
 BYTES_PER_GB = 1e9
 
-# Retired estimate, kept only so the corrected model can state its error factor:
-# the old sizing assumed the CPPN query allocates ~one intermediate alongside its
+# An estimate that undercounts, kept only so the corrected model can state its error
+# factor: it assumes the CPPN query allocates ~one intermediate alongside its
 # output (2 float32 per (genome, position)). The measured cost is the double-vmapped
 # `DefaultGenome.forward` while-loop carry: 2 x max_nodes float32 per (genome,
-# position) -- 100 at the default max_nodes=50, an undercount of 50x that produced
+# position), which is 100 at the default max_nodes=50. That undercount of 50x produced
 # two byte-exact recorded depth-7 OOM allocations (6,555,023,048 B and
 # 25,001,623,112 B).
 LEGACY_CPPN_QUERY_OVERHEAD = 2
@@ -72,10 +71,10 @@ def optimal_position_chunk_size(
     """Positions per CPPN query chunk that fit inside a GPU memory target.
 
     The dominant term is the forward carry (`cppn_query_carry_bytes`); the
-    per-source output rows are added for honesty but are ~1% of it at the
-    default max_nodes. The previous version modeled only the output rows
-    (`LEGACY_CPPN_QUERY_OVERHEAD`), undercounting by 2*max_nodes/2 = 50x and
-    sizing 62,500-position shards against a 0.5 GB target.
+    per-source output rows are added for completeness but are ~1% of it at the
+    default max_nodes. Modeling the output rows alone (`LEGACY_CPPN_QUERY_OVERHEAD`)
+    undercounts by 2*max_nodes/2 = 50x and sizes 62,500-position shards against a
+    0.5 GB target.
 
     Args:
         pop_size: Population size, since every genome queries every position.
@@ -100,7 +99,7 @@ def population_chunk_for_query(
     max_nodes: int,
     target_gb: float,
 ) -> int:
-    """Genomes per query chunk under the carry budget -- the AUTO (-1) semantics.
+    """Genomes per query chunk under the carry budget: the AUTO (-1) semantics.
 
     Returns `pop_size` unchanged whenever the full population's carry fits the
     budget, so every configuration that fit before keeps its measured behavior
@@ -152,9 +151,9 @@ def population_chunk_size(
         depth 11 (22.4M positions), pop 1000 -> 380.8 MB per genome
             target_cpu_gb=16 -> 37 genomes;   target_cpu_gb=32 -> 75
 
-    The predecessor's docstring gave 168/336 and 42/84 here. Those come from
-    dividing the raw budget by the per-genome cost and omit POPULATION_SAFETY_MARGIN,
-    which the code has always applied -- the numbers above are what it returns.
+    Dividing the raw budget by the per-genome cost gives 168/336 and 42/84; the
+    numbers above are lower because the code also applies POPULATION_SAFETY_MARGIN,
+    and they are what it returns.
 
     Args:
         pop_size: Full population size.
@@ -215,7 +214,7 @@ def recurrent_chunk_sizes(
 
 # Live copies the h->h discovery pipeline holds per genome at its peak, in bytes
 # per active-set entry pair: dense weights (4), multi-hop weights (4), two bool
-# validity masks (1+1), and the constraint/broadcast intermediates (~8) --
+# validity masks (1+1), and the constraint/broadcast intermediates (~8), sized from
 # recorded byte-exact pop x A^2 x 4 single allocations at A=692 and A=888 with
 # several such tensors live at once.
 DISCOVERY_BYTES_PER_PAIR = 18
@@ -254,7 +253,7 @@ def discovery_population_chunk(
 # STANDARD path. Two measured anchors (RTX 2080 Ti, 9.35 GB usable):
 # d7/pop1000 (floor 2.88 GB) OOMed 0/10, so the true peak exceeds 9.35 GB and the
 # factor must be >= 3.25; d6/pop1000 (floor 0.72 GB) ran clean, so 4x keeps it on
-# the standard path with margin. 4 is calibrated, not derived -- the same lesson
+# the standard path with margin. 4 is calibrated, not derived: the same lesson
 # as the NEAT arm's measured ~6x transform working set.
 STANDARD_WORKING_SET_FACTOR = 4
 
@@ -270,7 +269,7 @@ def standard_mode_floor_bytes(
     Counts W1 (num_inputs f32), W2 (num_outputs f32), the 4-float query output
     family (the recorded 1.398 GB d7 allocation is byte-exact pop x positions x
     16 B), and the 1-byte active mask, all per (genome, position). Excludes
-    evaluation buffers and XLA transients -- hence a floor, corrected by
+    evaluation buffers and XLA transients, hence a floor, corrected by
     `STANDARD_WORKING_SET_FACTOR`.
     """
     per_pair = BYTES_PER_FLOAT32 * (num_inputs + num_outputs + 4) + 1

@@ -3,7 +3,7 @@
 Extends RetrogradeSignalingStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using backward credit propagation.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual eligibility traces - separate eligibility for act and agg functions
 2. Dual activation history - track palette changes in both domains
 3. Cross-domain credit - successful pairs receive coordinated credit

@@ -3,7 +3,7 @@
 Implements obligate mutualism between sin and extreme aggregations.
 If one partner is removed, the other becomes vulnerable.
 
-Key Mechanism:
+Mechanism:
 - Sin and extreme_aggs (max/min) form symbiotic pairs
 - When partner is active, protection is high
 - When partner is lost, orphan becomes 2x more likely to be pruned
@@ -36,7 +36,7 @@ class SinExtremeSymbiosisDualStrategy(PaletteEvolutionStrategy):
     Explicit coupling between sin and extreme aggs
     where they protect each other. If one is lost, the other becomes vulnerable.
 
-    Critical innovation: Symbiotic protection where sin and max/min mutually
+    Symbiotic protection where sin and max/min mutually
     reinforce each other's presence in the palette.
     """
 
@@ -45,34 +45,34 @@ class SinExtremeSymbiosisDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === SYMBIOSIS PARAMETERS (CORE) ===
+        # SYMBIOSIS PARAMETERS (CORE)
         symbiosis_pairs: List[Tuple[int, int]] = None,  # (sin, max), (sin, min)
         symbiosis_protection: float = 0.8,
         orphan_vulnerability: float = 2.0,  # 2x more likely to be pruned
         symbiosis_formation_rate: float = 0.15,
         symbiosis_break_threshold: float = 0.2,  # Low fitness causes break
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_affinity_lr: float = 0.12,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_boost: float = 0.15,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         exploration_rate_act: float = 0.08,
         exploration_rate_agg: float = 0.12,
         symbiotic_exploration_boost: float = 0.5,  # Partners more likely to explore together
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -129,7 +129,7 @@ class SinExtremeSymbiosisDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin is ALWAYS in initial palette
+        # Ensure sin is ALWAYS in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -269,7 +269,7 @@ class SinExtremeSymbiosisDualStrategy(PaletteEvolutionStrategy):
                         new_symbiosis[i, j] * 0.9
                     )
 
-        # CRITICAL: Sin-extreme bonds never fully break
+        # Sin-extreme bonds never fully break
         for act_idx, agg_idx in self.symbiosis_pairs:
             new_symbiosis = new_symbiosis.at[act_idx, agg_idx].set(
                 max(0.5, float(new_symbiosis[act_idx, agg_idx]))
@@ -305,7 +305,7 @@ class SinExtremeSymbiosisDualStrategy(PaletteEvolutionStrategy):
                     # Orphan - vulnerable
                     agg_protection = agg_protection.at[j].set(0.1)
 
-        # CRITICAL: Sin always has base protection
+        # Sin always has base protection
         act_protection = act_protection.at[4].set(max(0.6, float(act_protection[4])))
         # Extreme aggs always have base protection
         for agg in CORE_EXTREME_AGGS:
@@ -437,7 +437,7 @@ class SinExtremeSymbiosisDualStrategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > agg_protection[j]:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure sin and extreme aggs are never removed
+        # Ensure sin and extreme aggs are never removed
         new_act_mask = new_act_mask.at[4].set(1.0)
         for agg in CORE_EXTREME_AGGS:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

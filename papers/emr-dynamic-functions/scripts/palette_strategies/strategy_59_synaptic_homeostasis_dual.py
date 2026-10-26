@@ -3,7 +3,7 @@
 Extends SynapticHomeostasisHypothesisStrategy to jointly evolve BOTH activation AND
 aggregation function palettes using wake/sleep cycle dynamics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual weight tracking - separate weights for act and agg functions
 2. Synchronized sleep - both domains enter sleep phase together
 3. Coordinated downscaling - global scaling affects both domains

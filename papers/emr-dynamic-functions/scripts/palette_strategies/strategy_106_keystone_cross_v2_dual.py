@@ -3,7 +3,7 @@
 Combines keystone ecology (strategy 46) with multiplicative cross-domain
 coupling (strategy 103) for robust sin-extreme pairings.
 
-Key Innovation:
+Mechanism:
 - Keystone functions gain AMPLIFIED multiplicative coupling
 - When sin achieves keystone status, its cross-affinity growth is boosted
 - Extreme aggregations that become keystones receive extra protection
@@ -43,7 +43,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
     Keystone status amplifies the multiplicative
     cross-domain dynamics, creating super-robust pairings.
 
-    Critical innovation: Keystone × keystone pairings get multiplicative
+    Keystone-keystone pairings get multiplicative
     super-boost, creating near-permanent sin-extreme coupling.
     """
 
@@ -52,43 +52,43 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === KEYSTONE-BOOSTED MULTIPLICATIVE PARAMETERS (KEY INNOVATION) ===
+        # KEYSTONE-BOOSTED MULTIPLICATIVE PARAMETERS
         base_cross_growth_factor: float = 1.15,       # Base multiplicative growth
         keystone_cross_boost: float = 1.25,           # Boosted when keystone active
         keystone_keystone_multiplier: float = 1.5,    # Keystone-keystone super-boost
         sin_keystone_priority: float = 0.7,           # Sin gets keystone faster
-        # === Keystone parameters (from strategy 46) ===
+        # Keystone parameters (from strategy 46)
         keystone_threshold: float = 0.5,              # Fitness to become keystone
         keystone_facilitation: float = 0.4,           # Keystone helps neighbors
         keystone_protection: float = 0.7,             # Keystone protection strength
         keystone_decay: float = 0.95,                 # Keystone status decay
-        # === Multiplicative cross-domain (from strategy 103) ===
+        # Multiplicative cross-domain (from strategy 103)
         cross_affinity_decay_factor: float = 0.98,
         mutual_capture_bonus: float = 0.4,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Keystone + Cross-Domain v2 strategy."""
-        # Keystone-boosted multiplicative (KEY INNOVATION)
+        # Keystone-boosted multiplicative
         self.base_cross_growth_factor = base_cross_growth_factor
         self.keystone_cross_boost = keystone_cross_boost
         self.keystone_keystone_multiplier = keystone_keystone_multiplier
@@ -175,7 +175,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
             'act_captured': act_captured,
             'agg_captured': agg_captured,
             'tag_history': [],
-            # Keystone status (KEY)
+            # Keystone status
             'act_keystone': act_keystone,
             'agg_keystone': agg_keystone,
             # Cross-domain
@@ -321,7 +321,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, int, int]:
         """Update affinities with KEYSTONE-BOOSTED multiplicative dynamics.
 
-        KEY INNOVATION: Keystone status amplifies cross-affinity growth factor.
+        Keystone status amplifies cross-affinity growth factor.
         Keystone-keystone pairings get multiplicative super-boost.
         """
         keystone_boost_events = 0
@@ -466,7 +466,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === KEYSTONE UPDATE ===
+        # KEYSTONE UPDATE
         new_act_keystone, new_agg_keystone = self._update_keystone_status(
             state['act_mask'], state['agg_mask'],
             state['act_keystone'], state['agg_keystone'],
@@ -474,7 +474,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
             improved
         )
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -485,14 +485,14 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === KEYSTONE-BOOSTED MULTIPLICATIVE UPDATE ===
+        # KEYSTONE-BOOSTED MULTIPLICATIVE UPDATE
         (new_act_aff, new_agg_aff, new_cross_affinity,
          keystone_boost_events, keystone_keystone_events) = \
             self._update_affinities_keystone_boosted(
@@ -502,7 +502,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
                 state['cross_affinity'], fitness_delta
             )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_keystone,
             new_cross_affinity, state['agg_mask'],
@@ -560,7 +560,7 @@ class KeystoneCrossV2DualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Keystone metrics (KEY)
+            # Keystone metrics
             'sin_keystone': float(new_act_keystone[4]),
             'max_keystone': float(new_agg_keystone[2]),
             'min_keystone': float(new_agg_keystone[3]),

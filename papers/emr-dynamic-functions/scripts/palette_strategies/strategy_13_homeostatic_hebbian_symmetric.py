@@ -4,7 +4,7 @@ Extends HomeostaticHebbian to symmetric palette evolution with homeostatic
 regulation to prevent affinity saturation in both domains, combined with
 memory cells and affinity floors for guaranteed retention.
 
-Key mechanisms:
+Mechanisms:
 1. Synaptic scaling for both activation and aggregation affinities
 2. Soft bounds prevent saturation in both domains
 3. Cross-domain affinity matrix tracks act-agg combinations
@@ -92,7 +92,7 @@ class HomeostaticHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         affinity_floor_base: float = 0.05,
         soft_ceiling_start: float = 0.80,
         soft_floor_start: float = 0.20,
-        # Memory cell parameters (from winning patterns)
+        # Memory cell parameters
         memory_threshold: float = 0.75,
         memory_sustain_generations: int = 8,
         memory_decay_rate: float = 0.05,
@@ -379,7 +379,7 @@ class HomeostaticHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         act_active = (act_mask > 0.5).astype(jnp.float32)
         agg_active = (agg_mask > 0.5).astype(jnp.float32)
 
-        # --- Activation domain update ---
+        # Activation domain update
         act_co_active = jnp.outer(act_active, act_active)
         if fitness_signal >= 0:
             act_weight_delta = lr * fitness_signal * act_co_active
@@ -392,7 +392,7 @@ class HomeostaticHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         new_act_affinity = self._apply_soft_bounds(act_affinity, act_affinity_delta)
         new_act_affinity, act_scaled = self._apply_synaptic_scaling(new_act_affinity, act_mask)
 
-        # --- Aggregation domain update ---
+        # Aggregation domain update
         agg_co_active = jnp.outer(agg_active, agg_active)
         if fitness_signal >= 0:
             agg_weight_delta = lr * fitness_signal * agg_co_active
@@ -405,7 +405,7 @@ class HomeostaticHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         new_agg_affinity = self._apply_soft_bounds(agg_affinity, agg_affinity_delta)
         new_agg_affinity, agg_scaled = self._apply_synaptic_scaling(new_agg_affinity, agg_mask)
 
-        # --- Cross-domain update ---
+        # Cross-domain update
         cross_active = jnp.outer(act_active, agg_active)
         if fitness_signal >= 0:
             cross_delta = cross_lr * fitness_signal * cross_active

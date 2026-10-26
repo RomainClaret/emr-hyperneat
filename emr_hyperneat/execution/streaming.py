@@ -1,13 +1,13 @@
 """Streaming execution: level-by-level matrix building, chunked evaluation.
 
-Most of streaming already lives on the main algorithm class, as the
+Most of streaming lives on the main algorithm class, as the
 `_build_matrices_streaming` step selected inside the normal generation loop. That
-factoring is the correct one -- it swaps a step rather than forking the loop, so it
-composes with `locality_radius`, LEO, geometry seeding, dynamic functions and
-neuromodulation, all of which the now-removed streaming subclass silently dropped.
+factoring is the correct one: it swaps a step rather than forking the loop, so it
+composes with `locality_radius`, geometry seeding, dynamic functions and
+neuromodulation, which a forked loop would have to reimplement one by one.
 
-What could not stay on the class is the recurrent evaluator below, because it is
-the one piece of the subclass with no counterpart on the parent.
+The recurrent evaluator below is the exception: it has no counterpart on the main
+class, so it lives here.
 
 Import direction: this module imports from the algorithm module, never the reverse.
 The dispatcher imports it lazily at call time, which is what keeps that one-way.
@@ -20,7 +20,7 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from emr_hyperneat.emrhyperneat import (  # noqa: E501
+from emr_hyperneat.emrhyperneat import (
     SparseHiddenConnections,
     eval_single_network_hybrid,
 )
@@ -38,7 +38,7 @@ def evaluate_population_recurrent_double_chunked(
     pop_chunk_size: int = 10,
     sample_chunk_size: int = 50,
 ) -> jnp.ndarray:
-    """Evaluate recurrent networks chunked over BOTH population and samples.
+    """Evaluate recurrent networks chunked over both population and samples.
 
     Chunking the sample axis alone is not enough for recurrent evaluation. XLA
     unrolls `lax.scan`, so every one of `activate_time` iterations is held live at

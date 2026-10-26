@@ -19,7 +19,7 @@ import platform
 import warnings
 import logging
 import subprocess
-from typing import Dict, Tuple, Optional, List
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ class PlatformInfo:
             
             if result.returncode == 0:
                 lines = result.stdout.strip().split('\n')
-                for i, line in enumerate(lines):
+                for line in lines:
                     if line:
                         parts = line.split(',')
                         if len(parts) >= 2:
@@ -272,17 +272,6 @@ def _configure_gpu_memory(platform_info: PlatformInfo):
         logger.info(f"Large GPU detected ({total_gpu_memory}MB), using 30% memory allocation")
         os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.3'
     
-    # Additional XLA flags for memory efficiency
-    # Note: Only use flags that are known to be valid
-    xla_flags = os.environ.get('XLA_FLAGS', '')
-    
-    # Add GPU-specific optimization flags if not already present
-    # These help with memory efficiency
-    if '--xla_gpu_deterministic_ops=true' not in xla_flags:
-        xla_flags += ' --xla_gpu_deterministic_ops=true'
-    
-    os.environ['XLA_FLAGS'] = xla_flags.strip()
-    
     logger.info(f"GPU memory configuration complete - GPUs: {num_gpus}, "
                f"Total memory: {total_gpu_memory}MB")
 
@@ -300,8 +289,8 @@ def _configure_cpu_threading(platform_info: PlatformInfo):
     # Set XLA flags for multi-threading
     xla_flags = os.environ.get('XLA_FLAGS', '')
     if '--xla_cpu_multi_thread_eigen=true' not in xla_flags:
-        xla_flags += f' --xla_cpu_multi_thread_eigen=true'
-    if f'intra_op_parallelism_threads=' not in xla_flags:
+        xla_flags += ' --xla_cpu_multi_thread_eigen=true'
+    if 'intra_op_parallelism_threads=' not in xla_flags:
         xla_flags += f' intra_op_parallelism_threads={num_threads}'
     
     os.environ['XLA_FLAGS'] = xla_flags.strip()
@@ -322,8 +311,9 @@ def _configure_common(precision: str = None):
     """
     
     # Handle precision configuration
-    # Note: TensorNEAT requires 32-bit precision (JAX_ENABLE_X64='0')
-    # We respect any pre-existing setting to allow TensorNEAT to force 32-bit
+    # Float32 by default, for speed. An existing JAX_ENABLE_X64 is respected. Under x64,
+    # TensorNEAT's species update fails to trace (two lax.cond calls whose branches differ in
+    # dtype), so EMR's create_config patches it (x64_compat.py) and EMR runs in float64 too.
     if 'JAX_ENABLE_X64' not in os.environ:
         # No existing setting, use provided precision or default
         if precision == 'float64':
@@ -414,31 +404,6 @@ def get_jax_info() -> Dict[str, any]:
         }
 
 
-def configure_with_precision(precision: str):
-    """Configure JAX with a specific precision setting.
-    
-    This function allows external code to reconfigure JAX with a specific
-    precision setting. Note that this must be called before importing JAX
-    or any JAX-dependent libraries.
-    
-    Args:
-        precision: Precision setting ('float32' or 'float64')
-        
-    Raises:
-        ValueError: If precision is not 'float32' or 'float64'
-    """
-    if precision not in ['float32', 'float64']:
-        raise ValueError(f"Invalid precision: {precision}. Must be 'float32' or 'float64'")
-    
-    # Clear existing JAX_ENABLE_X64 setting
-    if 'JAX_ENABLE_X64' in os.environ:
-        del os.environ['JAX_ENABLE_X64']
-    
-    # Reconfigure with specified precision
-    configure_jax_smart(precision)
-    logger.info(f"JAX reconfigured with precision: {precision}")
-
-
 def test_configuration():
     """Test the smart JAX configuration."""
     print("Testing Smart JAX Configuration...")
@@ -476,7 +441,7 @@ def test_configuration():
         print(f"Matrix multiplication shape: {large_y.shape}")
         print(f"Sum: {jnp.sum(large_y)}")
     
-    print("\n✓ Smart configuration successful!")
+    print("\nSmart configuration successful!")
 
 
 if __name__ == "__main__":

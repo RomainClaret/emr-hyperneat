@@ -2,7 +2,7 @@
 """Per-function ablation on XOR (Parity-2): each of 18 activation functions individually.
 
 ALIFE 2026 Paper 1 (E2): Tests whether the three-tier characterization from Parity-4
-is general or task-specific. XOR is easier -- more functions should succeed.
+is general or task-specific. XOR is easier, so more functions should succeed.
 
 Usage:
     python papers/emr-dynamic-functions/scripts/runners/E2_xor_per_function.py

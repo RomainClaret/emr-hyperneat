@@ -5,7 +5,7 @@ Proves the multi-task barrier is STRUCTURAL (optimizer-independent), not ES-spec
 The neuromodulated forward pass is fully differentiable, if the barrier were merely
 a search limitation, Adam should overcome it.
 
-Conditions (4 × 30 seeds = 120 runs):
+Conditions (4 x 30 seeds = 120 runs):
   1. adam_tanh_lr0.01, 1L, 10 hidden, uniform tanh, Adam lr=0.01, 2000 steps
   2. adam_tanh_lr0.001, 1L, 10 hidden, uniform tanh, Adam lr=0.001, 2000 steps
   3. adam_pertask_lr0.01, 1L, 10 hidden, per-task activation, Adam lr=0.01, 2000 steps
@@ -38,9 +38,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'adam_neuromod'
 
@@ -86,9 +84,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -108,9 +104,7 @@ def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
     return jax.vmap(init_params)(keys)
 
 
-# ============================================================================
 # Forward pass (differentiable)
-# ============================================================================
 
 def forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                      activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
@@ -134,9 +128,7 @@ def forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
     return output
 
 
-# ============================================================================
 # Loss functions (differentiable)
-# ============================================================================
 
 def multitask_mse_loss_tanh(params: Dict) -> jnp.ndarray:
     """Sum of MSE across all 5 tasks, uniform tanh activation."""
@@ -164,9 +156,7 @@ def multitask_mse_loss_pertask(params: Dict) -> jnp.ndarray:
     return total_loss
 
 
-# ============================================================================
 # Accuracy evaluation (non-differentiable)
-# ============================================================================
 
 def eval_accuracy(params: Dict, activation_mode: str) -> Tuple[float, Dict[str, float]]:
     act_map = {'sin': jnp.sin, 'tanh': jnp.tanh}
@@ -190,9 +180,7 @@ def eval_accuracy(params: Dict, activation_mode: str) -> Tuple[float, Dict[str, 
     return product_fitness, per_task
 
 
-# ============================================================================
 # Adam Optimizer
-# ============================================================================
 
 def run_adam(
     condition: str,
@@ -288,9 +276,7 @@ def run_adam(
     }
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer (for ES control condition)
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -405,9 +391,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -451,9 +435,7 @@ def summarize_condition(results_dir: Path, condition: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

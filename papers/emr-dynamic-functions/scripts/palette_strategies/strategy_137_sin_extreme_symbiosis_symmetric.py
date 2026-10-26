@@ -4,12 +4,12 @@ Biological Basis: Obligate mutualism in nature (e.g., clownfish-anemone,
 mycorrhizal fungi-plant roots) where both partners depend on each other.
 When one partner is removed, the other becomes vulnerable.
 
-Key mechanisms for SYMMETRIC discovery:
+Mechanisms for SYMMETRIC discovery:
 1. Sin and extreme_aggs (max/min) form symbiotic pairs
 2. When partner is active, protection is maximized
 3. Orphaned functions (without partners) are 2x more likely to be pruned
 4. Symbiosis formation rate tracks how quickly new pairs form
-5. Protected indices (0.1% deactivation) for sin and extreme aggregations
+5. Protected indices (always kept active) for sin and extreme aggregations
 6. Memory cell crystallization for stable, high-affinity functions
 7. Affinity floors for guaranteed retention
 
@@ -45,11 +45,12 @@ class SinExtremeSymbiosisSymmetricStrategy(PaletteEvolutionStrategy):
     They protect each other from deactivation, and orphaned functions
     (those without their partner) become vulnerable.
 
-    Key improvements over dual version:
-    - Protected indices for sin and extreme aggregations (0.1% deactivation)
-    - Affinity floors for guaranteed retention
+    Differences from the dual version:
     - Memory cell crystallization for proven functions
     - Discovery tracking for research analysis
+    - Higher affinity floors (sin 0.7, max and min 0.6, against 0.6 and 0.5)
+
+    Like the dual version, it keeps sin, max and min active every generation.
     """
 
     name = "sin_extreme_symbiosis_symmetric"
@@ -306,7 +307,7 @@ class SinExtremeSymbiosisSymmetricStrategy(PaletteEvolutionStrategy):
                         new_symbiosis[i, j] * 0.9
                     )
 
-        # CRITICAL: Sin-extreme bonds never fully break
+        # Sin-extreme bonds never fully break
         for act_idx, agg_idx in self.symbiosis_pairs:
             new_symbiosis = new_symbiosis.at[act_idx, agg_idx].set(
                 max(0.5, float(new_symbiosis[act_idx, agg_idx]))
@@ -345,7 +346,7 @@ class SinExtremeSymbiosisSymmetricStrategy(PaletteEvolutionStrategy):
                 else:
                     agg_protection = agg_protection.at[j].set(0.1)
 
-        # CRITICAL: Sin always has high base protection
+        # Sin always has high base protection
         act_protection = act_protection.at[SIN_IDX].set(
             max(0.95, float(act_protection[SIN_IDX]))
         )
@@ -494,7 +495,7 @@ class SinExtremeSymbiosisSymmetricStrategy(PaletteEvolutionStrategy):
                         if prune_rand[NUM_ACTIVATIONS + j] > agg_protection[j]:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure sin and extreme aggs are NEVER removed
+        # Ensure sin and extreme aggs are NEVER removed
         new_act_mask = new_act_mask.at[SIN_IDX].set(1.0)
         for agg in [MAX_IDX, MIN_IDX]:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

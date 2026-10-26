@@ -3,7 +3,7 @@
 Implements GRN-style regulatory network that promotes sin+extreme_agg
 expression together while suppressing averaging aggregations.
 
-Key Mechanism:
+Mechanism:
 - Regulatory gene upregulates sin AND extreme_agg expression together
 - Negative regulation for averaging aggs (sum, mean)
 - Regulatory strength modulates based on fitness
@@ -37,7 +37,7 @@ class RegulatorySinExtremeDualStrategy(PaletteEvolutionStrategy):
     Regulatory gene that upregulates sin and extreme
     aggregations while downregulating averaging aggregations.
 
-    Critical innovation: Regulatory network creates explicit coordination
+    Regulatory network creates explicit coordination
     between sin and extreme_aggs, making them more likely to be active together.
     """
 
@@ -46,7 +46,7 @@ class RegulatorySinExtremeDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === REGULATORY NETWORK (CORE) ===
+        # REGULATORY NETWORK (CORE)
         regulatory_strength: float = 0.3,
         upregulated_acts: List[int] = None,  # sin
         upregulated_aggs: List[int] = None,  # max, min
@@ -54,27 +54,27 @@ class RegulatorySinExtremeDualStrategy(PaletteEvolutionStrategy):
         regulation_decay: float = 0.95,
         regulation_boost_on_fitness: float = 0.15,
         min_regulation_strength: float = 0.1,
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         exploration_rate_act: float = 0.08,
         exploration_rate_agg: float = 0.10,
         regulated_exploration_boost: float = 0.5,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_after: int = 6,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -132,7 +132,7 @@ class RegulatorySinExtremeDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin and extreme in initial palette
+        # Ensure sin and extreme in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -366,7 +366,7 @@ class RegulatorySinExtremeDualStrategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > protection:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure upregulated members are never removed
+        # Ensure upregulated members are never removed
         for act in self.upregulated_acts:
             new_act_mask = new_act_mask.at[act].set(1.0)
         for agg in self.upregulated_aggs:

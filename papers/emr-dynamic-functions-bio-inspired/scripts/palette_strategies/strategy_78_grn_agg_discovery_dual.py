@@ -7,12 +7,12 @@ through regulatory links.
 Bio inspiration: Gene regulatory networks where tissue-specific expression patterns
 are coupled. In this case, sin activation "regulates" extreme aggregation expression.
 
-Key innovation:
+Mechanism:
 - Hardcoded sin->max and sin->min regulatory links
 - Boosted learning rate for sin-extreme pairs
 - Aggregation-specific Hill kinetics (gentler for 6 functions)
 
-Expected: Better sin-extreme synergy discovery and retention.
+Expected: Better discovery and retention of sin-extreme pairings.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -38,7 +38,7 @@ class GRNAggDiscoveryDualStrategy(PaletteEvolutionStrategy):
     """Dual palette evolution with sin-extreme gene regulatory coupling.
 
     Extends GRN approach with explicit sin-to-extreme aggregation regulatory
-    links, enabling discovery and retention of critical sin-max/min synergies.
+    links, enabling discovery and retention of critical sin-max/min pairings.
     """
 
     name = "grn_agg_discovery_dual"
@@ -61,7 +61,7 @@ class GRNAggDiscoveryDualStrategy(PaletteEvolutionStrategy):
         # Activation/Inhibition
         activation_bias: float = 0.6,
         inhibition_strength_factor: float = 0.8,
-        # Cross-domain - KEY INNOVATION
+        # Cross-domain
         cross_regulation_sparsity: float = 0.15,
         cross_regulation_strength: float = 0.2,
         sin_to_max_coupling: float = 0.4,  # Hardcoded sin->max

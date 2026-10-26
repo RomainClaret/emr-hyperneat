@@ -19,9 +19,7 @@ from typing import Dict, List
 
 import numpy as np
 
-# ============================================================================
 # Result directories to analyze
-# ============================================================================
 
 BASE = Path(__file__).resolve().parents[2] / 'results'
 
@@ -36,9 +34,7 @@ EXPERIMENTS = {
 THRESHOLDS = [0.80, 0.85, 0.90, 0.95, 0.98]
 
 
-# ============================================================================
 # Analysis
-# ============================================================================
 
 def analyze_directory(results_dir: Path, thresholds: List[float]) -> Dict:
     """Analyze all results in a directory at multiple thresholds."""

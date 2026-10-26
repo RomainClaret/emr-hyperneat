@@ -3,7 +3,7 @@
 Extends CriticalHebbian with activity-dependent decay.
 
 Problem solved: Once sin reaches high affinity, it never decays even if unused.
-This prevents adaptation when switching between problem types (e.g., parity → classification).
+This prevents adaptation when switching between problem types (e.g., parity -> classification).
 
 Solution: Use-it-or-lose-it decay - inactive functions slowly lose affinity.
 
@@ -13,12 +13,12 @@ Biological rationale:
 - "What fires together, wires together" requires ongoing firing
 - Long-term potentiation requires maintenance through activity
 
-Key mechanisms:
+Mechanisms:
 1. Base decay: All affinities slowly decay toward neutral (0.5)
 2. Activity reduction: Active functions decay slower
 3. Recent use window: Functions used recently decay much slower
 
-Expected improvement over CriticalHebbian:
+Intended effects compared with CriticalHebbian:
 - Better adaptation when switching problem types
 - Prevents "locked in" functions that are no longer useful
 - More dynamic palette that reflects current utility
@@ -73,7 +73,7 @@ class DecayingHebbianStrategy(PaletteEvolutionStrategy):
         affinity_protection_threshold: float = 0.55,
         exploration_lr_multiplier: float = 1.5,
         confirmation_lr_multiplier: float = 0.5,
-        # DECAY PARAMETERS (NEW)
+        # DECAY PARAMETERS
         base_decay_rate: float = 0.02,           # 2% decay per generation when inactive
         decay_target: float = 0.5,               # Decay toward neutral
         activity_decay_reduction: float = 0.8,   # Active functions decay 80% slower

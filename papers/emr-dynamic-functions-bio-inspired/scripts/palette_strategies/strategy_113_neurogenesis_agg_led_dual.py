@@ -9,11 +9,11 @@ Problem with pure aggregation-led:
 - No survival-based pruning mechanism
 - Palette can grow with unused functions
 
-Key Innovation:
+Mechanism:
 - New aggregations go through maturation period (young aggs)
 - Young aggs have higher plasticity (faster learning)
 - Only aggs that contribute to fitness survive integration
-- Sin gets survival bonus when coupled with mature extreme aggs
+- Young extreme aggs get a survival bonus when sin is active with cross-affinity > 0.5
 
 Bio inspiration: Adult neurogenesis in hippocampus generates new neurons
 that must form useful connections to survive. Similarly, new aggregations
@@ -42,14 +42,14 @@ from .base_strategy import (
 
 
 class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
-    """Neurogenesis-enhanced aggregation-led dual palette evolution.
+    """Aggregation-led dual palette evolution with neurogenesis birth/survival.
 
     Combines aggressive aggregation exploration with
     neurogenesis-style birth/maturation/survival mechanics.
 
-    Critical innovation: New aggregations must survive a maturation period
-    by contributing to fitness. Sin gets survival bonus when coupled with
-    mature extreme aggregations.
+    New aggregations must survive a maturation period by contributing to fitness.
+    A young extreme aggregation survives more easily when sin is active and their
+    cross-affinity is above 0.5.
     """
 
     name = "neurogenesis_agg_led_dual"
@@ -57,36 +57,36 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === NEUROGENESIS PARAMETERS (NEW from adult_neurogenesis) ===
+        # NEUROGENESIS PARAMETERS (from adult_neurogenesis)
         agg_neurogenesis_rate: float = 0.10,       # Birth rate for new aggs
         agg_maturation_period: int = 8,            # Gens before survival decision
         young_agg_plasticity: float = 2.0,         # Learning multiplier for young aggs
         agg_survival_threshold: float = 0.15,      # Minimum contribution to survive
         max_young_aggs: int = 2,                   # Max concurrent young aggs
         survival_sin_coupling_bonus: float = 0.3,  # Survival boost from sin coupling
-        # === AGGREGATION-LED PARAMETERS (from #101) ===
+        # AGGREGATION-LED PARAMETERS (from #101)
         agg_exploration_rate: float = 0.25,        # Still used for initial discovery
         agg_discovery_bonus: float = 0.6,
         act_exploration_rate: float = 0.08,
         agg_led_activation_boost: float = 0.4,
         agg_stability_threshold: int = 5,
-        # === Contribution tracking ===
+        # Contribution tracking
         contribution_decay: float = 0.9,
         contribution_boost_on_improvement: float = 0.25,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
@@ -94,12 +94,12 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
         max_stable_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Neurogenesis Aggregation-Led strategy."""
-        # Neurogenesis parameters (NEW)
+        # Neurogenesis parameters
         self.agg_neurogenesis_rate = agg_neurogenesis_rate
         self.agg_maturation_period = agg_maturation_period
         self.young_agg_plasticity = young_agg_plasticity
@@ -183,7 +183,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
         # Aggregation stability tracking
         agg_stability_counts = jnp.zeros(NUM_AGGREGATIONS)
 
-        # Neurogenesis state (NEW)
+        # Neurogenesis state
         stable_aggs: Set[int] = set(initial_agg)
         young_aggs: Dict[int, Dict] = {}  # {agg_idx: {'birth_gen': int}}
         agg_contribution = jnp.zeros(NUM_AGGREGATIONS)
@@ -211,7 +211,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             'extreme_agg_discovered': False,
             'extreme_agg_discovery_gen': None,
             'activation_boost_active': False,
-            # Neurogenesis state (NEW)
+            # Neurogenesis state
             'stable_aggs': stable_aggs,
             'young_aggs': young_aggs,
             'agg_contribution': agg_contribution,
@@ -288,7 +288,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[Set[int], Dict[int, Dict], List[int], List[int]]:
         """Process aggregation maturation - survive or prune.
 
-        KEY INNOVATION: Sin coupling provides survival bonus.
+        Sin coupling provides survival bonus.
         Extreme aggs with high sin affinity are more likely to survive.
         """
         new_stable = set(stable_aggs)
@@ -603,7 +603,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
         prev_best_fitness: float,
         population_data: Optional[Dict] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Update with neurogenesis-enhanced aggregation-led mechanics."""
+        """Update with aggregation-led mechanics plus neurogenesis birth/survival."""
         key, k1, k2 = jax.random.split(state['rng_key'], 3)
 
         improved = best_fitness > state['best_fitness_seen']
@@ -619,7 +619,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
         stable_aggs = set(state['stable_aggs'])
         young_aggs = dict(state['young_aggs'])
 
-        # === AGG CONTRIBUTION UPDATE (NEW) ===
+        # AGG CONTRIBUTION UPDATE
         new_agg_contribution = self._update_agg_contribution(
             state['agg_contribution'],
             state['agg_mask'],
@@ -627,7 +627,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             improved
         )
 
-        # === MATURATION PROCESSING (NEW) ===
+        # MATURATION PROCESSING
         stable_aggs, young_aggs, survived, pruned = self._mature_aggs(
             stable_aggs, young_aggs,
             new_agg_contribution,
@@ -636,15 +636,15 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             generation
         )
 
-        # === MAYBE BIRTH NEW AGG (NEW) ===
+        # MAYBE BIRTH NEW AGG
         stable_aggs, young_aggs, born = self._maybe_birth_agg(
             stable_aggs, young_aggs, k1, generation
         )
 
-        # === CREATE AGG MASK FROM NEUROGENESIS STATE ===
+        # CREATE AGG MASK FROM NEUROGENESIS STATE
         new_agg_mask = self._create_agg_mask(stable_aggs, young_aggs)
 
-        # === AGGREGATION STABILITY TRACKING ===
+        # AGGREGATION STABILITY TRACKING
         new_agg_stability, has_stable_extreme = self._update_agg_stability(
             new_agg_mask, state['agg_stability_counts']
         )
@@ -658,7 +658,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
 
         activation_boost_active = new_extreme_discovered
 
-        # === TAGGING WITH YOUNG PLASTICITY ===
+        # TAGGING WITH YOUNG PLASTICITY
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], new_agg_mask,
             state['act_tags'], state['agg_tags'],
@@ -669,14 +669,14 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE WITH YOUNG PLASTICITY ===
+        # AFFINITY UPDATE WITH YOUNG PLASTICITY
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], new_agg_mask,
@@ -684,7 +684,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             new_extreme_discovered, young_aggs
         )
 
-        # === ACTIVATION PALETTE SELECTION ===
+        # ACTIVATION PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_act_palette(
             new_act_aff, new_act_captured, new_act_tags,
             new_cross_affinity, new_agg_mask,
@@ -730,7 +730,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             'extreme_agg_discovered': new_extreme_discovered,
             'extreme_agg_discovery_gen': new_extreme_discovery_gen,
             'activation_boost_active': activation_boost_active,
-            # Neurogenesis state (NEW)
+            # Neurogenesis state
             'stable_aggs': stable_aggs,
             'young_aggs': young_aggs,
             'agg_contribution': new_agg_contribution,
@@ -768,7 +768,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Neurogenesis metrics (NEW)
+            # Neurogenesis metrics
             'n_stable_aggs': len(stable_aggs),
             'n_young_aggs': len(young_aggs),
             'stable_aggs': list(stable_aggs),
@@ -821,7 +821,7 @@ class NeurogenesisAggLedDualStrategy(PaletteEvolutionStrategy):
             'has_sin': 4 in act_palette,
             'has_max': 2 in agg_palette,
             'has_min': 3 in agg_palette,
-            # Neurogenesis (NEW)
+            # Neurogenesis
             'n_stable_aggs': len(state['stable_aggs']),
             'n_young_aggs': len(state['young_aggs']),
             'stable_aggs': list(state['stable_aggs']),

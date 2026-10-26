@@ -2,18 +2,17 @@
 
 The discovery pipeline materializes population-dense (pop, A, A) tensors; the
 recorded wall sits byte-exact at 1000x692^2x4 and 1000x888^2x4.
-The fix chunks the population through the unchanged single-chunk pipeline with
-the active-set union hoisted. The load-bearing property is NOT "it runs" but
+Discovery chunks the population through the single-chunk pipeline, with
+the active-set union hoisted. The load-bearing property is not "it runs" but
 "it computes the same thing": with the union pinned, a slice of the full call
 and a call on the slice are the same computation, so forcing tiny chunks must
-reproduce the unchunked run bit for bit -- fitness trajectory and connection
+reproduce the unchunked run bit for bit, fitness trajectory and connection
 counts included.
 """
 
 from __future__ import annotations
 
 import jax.numpy as jnp
-import pytest
 
 from conftest import (
     EMRHyperNEAT,
@@ -26,8 +25,11 @@ def _run(gens: int = 3, seed: int = 13):
     algo = EMRHyperNEAT()
     config = create_config_with_recurrence("hidden_only")
     # Fresh discovery every generation so every generation exercises the wrapper.
-    config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"].setdefault(
-        "recurrence", {})["hh_cache_enabled"] = False
+    rec = config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"].setdefault("recurrence", {})
+    rec["hh_cache_enabled"] = False
+    # The population chunking under test belongs to the union path (the per-genome route, the
+    # default, takes the whole population in one call); pin union or the test runs vacuously.
+    rec["hh_discovery_mode"] = "union"
     cfg = algo.create_config(config)
     problem = XORProblem()
     state = algo.initialize(cfg, problem, seed=seed)
@@ -54,7 +56,7 @@ class TestDiscoveryChunkingIdentity:
 
     def test_union_is_population_global_under_chunking(self, monkeypatch):
         """A per-chunk union would shrink A and change connection counts; the
-        hoisted union must keep counts identical (asserted above) AND the
+        hoisted union must keep counts identical (asserted above) and the
         wrapper must pass an explicit union into every chunk call."""
         import emr_hyperneat.emrhyperneat as emr_mod
         seen_unions = []

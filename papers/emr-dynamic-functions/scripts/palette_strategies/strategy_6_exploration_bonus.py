@@ -1,9 +1,9 @@
 """Strategy 6: Exploration Bonus Separate Genome.
 
-Fixes the complete failure of Strategy 5 (separate_genome) by adding
+Targets the 0% discovery rate of Strategy 5 (separate_genome) by adding
 exploration bonuses inspired by novelty search and curiosity-driven learning.
 
-Key additions over Strategy 5:
+Additions over Strategy 5:
 1. Novelty bonus - reward genetic distance from population
 2. Curiosity bonus - reward for under-explored activations
 3. Discovery bonus - one-time reward for first-time activation discovery
@@ -101,7 +101,7 @@ def compute_curiosity(genome: ExploratoryGenome, exploration_counts: jnp.ndarray
 class ExplorationBonusStrategy(PaletteEvolutionStrategy):
     """NEAT-style palette evolution with exploration bonuses.
 
-    Fixes Strategy 5's failure by rewarding exploration:
+    Adds exploration rewards to Strategy 5's palette evolution:
     - Novelty: Genetic distance from population
     - Curiosity: Under-explored activations
     - Discovery: One-time bonus for new activations

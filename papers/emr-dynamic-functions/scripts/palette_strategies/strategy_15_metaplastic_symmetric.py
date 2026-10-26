@@ -7,11 +7,11 @@ Extends MetaplasticStrategy with symmetric discovery features:
 - Sin and extreme aggregation affinity floors
 - Discovery tracking and boost for both domains
 
-Key mechanisms:
-1. Adaptive learning rates: Stagnation → boost LR, Success → reduce LR
+Mechanisms:
+1. Adaptive learning rates: Stagnation -> boost LR, Success -> reduce LR
 2. Dual BCM thresholds: Separate sliding thresholds for act/agg
 3. Memory cells: Functions with sustained high affinity get permanent protection
-4. Cross-domain coupling: High act threshold → exploration boost for agg
+4. Cross-domain coupling: High act threshold -> exploration boost for agg
 
 Biological rationale:
 - Metaplasticity: synaptic plasticity is itself plastic
@@ -54,7 +54,7 @@ class MetaplasticSymmetricStrategy(PaletteEvolutionStrategy):
     Extends activation-only Metaplastic to discover both activation AND
     aggregation functions while maintaining retention through memory cells.
 
-    Key innovations:
+    Mechanisms:
     - Dual BCM sliding thresholds for each domain
     - Memory cell mechanism for permanent protection of proven functions
     - Cross-domain threshold coupling (success in one domain helps other)
@@ -361,7 +361,7 @@ class MetaplasticSymmetricStrategy(PaletteEvolutionStrategy):
         # Compute target as percentile
         target = float(np.percentile(valid_affinities, threshold_percentile * 100))
 
-        # Apply cross-domain effect (high other-domain threshold → lower exploration barrier)
+        # Apply cross-domain effect (high other-domain threshold -> lower exploration barrier)
         target = target - cross_threshold_effect * self.cross_threshold_coupling
 
         # Clip to bounds

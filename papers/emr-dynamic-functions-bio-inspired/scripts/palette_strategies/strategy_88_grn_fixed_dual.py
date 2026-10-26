@@ -1,9 +1,9 @@
 """Strategy 88: GRN Fixed Dual (Reduced Coupling for Better Sin Retention).
 
-Fixes the over-stabilization issue in Strategy 78 (GRN Agg Discovery) which
-achieved 0% sin retention due to excessive coupling strength.
+Targets the over-stabilization of Strategy 78 (GRN Agg Discovery), which reached
+0% sin retention due to excessive coupling strength.
 
-Key fixes:
+Main differences from Strategy 78:
 - REDUCED sin_to_max/min coupling: 0.15 (was 0.4) - allows exploration
 - SOFTER Hill coefficient: 1.2 (was 2.0) - gentler expression dynamics
 - FASTER expression decay: 0.85 (was 0.9) - reduces lock-in effect
@@ -47,12 +47,12 @@ class GRNFixedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # Expression dynamics - FIXED VALUES
+        # Expression dynamics
         basal_expression: float = 0.1,
-        hill_coefficient: float = 1.2,  # FIXED: Was 2.0 (too aggressive)
-        agg_hill_coefficient: float = 1.0,  # FIXED: Was 1.5
+        hill_coefficient: float = 1.2,  # Was 2.0 (too aggressive)
+        agg_hill_coefficient: float = 1.0,  # Was 1.5
         half_max_constant: float = 0.5,
-        expression_decay: float = 0.85,  # FIXED: Was 0.9 (too slow)
+        expression_decay: float = 0.85,  # Was 0.9 (too slow)
         # Regulatory network
         initial_regulation_strength: float = 0.3,
         regulation_learning_rate: float = 0.10,  # Slightly higher
@@ -62,11 +62,11 @@ class GRNFixedDualStrategy(PaletteEvolutionStrategy):
         # Activation/Inhibition
         activation_bias: float = 0.6,
         inhibition_strength_factor: float = 0.8,
-        # Cross-domain - REDUCED COUPLING (key fix)
+        # Cross-domain - REDUCED COUPLING
         cross_regulation_sparsity: float = 0.15,
         cross_regulation_strength: float = 0.15,  # Reduced from 0.2
-        sin_to_max_coupling: float = 0.15,  # FIXED: Was 0.4 (caused over-stabilization)
-        sin_to_min_coupling: float = 0.15,  # FIXED: Was 0.4
+        sin_to_max_coupling: float = 0.15,  # Was 0.4 (caused over-stabilization)
+        sin_to_min_coupling: float = 0.15,  # Was 0.4
         sin_extreme_lr_multiplier: float = 1.3,  # Slightly reduced
         # Expression threshold
         expression_threshold: float = 0.35,  # Lowered for more exploration
@@ -166,7 +166,7 @@ class GRNFixedDualStrategy(PaletteEvolutionStrategy):
                 if connection_mask[i, j]:
                     cross_reg = cross_reg.at[i, j].set(float(strengths[i, j]))
 
-        # REDUCED sin-extreme coupling (key fix for sin retention)
+        # REDUCED sin-extreme coupling (for sin retention)
         sin_idx = 4
         max_idx = 2
         min_idx = 3

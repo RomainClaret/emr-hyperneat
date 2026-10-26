@@ -2,10 +2,10 @@
 
 Hybrid combining STDP temporal credit assignment with Consolidation Window memory.
 
-Key synergies:
+How the two combine:
 1. STDP temporal credit (5-gen LTP window) tracks which functions PRECEDE success
-2. Consolidation's working → LTM hierarchy stores validated functions
-3. NOVEL: High STDP credit functions get PRIORITY in consolidation transfer
+2. Consolidation's working -> LTM hierarchy stores validated functions
+3. High STDP credit functions get PRIORITY in consolidation transfer
 4. Cross-domain credit: act-agg pairs that co-precede success are jointly consolidated
 
 Biological basis:
@@ -65,7 +65,7 @@ class STDPConsolidationDualStrategy(PaletteEvolutionStrategy):
         replay_threshold: float = 0.5,
         transfer_rate: float = 0.12,
         ltm_decay_rate: float = 0.02,
-        # Priority consolidation (KEY SYNERGY)
+        # Priority consolidation
         credit_priority_weight: float = 0.4,  # How much STDP credit affects consolidation priority
         # Active phase parameters
         active_mutation_rate: float = 0.18,

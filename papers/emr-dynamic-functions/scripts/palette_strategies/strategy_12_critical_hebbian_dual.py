@@ -6,7 +6,7 @@ using the same bio-inspired mechanisms:
 2. Critical periods for developmental phases
 3. Cross-domain learning (activation-aggregation combinations)
 
-Key innovation: Learn which activation-aggregation COMBINATIONS work together,
+Learn which activation-aggregation COMBINATIONS work together,
 not just which functions work individually.
 
 Biological analogy:
@@ -44,8 +44,8 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
 
     Extends CriticalHebbian to jointly learn:
     1. Which activations are valuable (existing)
-    2. Which aggregations are valuable (NEW)
-    3. Which activation-aggregation combinations are synergistic (NEW)
+    2. Which aggregations are valuable
+    3. Which activation-aggregation combinations work well together
 
     NO HARD-CODED FUNCTION LISTS - learns what to protect from experience.
     """
@@ -159,7 +159,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
         agg_hebbian_weights = jnp.ones((NUM_AGGREGATIONS, NUM_AGGREGATIONS)) * 0.5
         agg_affinity = jnp.ones(NUM_AGGREGATIONS) * 0.5
 
-        # Cross-domain affinity matrix (NEW)
+        # Cross-domain affinity matrix
         # Tracks which activation-aggregation combinations succeed together
         cross_affinity = jnp.ones((NUM_ACTIVATIONS, NUM_AGGREGATIONS)) * 0.5
 
@@ -230,7 +230,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
         act_active = (act_mask > 0.5).astype(jnp.float32)
         agg_active = (agg_mask > 0.5).astype(jnp.float32)
 
-        # --- Activation domain update ---
+        # Activation domain update
         act_co_active = jnp.outer(act_active, act_active)
         if fitness_signal >= 0:
             act_weight_delta = lr * fitness_signal * act_co_active
@@ -242,7 +242,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
         new_act_weights = jnp.clip(act_weights + act_weight_delta, 0.0, 1.0)
         new_act_affinity = jnp.clip(act_affinity + act_affinity_delta, 0.0, 1.0)
 
-        # --- Aggregation domain update ---
+        # Aggregation domain update
         agg_co_active = jnp.outer(agg_active, agg_active)
         if fitness_signal >= 0:
             agg_weight_delta = lr * fitness_signal * agg_co_active
@@ -254,7 +254,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
         new_agg_weights = jnp.clip(agg_weights + agg_weight_delta, 0.0, 1.0)
         new_agg_affinity = jnp.clip(agg_affinity + agg_affinity_delta, 0.0, 1.0)
 
-        # --- Cross-domain update (NEW) ---
+        # Cross-domain update
         # Learn which act-agg combinations correlate with success
         cross_active = jnp.outer(act_active, agg_active)
         if fitness_signal >= 0:
@@ -341,7 +341,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply phase-appropriate mutation to activation palette.
 
-        Key constraint: max_active_act prevents antagonism (>6 activations hurts).
+        Constraint: max_active_act prevents antagonism (>6 activations hurts).
         """
         key1, key2 = jax.random.split(key)
 
@@ -371,7 +371,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # CRITICAL: Skip if already at max
+                # Skip if already at max
                 if current_active + len(activated) >= self.max_active_act:
                     continue
 
@@ -422,7 +422,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply phase-appropriate mutation to aggregation palette.
 
-        Key constraint: max_active_agg prevents overload (too many aggs hurts).
+        Constraint: max_active_agg prevents overload (too many aggs hurts).
         """
         key1, key2 = jax.random.split(key)
 
@@ -452,7 +452,7 @@ class CriticalHebbianDualStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # CRITICAL: Skip if already at max
+                # Skip if already at max
                 if current_active + len(activated) >= self.max_active_agg:
                     continue
 

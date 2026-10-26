@@ -3,7 +3,7 @@
 Combines STDP lineage tracking (#16) with neurogenesis maturation (#113).
 Surviving functions' LTP history influences birth probability of similar functions.
 
-Key Innovation:
+Mechanism:
 - Functions that survive and have high LTP credit create "successful lineages"
 - Birth probability is increased for functions similar to successful survivors
 - Similarity defined by index proximity (nearby functions in palette)
@@ -39,7 +39,7 @@ class STDPNeurogenesisLineageDualStrategy(PaletteEvolutionStrategy):
     Surviving functions with high LTP create lineages
     that increase birth probability for nearby functions.
 
-    Critical innovation: Evolutionary momentum through lineage inheritance.
+    Evolutionary momentum through lineage inheritance.
     """
 
     name = "stdp_neurogenesis_lineage_dual"
@@ -47,30 +47,30 @@ class STDPNeurogenesisLineageDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters ===
+        # STDP parameters
         ltp_rate: float = 0.20,
         ltd_rate: float = 0.10,
         stdp_decay: float = 0.90,
-        # === Lineage parameters ===
+        # Lineage parameters
         lineage_inheritance: float = 0.3,
         similarity_radius: int = 2,
         lineage_survival_threshold: float = 0.4,
         lineage_decay: float = 0.95,
-        # === Birth parameters ===
+        # Birth parameters
         base_birth_rate: float = 0.12,
         lineage_birth_boost: float = 0.25,
-        # === Sin preference ===
+        # Sin preference
         sin_idx: int = 4,
         sin_lineage_boost: float = 0.3,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -207,7 +207,7 @@ class STDPNeurogenesisLineageDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE LTP AND LINEAGE ===
+        # UPDATE LTP AND LINEAGE
         act_ltp = state['act_ltp'] * self.stdp_decay
         agg_ltp = state['agg_ltp'] * self.stdp_decay
         act_lineage = state['act_lineage'] * self.lineage_decay
@@ -253,7 +253,7 @@ class STDPNeurogenesisLineageDualStrategy(PaletteEvolutionStrategy):
         act_affinities = jnp.clip(act_affinities, 0.0, 1.0)
         agg_affinities = jnp.clip(agg_affinities, 0.0, 1.0)
 
-        # === ACTIVATION BIRTH WITH LINEAGE BOOST ===
+        # ACTIVATION BIRTH WITH LINEAGE BOOST
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k1) < self.base_birth_rate:
             # Calculate birth probabilities based on lineage
@@ -273,7 +273,7 @@ class STDPNeurogenesisLineageDualStrategy(PaletteEvolutionStrategy):
             if float(act_lineage[new_idx]) > 0.1:
                 lineage_births += 1
 
-        # === AGGREGATION BIRTH WITH LINEAGE BOOST ===
+        # AGGREGATION BIRTH WITH LINEAGE BOOST
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k3) < self.base_birth_rate:
             probs = []

@@ -3,7 +3,7 @@
 Extends ProgressivePaletteStrategy to jointly evolve BOTH activation AND
 aggregation function palettes with progressive freezing.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual frozen/additions - separate frozen and addition sets per domain
 2. Coordinated freezing - success can freeze both domains together
 3. Cross-domain contribution - pairs contribute together

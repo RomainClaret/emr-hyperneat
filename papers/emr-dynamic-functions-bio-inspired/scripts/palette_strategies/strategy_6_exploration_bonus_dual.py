@@ -9,7 +9,7 @@ Cross-Domain Learning:
 - Shared population with dual genome representation
 - Elite replacement considers both domain novelties
 
-Key Dual Mechanisms:
+Dual Mechanisms:
 1. Dual novelty - genetic distance in both domains
 2. Dual curiosity - under-explored functions in both domains
 3. Cross-discovery bonus - novel act-agg combinations

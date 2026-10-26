@@ -10,7 +10,7 @@ Biological Basis:
 - Enables local credit assignment and plasticity
 - Creates temporal associations between recent activity and outcomes
 
-Key Insight:
+Rationale:
 - Current strategies assign credit equally to all active functions
 - Retrograde signaling creates temporal credit assignment
 - Recent function additions get more credit than older ones
@@ -33,8 +33,8 @@ Retrograde Mechanism:
     # Decay eligibility over time
     eligibility *= decay_rate
 
-Expected improvements:
-- Temporal credit assignment (recent → more credit)
+Intended effects:
+- Temporal credit assignment (recent -> more credit)
 - Functions that preceded success are strengthened
 - No need for explicit gradient computation
 - Self-organizing credit flow through activation history
@@ -92,7 +92,7 @@ class RetrogradeSignalingStrategy(PaletteEvolutionStrategy):
             trace_decay: Temporal decay for backward credit (0.7 = 30% decay per step)
             eligibility_decay: Per-generation decay of accumulated eligibility
             eligibility_max: Maximum eligibility cap
-            credit_scale: Scaling factor for eligibility → selection weight
+            credit_scale: Scaling factor for eligibility -> selection weight
             improvement_credit: Base credit assigned on improvement
             failure_penalty: Penalty magnitude on fitness decrease
             history_length: Number of generations to track for backward credit
@@ -269,10 +269,10 @@ class RetrogradeSignalingStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Apply eligibility decay
+        # Apply eligibility decay
         new_eligibility = state['eligibility'] * self.eligibility_decay
 
-        # Step 2: Backward credit propagation based on fitness change
+        # Backward credit propagation based on fitness change
         credit_assigned = jnp.zeros(NUM_ACTIVATIONS)
         penalty_assigned = jnp.zeros(NUM_ACTIVATIONS)
         propagation_event = 0
@@ -296,10 +296,10 @@ class RetrogradeSignalingStrategy(PaletteEvolutionStrategy):
             )
             propagation_event = 1
 
-        # Step 3: Compute selection weights
+        # Compute selection weights
         selection_weights = self._compute_selection_weights(new_eligibility)
 
-        # Step 4: Select new palette
+        # Select new palette
         new_mask = self._select_palette(selection_weights, k1)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

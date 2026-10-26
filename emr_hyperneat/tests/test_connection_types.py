@@ -1,25 +1,21 @@
 """Tests for connection types in EMR-HyperNEAT.
 
 Tests all 6 sparse connection modes:
-- feedforward: No H→H connections
-- hidden_only: Forward H→H only (y_source < y_target)
-- with_backward: Forward + backward H→H (y_source > y_target)
-- with_lateral: Forward + lateral H→H (same y-coordinate)
+- feedforward: No H->H connections
+- hidden_only: Forward H->H only (y_source < y_target)
+- with_backward: Forward + backward H->H (y_source > y_target)
+- with_lateral: Forward + lateral H->H (same y-coordinate)
 - with_self: Forward + self-loops (from_idx == to_idx)
 - full_recurrent: All connection types enabled
 """
 
 import pytest
 from conftest import (
-    EMRHyperNEAT,
     create_config_with_recurrence,
     run_quick_evolution,
     assert_no_errors,
     assert_fitness_above,
     assert_positive_fitness,
-    RECURRENCE_PRESETS,
-    XORProblem,
-    ParityProblem,
     DEFAULT_SEED,
     STANDARD_SEEDS,
     QUICK_GENERATIONS,
@@ -41,7 +37,7 @@ class TestConnectionTypeBasics:
         config_obj = algorithm.create_config(config)
 
         # Should not raise
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Verify config was applied
         assert algorithm.extended_config is not None
@@ -66,19 +62,19 @@ class TestConnectionTypeBasics:
 
 
 class TestFeedforwardMode:
-    """Tests specific to feedforward (no H→H) mode."""
+    """Tests specific to feedforward (no H->H) mode."""
 
     def test_feedforward_disabled_recurrence(self, algorithm, xor_problem):
         """Verify feedforward mode has recurrence disabled."""
         config = create_config_with_recurrence('feedforward')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.enabled == False
         # Note: iteration_level may still be set even when disabled
 
     def test_feedforward_no_hh_connections(self, algorithm, xor_problem):
-        """Verify feedforward mode produces no H→H connections."""
+        """Verify feedforward mode produces no H->H connections."""
         config = create_config_with_recurrence('feedforward')
         config_obj = algorithm.create_config(config)
         state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
@@ -86,7 +82,7 @@ class TestFeedforwardMode:
         # Run one generation
         state, metrics = algorithm.run_generation(state, xor_problem)
 
-        # Should have no H→H connections
+        # Should have no H->H connections
         assert algorithm.extended_config.allow_hidden_to_hidden == False
 
     def test_feedforward_solves_xor(self, algorithm, xor_problem):
@@ -99,13 +95,13 @@ class TestFeedforwardMode:
 
 
 class TestHiddenOnlyMode:
-    """Tests specific to hidden_only (forward H→H) mode."""
+    """Tests specific to hidden_only (forward H->H) mode."""
 
     def test_hidden_only_config(self, algorithm, xor_problem):
         """Verify hidden_only mode has correct configuration."""
         config = create_config_with_recurrence('hidden_only')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.enabled == True
         assert algorithm.extended_config.allow_hidden_to_hidden == True
@@ -114,7 +110,7 @@ class TestHiddenOnlyMode:
         assert algorithm.extended_config.allow_self_loops == False
 
     def test_hidden_only_allows_forward_hh(self, algorithm, xor_problem):
-        """Verify hidden_only mode allows forward H→H connections."""
+        """Verify hidden_only mode allows forward H->H connections."""
         config = create_config_with_recurrence('hidden_only')
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -129,7 +125,7 @@ class TestWithBackwardMode:
         """Verify with_backward mode has correct configuration."""
         config = create_config_with_recurrence('with_backward')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.enabled == True
         assert algorithm.extended_config.allow_hidden_to_hidden == True
@@ -153,7 +149,7 @@ class TestWithLateralMode:
         """Verify with_lateral mode has correct configuration."""
         config = create_config_with_recurrence('with_lateral')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.enabled == True
         assert algorithm.extended_config.allow_hidden_to_hidden == True
@@ -177,7 +173,7 @@ class TestWithSelfMode:
         """Verify with_self mode has correct configuration."""
         config = create_config_with_recurrence('with_self')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.enabled == True
         assert algorithm.extended_config.allow_hidden_to_hidden == True
@@ -201,7 +197,7 @@ class TestFullRecurrentMode:
         """Verify full_recurrent mode has all connections enabled."""
         config = create_config_with_recurrence('full_recurrent')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.enabled == True
         assert algorithm.extended_config.allow_hidden_to_hidden == True
@@ -213,7 +209,7 @@ class TestFullRecurrentMode:
         """Verify full_recurrent mode has increased activate_time."""
         config = create_config_with_recurrence('full_recurrent')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Full recurrent should have longer activation time
         assert algorithm.extended_config.activate_time >= 10
@@ -274,7 +270,7 @@ class TestIterationLevelVariants:
         for level in [2, 3]:
             config = create_config_with_recurrence('with_backward', iteration_level=level)
             config_obj = algorithm.create_config(config)
-            state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+            algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
             assert algorithm.extended_config.iteration_level == level
 
@@ -318,7 +314,7 @@ class TestConnectionTypesWithProblems:
 
 
 class TestComprehensiveConnectionTypes:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: every connection type on XOR, and three of them on several seeds."""
 
     @pytest.mark.slow
     @pytest.mark.parametrize("conn_type", CONNECTION_TYPES)

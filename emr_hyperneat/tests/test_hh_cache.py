@@ -1,4 +1,4 @@
-"""Tests for H→H connection caching in EMR-HyperNEAT.
+"""Tests for H->H connection caching in EMR-HyperNEAT.
 
 Tests cover:
 - HHCacheManager initialization
@@ -12,15 +12,12 @@ Tests cover:
 import pytest
 import jax.numpy as jnp
 from conftest import (
-    EMRHyperNEAT,
     HHCacheManager,
     EMRConfig,
     create_config_with_recurrence,
-    create_base_config,
     run_quick_evolution,
     assert_no_errors,
     assert_positive_fitness,
-    XORProblem,
     DEFAULT_SEED,
     QUICK_GENERATIONS,
 )
@@ -89,12 +86,12 @@ class TestCacheRefreshLogic:
         # Initially should refresh
         assert cache.should_refresh(0, jnp.ones((10, 10))) == True
 
-        # After updating at gen 0, should NOT refresh until interval
+        # After updating at gen 0, should not refresh until interval
         cache.update_cache(None, jnp.ones((10, 10)), 0)
 
         # Generations 1-4 should not need refresh (interval is 5)
         for gen in range(1, 5):
-            result = cache.should_refresh(gen, jnp.ones((10, 10)))
+            cache.should_refresh(gen, jnp.ones((10, 10)))
             # May or may not refresh depending on implementation
 
     def test_refresh_interval_configuration(self):
@@ -218,7 +215,7 @@ class TestCacheWithConnectionTypes:
 
     @pytest.mark.parametrize("conn_type", ['hidden_only', 'with_backward', 'with_lateral', 'full_recurrent'])
     def test_cache_with_connection_types(self, algorithm, xor_problem, conn_type):
-        """Verify cache works with all connection types that have H→H."""
+        """Verify cache works with all connection types that have H->H."""
         config = create_config_with_recurrence(conn_type, hh_cache_enabled=True)
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
@@ -280,7 +277,7 @@ class TestCacheStatistics:
 
 
 class TestComprehensiveCache:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: the h->h cache on and off on three seeds, and several refresh intervals."""
 
     @pytest.mark.slow
     def test_cache_vs_no_cache_similar_results(self, algorithm, xor_problem):
@@ -321,3 +318,31 @@ class TestComprehensiveCache:
 
         assert_no_errors(result)
         assert result.best_fitness > 0.5, f"Interval {interval} should achieve >0.5 fitness"
+
+
+class TestCacheDefault:
+    """The h->h connection cache is off unless the configuration turns it on.
+
+    With the cache on, the discovered h->h set is indexed by population slot and reused for up to
+    hh_refresh_interval generations while reproduction moves genomes between slots, so a genome is
+    scored with another genome's recurrent connections between refreshes. The default therefore
+    has to be off; a campaign that wants the cache says so explicitly.
+    """
+
+    def test_default_is_off(self, algorithm, xor_problem):
+        """A recurrence section without the key parses to hh_cache_enabled False."""
+        config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
+        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        del hmr['recurrence']['hh_cache_enabled']
+        config_obj = algorithm.create_config(config)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+
+        assert algorithm.extended_config.hh_cache_enabled is False
+
+    def test_explicit_true_still_honored(self, algorithm, xor_problem):
+        """hh_cache_enabled: true reproduces the cache-on behavior of 0.1.0."""
+        config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
+        config_obj = algorithm.create_config(config)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+
+        assert algorithm.extended_config.hh_cache_enabled is True

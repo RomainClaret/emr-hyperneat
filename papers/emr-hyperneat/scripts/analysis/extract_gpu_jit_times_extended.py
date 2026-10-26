@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Per-population breakdown of EMR GPU JIT / construction overhead (real runs).
+"""Per-population breakdown of EMR GPU JIT / construction overhead.
 
 Companion to ``extract_gpu_jit_times.py``: reads ``data/runs_emr_gpu.json`` and shows the
 one-time ``construction_overhead_s`` per depth at each population size, so the growth of
 JIT/construction cost with population and depth is visible. The collapsed per-depth JIT
-IQR (the figure's dotted GPU JIT band) is printed at the end.
+IQR (the figure's dotted GPU JIT band) is printed at the end. The construction times are
+measured, except at depth 7, population 750 (interpolated) and at depth 13, population
+1000, seed 456 (projected from depth 12).
 
 Output: a depth x population table of JIT/construction seconds + the per-depth JIT IQR.
 """

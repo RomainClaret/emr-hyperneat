@@ -6,7 +6,7 @@ Aggregation-first approach with near-permanent aggregation anchoring:
 - Hypothesis: Lock aggregations permanently once max/min are discovered, allowing
   ONLY activations to adapt. Creates a stable "landing zone" for sin.
 
-Key mechanisms:
+Mechanisms:
 - Aggregation anchor protection: Once max/min captured, 95% protection (almost immune)
 - Aggregation hypermutation immunity: Anchored aggs cannot be removed
 - Activation freedom: Full mutation flexibility for activations
@@ -52,36 +52,36 @@ class AggregationAnchorDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Aggregation anchor parameters ===
+        # Aggregation anchor parameters
         agg_anchor_protection: float = 0.95,          # Protection for anchored aggs
         agg_anchor_hypermutation_immunity: bool = True,  # Anchored = immune to removal
         anchor_sin_discovery_boost: float = 0.6,      # Boost sin discovery when anchors exist
         anchor_threshold: float = 0.65,               # Affinity threshold to become anchor
         anchor_capture_window: int = 3,               # Faster capture for anchors
-        # === Aggregation discovery parameters ===
+        # Aggregation discovery parameters
         agg_exploration_rate: float = 0.20,           # High agg exploration
         act_exploration_rate: float = 0.10,           # Normal activation exploration
         extreme_discovery_bonus: float = 0.4,         # Bonus for discovering max/min
-        # === Tag-and-capture parameters ===
+        # Tag-and-capture parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,              # Lower for easier agg capture
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.5,               # Higher for extreme aggs
-        # === Affinity learning ===
+        # Affinity learning
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.15,                # Higher agg learning
         affinity_decay: float = 0.98,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.10,
         sin_extreme_affinity_boost: float = 0.35,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -318,7 +318,7 @@ class AggregationAnchorDualStrategy(PaletteEvolutionStrategy):
         # Check if anchors exist for sin discovery boost
         has_anchors = any(float(agg_anchored[i]) > 0.5 for i in CORE_EXTREME_AGGS)
 
-        # === ACTIVATION MUTATIONS (full flexibility) ===
+        # ACTIVATION MUTATIONS (full flexibility)
         if jax.random.uniform(k1) < self.act_exploration_rate:
             inactive_acts = [i for i in range(NUM_ACTIVATIONS)
                            if float(act_mask[i]) < 0.5]
@@ -347,7 +347,7 @@ class AggregationAnchorDualStrategy(PaletteEvolutionStrategy):
                 to_remove = affs[0][0]
                 act_mask = act_mask.at[to_remove].set(0.0)
 
-        # === AGGREGATION MUTATIONS (anchors are immune) ===
+        # AGGREGATION MUTATIONS (anchors are immune)
         if jax.random.uniform(k4) < self.agg_exploration_rate:
             inactive_aggs = [i for i in range(NUM_AGGREGATIONS)
                            if float(agg_mask[i]) < 0.5]

@@ -4,7 +4,7 @@ Biological Basis: Homeostatic plasticity maintains stable activity balance while
 allowing discovery of new functions. Like the brain maintains firing rate
 homeostasis while learning, this strategy balances exploration with stability.
 
-Key mechanisms for SYMMETRIC discovery (both activation AND aggregation):
+Mechanisms for SYMMETRIC discovery (both activation AND aggregation):
 1. Active balance between averaging and extreme aggregations
 2. Discovery bonus for underrepresented categories in BOTH domains
 3. Cross-domain affinity tracking for sin-extreme pairs
@@ -53,7 +53,7 @@ class HomeostaticAggDiscoverySymmetricStrategy(PaletteEvolutionStrategy):
     evolution with homeostatic balance. Maintains category balance while
     actively promoting discovery of underrepresented function types.
 
-    Key improvements over dual version:
+    Improvements over the dual version:
     - Protected indices for sin and extreme aggregations
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
@@ -170,7 +170,7 @@ class HomeostaticAggDiscoverySymmetricStrategy(PaletteEvolutionStrategy):
         self.max_active_agg = max_active_agg
 
         # Initial palettes
-        # CRITICAL: Include sin (idx 4) and extreme aggs (idx 2,3) in initial palettes
+        # Include sin (idx 4) and extreme aggs (idx 2,3) in initial palettes
         # This ensures they start active and can be protected from the beginning
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]  # tanh, sigmoid, relu, identity, sin
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]  # sum, mean, max, min

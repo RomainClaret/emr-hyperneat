@@ -1,7 +1,7 @@
 """Generate fig_pertask_hero_result from REAL experiment data.
 
 Data source: results/palette_per_head_20260118_185*.json
-5 seeds × product aggregation × per-task activation (sin for XOR, tanh for threshold)
+5 seeds x product aggregation x per-task activation (sin for XOR, tanh for threshold)
 All 5 seeds converge to 100% on all 5 tasks (gen 11, 7, 31, 6, 6).
 Annotation shows 30-seed validation stats (median 14, range 4-36).
 """
@@ -74,7 +74,7 @@ def create_pertask_hero_figure():
     display_gen = max_gen + 3
     gen_range = np.arange(0, display_gen + 1)
 
-    # Build per-task arrays: [n_seeds × n_generations]
+    # Build per-task arrays: [n_seeds x n_generations]
     # After a seed's last recorded generation, fill with final value (1.0 = 100%)
     task_data = {task: np.zeros((len(experiments), len(gen_range))) for task in TASKS}
 

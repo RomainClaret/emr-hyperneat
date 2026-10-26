@@ -3,7 +3,7 @@
 Extends OpioidNeuromodulationStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using opioid-based explore/exploit balance.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Shared opioid system - single reward system affects both domains
 2. Dual function affinity - separate preference tracking per domain
 3. Coordinated withdrawal - exploration boost applies to both domains

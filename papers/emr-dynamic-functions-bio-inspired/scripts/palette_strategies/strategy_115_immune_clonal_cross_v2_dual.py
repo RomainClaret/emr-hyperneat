@@ -3,7 +3,7 @@
 Combines immune memory (strategy 44), clonal hybrid (strategy 91), and
 cross_domain_v2 (strategy 103) for TRIPLE PROTECTION of sin-extreme.
 
-Key Innovation:
+Mechanism:
 - AFFINITY-based protection (clonal selection)
 - CAPTURE-based protection (tag and capture)
 - MEMORY-based protection (immune memory cells)
@@ -42,33 +42,33 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === CLONAL AFFINITY PARAMETERS ===
+        # CLONAL AFFINITY PARAMETERS
         clonal_affinity_lr: float = 0.12,
         affinity_decay: float = 0.98,
         hypermutation_rate: float = 0.08,
-        # === MEMORY PARAMETERS (KEY) ===
+        # MEMORY PARAMETERS
         memory_cell_lifespan: int = 30,
         memory_formation_threshold: float = 0.7,
         memory_clonal_interaction: bool = True,
-        # === CROSS-DOMAIN PARAMETERS ===
+        # CROSS-DOMAIN PARAMETERS
         cross_affinity_growth: float = 1.15,
         sin_extreme_multiplier: float = 1.4,
-        # === TRIPLE PROTECTION THRESHOLD (KEY) ===
+        # TRIPLE PROTECTION THRESHOLD
         triple_protection_threshold: float = 0.8,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         tag_decay: float = 0.9,
         capture_window: int = 5,
-        # === Exploration ===
+        # Exploration
         exploration_rate: float = 0.20,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -78,7 +78,7 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
         self.affinity_decay = affinity_decay
         self.hypermutation_rate = hypermutation_rate
 
-        # Memory (KEY)
+        # Memory
         self.memory_cell_lifespan = memory_cell_lifespan
         self.memory_formation_threshold = memory_formation_threshold
         self.memory_clonal_interaction = memory_clonal_interaction
@@ -87,7 +87,7 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
         self.cross_affinity_growth = cross_affinity_growth
         self.sin_extreme_multiplier = sin_extreme_multiplier
 
-        # Triple protection (KEY)
+        # Triple protection
         self.triple_protection_threshold = triple_protection_threshold
 
         # Tagging
@@ -399,7 +399,7 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === LAYER 1: AFFINITY UPDATE ===
+        # LAYER 1: AFFINITY UPDATE
         new_act_aff = state['act_affinities'] * self.affinity_decay
         new_agg_aff = state['agg_affinities'] * self.affinity_decay
         if fitness_delta > 0:
@@ -414,7 +414,7 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_agg_aff[j] + self.clonal_affinity_lr * fitness_delta)
                     )
 
-        # === LAYER 2: TAGS AND CAPTURE ===
+        # LAYER 2: TAGS AND CAPTURE
         new_act_tags, new_act_captured, act_captures = self._update_tags_and_capture(
             state['act_mask'], state['act_tags'], state['act_captured'],
             state['tag_history'], generation, improved
@@ -429,7 +429,7 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === LAYER 3: MEMORY UPDATE ===
+        # LAYER 3: MEMORY UPDATE
         new_act_memory, act_formations = self._update_memory(
             state['act_memory'], state['act_mask'], new_act_aff,
             best_fitness, generation, NUM_ACTIVATIONS
@@ -439,12 +439,12 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
             best_fitness, generation, NUM_AGGREGATIONS
         )
 
-        # === CROSS-DOMAIN UPDATE ===
+        # CROSS-DOMAIN UPDATE
         new_cross = self._update_cross_affinity(
             state['cross_affinity'], state['act_mask'], state['agg_mask'], fitness_delta
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, _, act_triple = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_memory,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -502,7 +502,7 @@ class ImmuneClonalCrossV2DualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Triple protection metrics (KEY)
+            # Triple protection metrics
             'sin_protection_layers': sin_layers,
             'sin_affinity_protected': sin_affinity,
             'sin_capture_protected': sin_captured,

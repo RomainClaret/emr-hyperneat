@@ -6,15 +6,17 @@ Uses the same CPPN/NEAT pipeline as the original benchmark, with uniform tanh,
 feedforward topology, Pop=750, 100 generations.
 
 Conditions to run:
-  - 5 single-task (xor, and, or, nand, nor) × 30 seeds = 150 runs
-  - 10 three-task combos × 30 seeds = 300 runs
-  - 5 four-task combos × 30 seeds = 150 runs
-  - 1 five-task × 30 seeds = 30 runs
+  - 5 single-task (xor, and, or, nand, nor) x 30 seeds = 150 runs
+  - 10 three-task combos x 30 seeds = 300 runs
+  - 5 four-task combos x 30 seeds = 150 runs
+  - 1 five-task x 30 seeds = 30 runs
   Total: 630 runs
 
 Note: 2-task data already exists at n=30 from ablation_schema_a/b_uniform experiments.
 
-Results saved to: papers/emr-neuromodulation/results/benchmark_n30/
+Results saved to: papers/emr-neuromodulation/results/benchmark_n30_emr/ (this script runs the shared
+runner, which runs EMR; the published 630 runs, on the HMR engine, are the data release's
+results/benchmark_n30/, which a run here never reads or overwrites)
 
 Usage:
     python papers/emr-neuromodulation/scripts/runners/benchmark_seed_upgrade.py
@@ -27,7 +29,6 @@ Usage:
 
 import argparse
 import json
-import sys
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -37,19 +38,16 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-sys.path.insert(0, str(Path('.') / 'src'))
-
-from experiments.neuromodulation.multihead_palette_neuromodulation import (
+# The shared runner beside this script (its folder is first on the module path)
+from multihead_palette_neuromodulation import (
     ALL_TASKS,
     run_multihead_palette_experiment,
 )
 
 
-# ============================================================================
 # Constants
-# ============================================================================
 
-RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'benchmark_n30'
+RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'benchmark_n30_emr'
 
 # All task subsets to test
 SINGLE_TASKS = [[t] for t in ALL_TASKS]  # 5 conditions
@@ -60,7 +58,7 @@ FOUR_TASK_COMBOS = [list(c) for c in combinations(ALL_TASKS, 4)]  # 5 conditions
 
 FIVE_TASK = [ALL_TASKS]  # 1 condition
 
-# Build condition name → task list mapping
+# Build condition name -> task list mapping
 ALL_CONDITIONS = {}
 for tasks in SINGLE_TASKS:
     name = f"1task_{'_'.join(tasks)}"
@@ -76,9 +74,7 @@ for tasks in FIVE_TASK:
     ALL_CONDITIONS[name] = tasks
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     """Check if result file exists and is non-empty."""
@@ -131,9 +127,7 @@ def summarize_condition(results_dir: Path, prefix: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

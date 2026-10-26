@@ -11,7 +11,7 @@ Bio-inspired learning: "Functions that fire together, stay together."
 Tracks co-occurrence of functions in high-fitness networks and uses Hebbian
 learning to strengthen useful pairs while weakening bad pairs - for BOTH domains.
 
-Key innovations:
+Mechanisms:
 - Affinity floors prevent loss of critical functions (sin, max, min)
 - Discovery tracking measures when new functions are found
 - Discovery boost ensures discovered functions enter palette
@@ -51,7 +51,7 @@ class HebbianSymmetricStrategy(PaletteEvolutionStrategy):
     - Low fitness + pair active -> weaken association
     - Strong pairs persist; weak pairs get pruned
 
-    Enhancements:
+    Additions:
     - Sin affinity floor: sin never drops below threshold
     - Extreme agg affinity floor: max/min never drop below threshold
     - Discovery tracking: monitors when new functions enter palette
@@ -449,7 +449,7 @@ class HebbianSymmetricStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - baseline) / max(0.1, baseline)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # --- Hebbian updates for both domains ---
+        # Hebbian updates for both domains
         new_act_weights = self._hebbian_update(
             state['act_hebbian_weights'], state['act_mask'], fitness_signal
         )
@@ -463,7 +463,7 @@ class HebbianSymmetricStrategy(PaletteEvolutionStrategy):
             fitness_signal,
         )
 
-        # --- Consolidation updates ---
+        # Consolidation updates
         new_act_counts, new_act_protected = self._update_consolidation(
             new_act_weights,
             state['act_consolidation_counts'],
@@ -475,7 +475,7 @@ class HebbianSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_protected_pairs'],
         )
 
-        # --- Compute affinities with cross-domain influence ---
+        # Compute affinities with cross-domain influence
         act_affinities = self._compute_affinity_scores(
             new_act_weights, state['act_mask'],
             new_cross_affinity, state['agg_mask'],
@@ -492,7 +492,7 @@ class HebbianSymmetricStrategy(PaletteEvolutionStrategy):
             act_affinities, agg_affinities
         )
 
-        # --- Identify newly discovered candidates ---
+        # Identify newly discovered candidates
         current_act_palette = set(mask_to_indices(state['act_mask']))
         current_agg_palette = set(mask_to_indices(state['agg_mask']))
         act_ever_discovered = state['act_ever_discovered'].copy()
@@ -508,7 +508,7 @@ class HebbianSymmetricStrategy(PaletteEvolutionStrategy):
             if i not in agg_ever_discovered and i not in current_agg_palette
         ]
 
-        # --- Apply mutations to both palettes ---
+        # Apply mutations to both palettes
         new_act_mask, act_activated, act_deactivated, act_disc_to_pal = (
             self._mutate_palette_hebbian(
                 key_act, state['act_mask'], act_affinities, new_act_protected,

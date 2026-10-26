@@ -4,12 +4,12 @@ Biological Basis: Lotka-Volterra predator-prey dynamics from ecology. Prey (gene
 functions) have exponential growth while predators (specialist functions) depend
 on prey for survival. This creates natural oscillation patterns in population sizes.
 
-Key mechanisms for SYMMETRIC discovery:
+Mechanisms for SYMMETRIC discovery:
 1. Separate prey/predator populations for both activation and aggregation domains
 2. Cross-feeding: success in one domain provides energy for the other
 3. Synchronized oscillation phases create coordinated exploration
 4. Shared predator success memory reduces death rates on joint success
-5. Protected indices (0.1% deactivation) for sin and extreme aggregations
+5. Protected indices (always kept active) for sin and extreme aggregations
 6. Memory cell crystallization for stable, high-performing functions
 7. Affinity floors for guaranteed retention
 
@@ -47,8 +47,8 @@ class PredatorPreySymmetricStrategy(PaletteEvolutionStrategy):
     Both domains have generalist (prey) and specialist (predator) functions.
     Lotka-Volterra dynamics create natural exploration cycles.
 
-    Key improvements over dual version:
-    - Protected indices for sin and extreme aggregations (0.1% deactivation)
+    Differences from the dual version:
+    - Protected indices for sin and extreme aggregations (always kept active)
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
     - Discovery tracking for research analysis
@@ -357,7 +357,7 @@ class PredatorPreySymmetricStrategy(PaletteEvolutionStrategy):
         """Select palette based on population levels with protection."""
         selected = []
 
-        # CRITICAL: Protected indices are always included
+        # Protected indices are always included
         for idx in protected_indices:
             if idx < n_functions:
                 selected.append(idx)

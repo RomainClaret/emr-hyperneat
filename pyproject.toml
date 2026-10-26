@@ -25,7 +25,7 @@ classifiers = [
 ]
 keywords = ["GPU-acceleration", "neuroevolution", "EMR-HyperNEAT", "ES-HyperNEAT", "HyperNEAT", "NEAT", "JAX", "tensors", "evolutionary-computation", "neural-networks", "machine-learning", "artificial-intelligence", "AI"]
 
-# Core runtime dependencies. TensorNEAT is NOT on PyPI. It is provided by the
+# Core runtime dependencies. TensorNEAT is not on PyPI. It is provided by the
 # pinned git submodule and installed separately:
 #     pip install -e third_party/tensorneat
 # (see README). Versions track the environment the published experiments ran on

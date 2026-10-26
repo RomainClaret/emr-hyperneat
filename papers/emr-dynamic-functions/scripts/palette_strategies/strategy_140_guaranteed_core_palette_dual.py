@@ -1,12 +1,12 @@
 """Strategy 140: Guaranteed-Core-Palette Dual.
 
 Implements a fixed initial palette with sin + extreme aggs that are
-guaranteed to be present and protected, with gradual vulnerability decay.
+guaranteed to be present and protected in every generation.
 
-Key Mechanism:
+Mechanism:
 - Sin (4), max (2), min (3) always start active
-- Guaranteed protection that slowly decays over 50 generations
-- After full_vulnerability_after gens, guaranteed members can be removed
+- Guaranteed members are never pruned and are set active every generation
+- Their protection value decays over 50 generations, but no pruning decision reads it
 - Evolution adds/removes other functions while core remains stable
 
 Biological Inspiration: Founder effect in genetics where initial population
@@ -31,13 +31,13 @@ from .base_strategy import (
 
 
 class GuaranteedCorePaletteDualStrategy(PaletteEvolutionStrategy):
-    """Guaranteed core palette with gradual vulnerability.
+    """Guaranteed core palette whose members are never pruned.
 
     Fixed initial palette with guaranteed sin + extreme
-    aggs that are highly protected initially but can become vulnerable over time.
+    aggs that stay in the palette for the whole run.
 
-    Critical innovation: Guaranteed members have decaying protection, ensuring
-    they're always present early while allowing eventual adaptation.
+    Guaranteed members are never pruned and are set active every generation; their
+    protection value decays but no pruning decision reads it.
     """
 
     name = "guaranteed_core_palette_dual"
@@ -45,30 +45,30 @@ class GuaranteedCorePaletteDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === GUARANTEED CORE (CRITICAL) ===
+        # GUARANTEED CORE
         guaranteed_activations: List[int] = None,  # Always start active
         guaranteed_aggregations: List[int] = None,  # Always start active
         guaranteed_protection_decay: float = 0.01,  # Per-gen decay rate
-        full_vulnerability_after: int = 50,  # Gens until fully vulnerable
+        full_vulnerability_after: int = 50,  # Gens until core_protection is set to its floor
         min_core_protection: float = 0.5,  # Floor protection level
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         core_affinity_bonus: float = 0.3,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         exploration_rate_act: float = 0.08,
         exploration_rate_agg: float = 0.10,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_after: int = 6,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -120,7 +120,7 @@ class GuaranteedCorePaletteDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure guaranteed members are in initial palette
+        # Ensure guaranteed members are in initial palette
         initial_act = list(initial_act)
         for act in self.guaranteed_activations:
             if act not in initial_act:
@@ -160,7 +160,7 @@ class GuaranteedCorePaletteDualStrategy(PaletteEvolutionStrategy):
             # Affinities
             'act_affinities': act_affinities,
             'agg_affinities': agg_affinities,
-            # Core protection (CRITICAL)
+            # Core protection
             'core_protection': core_protection,
             # General state
             'rng_key': jax.random.PRNGKey(seed + 1400000),
@@ -271,7 +271,7 @@ class GuaranteedCorePaletteDualStrategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > protection:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure guaranteed members are never removed
+        # Ensure guaranteed members are never removed
         for act in self.guaranteed_activations:
             new_act_mask = new_act_mask.at[act].set(1.0)
         for agg in self.guaranteed_aggregations:

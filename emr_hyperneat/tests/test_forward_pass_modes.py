@@ -1,25 +1,22 @@
 """Tests for forward pass modes in EMR-HyperNEAT.
 
 Tests the ForwardPassMode enum and automatic mode selection:
-- DENSE_ONLY: Feedforward mode (W1 → tanh → W2, no H→H)
-- HYBRID_SPARSE_HH: Dense W1/W2 + sparse H→H connections
-- FULL_SPARSE: accepted, but yields no sparse h→h; the generation loop's h→h gates
-  all test for HYBRID_SPARSE_HH, so it behaves as DENSE_ONLY
+- DENSE_ONLY: Feedforward mode (W1 -> tanh -> W2, no H->H)
+- HYBRID_SPARSE_HH: Dense W1/W2 + sparse H->H connections
+- FULL_SPARSE: not implemented and refused rather than run as DENSE_ONLY
 
 The forward pass mode is automatically determined based on recurrence settings:
-- feedforward preset → DENSE_ONLY
-- hidden_only, with_backward, etc. → HYBRID_SPARSE_HH
+- feedforward preset -> DENSE_ONLY
+- hidden_only, with_backward, etc. -> HYBRID_SPARSE_HH
 """
 
 import pytest
 from conftest import (
-    EMRHyperNEAT,
     create_config_with_recurrence,
     create_base_config,
     run_quick_evolution,
     assert_no_errors,
     assert_positive_fitness,
-    XORProblem,
     DEFAULT_SEED,
     QUICK_GENERATIONS,
 )
@@ -48,10 +45,10 @@ class TestDenseOnlyMode:
         assert_positive_fitness(result)
 
     def test_dense_only_no_hh_connections(self, algorithm, xor_problem):
-        """Verify feedforward has no H→H connections."""
+        """Verify feedforward has no H->H connections."""
         config = create_config_with_recurrence('feedforward')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # In feedforward mode, allow_hidden_to_hidden should be False
         assert algorithm.extended_config is not None
@@ -61,7 +58,7 @@ class TestDenseOnlyMode:
         """Verify DENSE_ONLY works with dynamic functions."""
         config = create_config_with_recurrence('feedforward')
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'global', 'global_activation': 'tanh'}
+        hmr['dynamic_functions'] = {'mode': 'global', 'hidden_activation': 'tanh'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -71,7 +68,7 @@ class TestDenseOnlyMode:
         """Verify DENSE_ONLY works with aggregation configuration."""
         config = create_config_with_recurrence('feedforward')
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {'mode': 'global', 'global_aggregation': 'sum'}
+        hmr['aggregation'] = {'mode': 'global', 'global_function': 'sum'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -91,10 +88,10 @@ class TestHybridSparseHHMode:
         assert_positive_fitness(result)
 
     def test_hybrid_has_hh_connections(self, algorithm, xor_problem):
-        """Verify hidden_only preset enables H→H connections."""
+        """Verify hidden_only preset enables H->H connections."""
         config = create_config_with_recurrence('hidden_only')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # In hidden_only mode, allow_hidden_to_hidden should be True
         assert algorithm.extended_config is not None
@@ -145,12 +142,12 @@ class TestModeTransitions:
 
     def test_feedforward_to_recurrent(self, algorithm, xor_problem):
         """Verify evolution works when switching from feedforward config."""
-        # First run with feedforward
+        # Feed-forward run
         config_ff = create_config_with_recurrence('feedforward')
         result_ff = run_quick_evolution(algorithm, config_ff, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result_ff)
 
-        # Then run with recurrent (new algorithm instance needed)
+        # Recurrent run on the same instance
         config_rec = create_config_with_recurrence('hidden_only')
         result_rec = run_quick_evolution(algorithm, config_rec, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result_rec)
@@ -224,10 +221,10 @@ class TestModeWithOtherFeatures:
         assert_no_errors(result)
 
     def test_dense_only_with_h_to_h_cache(self, algorithm, xor_problem):
-        """Verify feedforward mode (no h→h) handles cache config gracefully."""
+        """Verify feedforward mode (no h->h) handles cache config gracefully."""
         config = create_config_with_recurrence('feedforward')
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        # H→H caching only applies to recurrent modes, but should be ignored in feedforward
+        # H->H caching only applies to recurrent modes, but should be ignored in feedforward
         hmr['recurrence']['hh_cache_enabled'] = True
         hmr['recurrence']['hh_refresh_interval'] = 5
 
@@ -237,7 +234,7 @@ class TestModeWithOtherFeatures:
 
 
 class TestComprehensiveModes:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: every recurrence preset on XOR, and HYBRID_SPARSE_HH on three seeds."""
 
     @pytest.mark.slow
     def test_all_modes_solve_xor(self, algorithm, xor_problem):

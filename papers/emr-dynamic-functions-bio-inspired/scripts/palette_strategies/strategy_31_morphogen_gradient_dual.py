@@ -3,7 +3,7 @@
 Extends Morphogen Gradient to jointly evolve activation AND aggregation
 function palettes using diffusion-based spatial organization for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. Functions in 2D space for both domains
 2. Morphogen sources diffuse gradients activating nearby functions
 3. Sources evolve toward successful function clusters
@@ -61,7 +61,7 @@ class MorphogenGradientDualStrategy(PaletteEvolutionStrategy):
 
     # Aggregation positions in same space
     AGG_POSITIONS = {
-        0: (0.5, 0.8),  # sum - central, versatile
+        0: (0.5, 0.8),  # sum - central, general-purpose
         1: (0.4, 0.7),  # mean - near sum
         2: (0.7, 0.6),  # max - toward specialization
         3: (0.8, 0.5),  # min - specialist

@@ -1,9 +1,9 @@
 """Strategy 144: STDP-Neuro-Symbiosis Dual.
 
 Combines the best working mechanism (STDP-Neurogenesis-Survival #117) with
-Sin-Extreme-Symbiosis (#137) for enhanced sin+extreme_agg retention.
+Sin-Extreme-Symbiosis (#137) for better sin+extreme_agg retention.
 
-Key Innovation:
+Mechanism:
 - STDP temporal credit assignment for function survival from #117
 - Neurogenesis birth/maturation/survival from #117
 - Symbiotic protection between sin and extreme_aggs from #137
@@ -44,7 +44,7 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
     (#117, 100% sin retention) with symbiotic protection (#137) where sin and
     extreme_aggs protect each other.
 
-    Critical innovation: Double protection - temporal credit AND symbiotic bond
+    Double protection - temporal credit AND symbiotic bond
     both contribute to survival probability.
     """
 
@@ -53,46 +53,46 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP PARAMETERS (from #117) ===
+        # STDP PARAMETERS (from #117)
         ltp_window: int = 5,
         ltd_window: int = 3,
         ltp_rate: float = 0.25,
         ltd_rate: float = 0.10,
         stdp_history_length: int = 10,
         temporal_decay: float = 0.7,
-        # === NEUROGENESIS PARAMETERS (from #117) ===
+        # NEUROGENESIS PARAMETERS (from #117)
         agg_neurogenesis_rate: float = 0.10,
         agg_maturation_period: int = 8,
         young_agg_plasticity: float = 2.0,
         base_survival_threshold: float = 0.15,
         max_young_aggs: int = 2,
-        # === STDP-SURVIVAL INTEGRATION (from #117) ===
+        # STDP-SURVIVAL INTEGRATION (from #117)
         stdp_survival_multiplier: float = 0.7,
         young_ltp_plasticity: float = 2.5,
         ltp_survival_threshold: float = 0.4,
         sin_extreme_ltp_boost: float = 0.5,
-        # === SYMBIOSIS PARAMETERS (from #137) ===
+        # SYMBIOSIS PARAMETERS (from #137)
         symbiosis_pairs: List[Tuple[int, int]] = None,  # (sin, max), (sin, min)
         symbiosis_protection: float = 0.8,
         orphan_vulnerability: float = 2.0,
         symbiosis_formation_rate: float = 0.15,
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === TAGGING PARAMETERS ===
+        # TAGGING PARAMETERS
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
@@ -100,7 +100,7 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
         max_stable_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -179,7 +179,7 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin is ALWAYS in initial palette
+        # Ensure sin is ALWAYS in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -357,7 +357,7 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
                         new_symbiosis[i, j] * 0.9
                     )
 
-        # CRITICAL: Sin-extreme bonds never fully break
+        # Sin-extreme bonds never fully break
         for act_idx, agg_idx in self.symbiosis_pairs:
             new_symbiosis = new_symbiosis.at[act_idx, agg_idx].set(
                 max(0.5, float(new_symbiosis[act_idx, agg_idx]))
@@ -746,7 +746,7 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
         for idx in top_indices:
             mask = mask.at[int(idx)].set(1.0)
 
-        # CRITICAL: Ensure sin is ALWAYS in palette
+        # Ensure sin is ALWAYS in palette
         mask = mask.at[4].set(1.0)
 
         active_count = int(jnp.sum(mask > 0.5))
@@ -797,25 +797,25 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
         stable_aggs = set(state['stable_aggs'])
         young_aggs = dict(state['young_aggs'])
 
-        # === CHECK SYMBIOSIS STATUS ===
+        # CHECK SYMBIOSIS STATUS
         has_partner_act, has_partner_agg = self._check_symbiosis_status(
             state['act_mask'], state['agg_mask'], state['symbiosis_strength']
         )
 
-        # === UPDATE SYMBIOSIS ===
+        # UPDATE SYMBIOSIS
         new_symbiosis, symbiosis_events = self._update_symbiosis(
             state['act_mask'], state['agg_mask'], state['symbiosis_strength'],
             fitness_delta, generation
         )
 
-        # === UPDATE STDP HISTORY ===
+        # UPDATE STDP HISTORY
         stdp_history = state['stdp_history'] + [
             (generation, state['act_mask'].copy(), state['agg_mask'].copy(), best_fitness)
         ]
         if len(stdp_history) > self.stdp_history_length:
             stdp_history = stdp_history[-self.stdp_history_length:]
 
-        # === UPDATE LTP CREDIT (with symbiosis bonus) ===
+        # UPDATE LTP CREDIT (with symbiosis bonus)
         new_act_ltp, new_agg_ltp, young_aggs = self._update_ltp_credit(
             state['act_ltp_credit'], state['agg_ltp_credit'],
             stdp_history, generation, improved,
@@ -823,13 +823,13 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
             has_partner_act, has_partner_agg
         )
 
-        # === AGG CONTRIBUTION UPDATE (with symbiosis bonus) ===
+        # AGG CONTRIBUTION UPDATE (with symbiosis bonus)
         new_agg_contribution = self._update_agg_contribution(
             state['agg_contribution'], state['agg_mask'], young_aggs,
             has_partner_agg, improved
         )
 
-        # === MATURATION WITH STDP + SYMBIOSIS ===
+        # MATURATION WITH STDP + SYMBIOSIS
         stable_aggs, young_aggs, survived, pruned, ltp_survive_count = self._mature_aggs_with_stdp_symbiosis(
             stable_aggs, young_aggs,
             new_agg_contribution, new_agg_ltp,
@@ -837,26 +837,26 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
             has_partner_agg, generation
         )
 
-        # === MAYBE BIRTH NEW AGG ===
+        # MAYBE BIRTH NEW AGG
         stable_aggs, young_aggs, born = self._maybe_birth_agg(
             stable_aggs, young_aggs, k1, generation
         )
 
-        # === CREATE AGG MASK ===
+        # CREATE AGG MASK
         new_agg_mask = self._create_agg_mask(stable_aggs, young_aggs)
 
-        # CRITICAL: Ensure extreme aggs are ALWAYS in mask
+        # Ensure extreme aggs are ALWAYS in mask
         for agg in CORE_EXTREME_AGGS:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)
             if agg not in stable_aggs:
                 stable_aggs.add(agg)
 
-        # === UPDATE SYMBIOSIS STATUS FOR NEW MASK ===
+        # UPDATE SYMBIOSIS STATUS FOR NEW MASK
         has_partner_act, has_partner_agg = self._check_symbiosis_status(
             state['act_mask'], new_agg_mask, new_symbiosis
         )
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], new_agg_mask,
             state['act_tags'], state['agg_tags'],
@@ -868,14 +868,14 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], new_agg_mask,
@@ -884,7 +884,7 @@ class STDPNeuroSymbiosisDualStrategy(PaletteEvolutionStrategy):
             has_partner_act, has_partner_agg
         )
 
-        # === ACTIVATION PALETTE SELECTION ===
+        # ACTIVATION PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_act_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_ltp,
             new_cross_affinity, new_agg_mask, has_partner_act, k2

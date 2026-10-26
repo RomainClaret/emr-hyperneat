@@ -9,10 +9,10 @@ Problem with pure aggregation-led:
 - Sin-extreme pairings rely only on cross-domain affinity
 - No structural protection against domain-shift pressure
 
-Key Innovation:
+Mechanism:
 - Extreme aggregations (max/min) gain keystone status when stable
 - Keystones create facilitation networks that protect sin
-- Keystone-protected sin has enhanced capture resistance
+- Keystone-protected sin gets a larger tag boost and a higher selection score
 - Ecological dynamics create redundant protection layer
 
 Bio inspiration: Keystone species in ecosystems have disproportionate impact.
@@ -42,13 +42,13 @@ from .base_strategy import (
 
 
 class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
-    """Keystone-enhanced aggregation-led dual palette evolution.
+    """Aggregation-led dual palette evolution with keystone facilitation.
 
     Combines aggressive aggregation exploration with
     keystone function dynamics. Extreme aggregations become keystones that
     create facilitation networks protecting sin.
 
-    Critical innovation: Keystone status creates ecological protection
+    Keystone status creates ecological protection
     beyond simple affinity - keystones actively prevent sin removal.
     """
 
@@ -57,44 +57,44 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === KEYSTONE PARAMETERS (NEW from ecosystem_dynamics) ===
+        # KEYSTONE PARAMETERS (from ecosystem_dynamics)
         keystone_threshold: float = 0.5,          # Stability to become keystone
         keystone_facilitation: float = 0.4,       # Support to protected functions
         keystone_protection: float = 0.8,         # Protection strength
         sin_extreme_facilitation_boost: float = 0.6,  # Extra facilitation for sin
         keystone_stability_required: int = 5,     # Gens stable to become keystone
-        # === AGGREGATION-LED PARAMETERS (from #101) ===
+        # AGGREGATION-LED PARAMETERS (from #101)
         agg_exploration_rate: float = 0.25,       # HIGH agg exploration
         agg_discovery_bonus: float = 0.6,         # Bonus for finding extreme aggs
         act_exploration_rate: float = 0.08,       # LOW act exploration
         agg_led_activation_boost: float = 0.4,    # Act boost when extreme aggs present
         agg_stability_threshold: int = 5,         # Gens before agg is "stable"
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Keystone Aggregation-Led strategy."""
-        # Keystone parameters (NEW)
+        # Keystone parameters
         self.keystone_threshold = keystone_threshold
         self.keystone_facilitation = keystone_facilitation
         self.keystone_protection = keystone_protection
@@ -172,7 +172,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
         # Aggregation stability tracking
         agg_stability_counts = jnp.zeros(NUM_AGGREGATIONS)
 
-        # Keystone tracking (NEW)
+        # Keystone tracking
         keystone_aggs: Set[int] = set()
         facilitated_acts: Dict[int, int] = {}  # {act: keystone_agg protecting it}
 
@@ -196,7 +196,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             'extreme_agg_discovered': False,
             'extreme_agg_discovery_gen': None,
             'activation_boost_active': False,
-            # Keystone tracking (NEW)
+            # Keystone tracking
             'keystone_aggs': keystone_aggs,
             'facilitated_acts': facilitated_acts,
             'keystone_history': [],
@@ -338,7 +338,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
                 if extreme_agg_discovered:
                     tag_strength *= (1 + self.agg_led_activation_boost)
 
-                # KEYSTONE FACILITATION BOOST (NEW)
+                # KEYSTONE FACILITATION BOOST
                 if i in facilitated_acts:
                     facilitation_boost = self.keystone_facilitation
                     if i == 4:  # Sin gets extra
@@ -502,7 +502,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             sin_boost *= (1 + self.agg_led_activation_boost)
         score = score.at[4].set(score[4] + sin_boost)
 
-        # FACILITATION PROTECTION (NEW) - facilitated functions get score boost
+        # FACILITATION PROTECTION - facilitated functions get score boost
         facilitation_protection_count = 0
         for i in facilitated_acts:
             score = score.at[i].set(score[i] + self.keystone_protection)
@@ -548,7 +548,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
         for j in CORE_EXTREME_AGGS:
             score = score.at[j].set(score[j] + self.agg_discovery_bonus)
 
-        # Keystone protection (NEW)
+        # Keystone protection
         for j in keystone_aggs:
             score = score.at[j].set(score[j] + self.keystone_protection)
 
@@ -591,7 +591,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
         prev_best_fitness: float,
         population_data: Optional[Dict] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Update with keystone-enhanced aggregation-led mechanics."""
+        """Update with aggregation-led mechanics plus keystone facilitation."""
         key, k1, k2, k3 = jax.random.split(state['rng_key'], 4)
 
         improved = best_fitness > state['best_fitness_seen']
@@ -604,7 +604,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === AGGREGATION STABILITY TRACKING ===
+        # AGGREGATION STABILITY TRACKING
         new_agg_stability, has_stable_extreme = self._update_agg_stability(
             state['agg_mask'], state['agg_stability_counts']
         )
@@ -616,7 +616,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             new_extreme_discovered = True
             new_extreme_discovery_gen = generation
 
-        # === KEYSTONE STATUS UPDATE (NEW) ===
+        # KEYSTONE STATUS UPDATE
         new_keystones, n_promotions = self._update_keystone_status(
             state['agg_mask'], new_agg_stability,
             state['agg_affinities'], state['keystone_aggs']
@@ -629,17 +629,17 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             if len(keystone_history) > 20:
                 keystone_history = keystone_history[-20:]
 
-        # === FACILITATION NETWORK (NEW) ===
+        # FACILITATION NETWORK
         new_facilitated = self._compute_facilitation(
             new_keystones, state['act_mask'], state['cross_affinity']
         )
 
-        # === AGGREGATION EXPLORATION ===
+        # AGGREGATION EXPLORATION
         new_agg_mask, n_agg_explorations = self._explore_aggregations(
             k1, state['agg_mask'], state['agg_affinities'], state['agg_captured']
         )
 
-        # === TAGGING WITH FACILITATION ===
+        # TAGGING WITH FACILITATION
         new_act_tags, new_agg_tags = self._update_tags_with_facilitation(
             state['act_mask'], new_agg_mask,
             state['act_tags'], state['agg_tags'],
@@ -650,14 +650,14 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE WITH KEYSTONE BONUS ===
+        # AFFINITY UPDATE WITH KEYSTONE BONUS
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], new_agg_mask,
@@ -665,7 +665,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             new_extreme_discovered, new_keystones
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         # Aggregation palette with keystone protection
         new_agg_mask_selected, agg_diversity_rescue = self._select_agg_palette(
             new_agg_aff, new_agg_captured, new_agg_tags, new_keystones, k2
@@ -707,7 +707,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             'extreme_agg_discovered': new_extreme_discovered,
             'extreme_agg_discovery_gen': new_extreme_discovery_gen,
             'activation_boost_active': activation_boost_active,
-            # Keystone state (NEW)
+            # Keystone state
             'keystone_aggs': new_keystones,
             'facilitated_acts': new_facilitated,
             'keystone_history': keystone_history,
@@ -737,7 +737,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Keystone metrics (NEW)
+            # Keystone metrics
             'n_keystones': len(new_keystones),
             'keystones': list(new_keystones),
             'n_facilitated': len(new_facilitated),
@@ -784,7 +784,7 @@ class KeystoneAggLedDualStrategy(PaletteEvolutionStrategy):
             'has_sin': 4 in act_palette,
             'has_max': 2 in agg_palette,
             'has_min': 3 in agg_palette,
-            # Keystone (NEW)
+            # Keystone
             'n_keystones': len(state['keystone_aggs']),
             'keystones': list(state['keystone_aggs']),
             'n_facilitated': len(state['facilitated_acts']),

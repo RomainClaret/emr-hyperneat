@@ -4,7 +4,7 @@ Biological Basis: Different modalities have different critical period timings.
 Visual cortex consolidates before higher-order areas. Lower-level processing
 stabilizes to provide consistent input to higher processing.
 
-Key mechanism: SHORTER critical period for aggregations than activations.
+Mechanism: SHORTER critical period for aggregations than activations.
 Aggregation consolidates EARLY (gen 15) so activation can explore with
 stable aggregation foundations.
 

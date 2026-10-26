@@ -7,12 +7,12 @@ Usage:
     python analysis_strengthening.py
 
 Result directories (all in results/):
-    circles_per_function_n30/, 18 functions × N=30 on ConcentricCircles
-    step_per_function_n30/, 18 functions × N=30 on StepFunction
-    sine_regression_per_function_n30/, 18 functions × N=30 on SineRegression
-    circles_assignment_n30/, 9 configs × N=30 on ConcentricCircles
-    circles_palette_n30/, 5 sizes × N=30 on ConcentricCircles
-    pop_parity6_n30/, 6 conditions × N=30 on Parity-6
+    circles_per_function_n30/, 18 functions x N=30 on ConcentricCircles
+    step_per_function_n30/, 18 functions x N=30 on StepFunction
+    sine_regression_per_function_n30/, 18 functions x N=30 on SineRegression
+    circles_assignment_n30/, 9 configs x N=30 on ConcentricCircles
+    circles_palette_n30/, 5 sizes x N=30 on ConcentricCircles
+    pop_parity6_n30/, 6 conditions x N=30 on Parity-6
 """
 
 import json
@@ -119,9 +119,7 @@ def print_per_function_table(results, label=""):
     print(f"\n  Total seeds: {total_seeds}")
 
 
-# ============================================================================
 # E-S1: Circles Per-Function (Section 5.8)
-# ============================================================================
 def compute_circles_per_function():
     print_header("CIRCLES PER-FUNCTION (ConcentricCircles, N=30)")
     results = load_per_function_results("circles_per_function_n30")
@@ -162,9 +160,7 @@ def compute_circles_per_function():
     return results
 
 
-# ============================================================================
 # E-S2: Step Per-Function (Section 5.8)
-# ============================================================================
 def compute_step_per_function():
     print_header("STEP PER-FUNCTION (StepFunction, N=30)")
     results = load_per_function_results("step_per_function_n30")
@@ -181,9 +177,7 @@ def compute_step_per_function():
     return results
 
 
-# ============================================================================
 # E-S3: Sine Per-Function (Section 5.8)
-# ============================================================================
 def compute_sine_per_function():
     print_header("SINE REGRESSION PER-FUNCTION (N=30)")
     results = load_per_function_results("sine_regression_per_function_n30")
@@ -198,9 +192,7 @@ def compute_sine_per_function():
     return results
 
 
-# ============================================================================
 # E-S4: Circles Assignment (Section 5.8)
-# ============================================================================
 def compute_circles_assignment():
     print_header("CIRCLES ASSIGNMENT (ConcentricCircles, N=30)")
     results = load_per_function_results("circles_assignment_n30")
@@ -218,9 +210,7 @@ def compute_circles_assignment():
     return results
 
 
-# ============================================================================
 # E-S5: Circles Palette (Section 5.8)
-# ============================================================================
 def compute_circles_palette():
     print_header("CIRCLES PALETTE (ConcentricCircles, N=30)")
     results = load_per_function_results("circles_palette_n30")
@@ -237,9 +227,7 @@ def compute_circles_palette():
     return results
 
 
-# ============================================================================
 # E-S6: Pop Parity-6 (Section 5.3)
-# ============================================================================
 def compute_pop_parity6():
     print_header("POP PARITY-6 (N=30)")
     results = load_per_function_results("pop_parity6_n30")
@@ -247,9 +235,7 @@ def compute_pop_parity6():
     return results
 
 
-# ============================================================================
 # Cross-problem comparison (Table 11)
-# ============================================================================
 def compute_cross_problem_table(circles, step, sine):
     print_header("CROSS-PROBLEM COMPARISON (Table 11)")
 
@@ -282,9 +268,7 @@ def compute_cross_problem_table(circles, step, sine):
     print(f"\n  Spearman (Parity-4 vs Circles solve rates): ρ={rho:.3f}, p={pval:.4f}")
 
 
-# ============================================================================
 # Total seed count
-# ============================================================================
 def compute_total_seeds():
     print_header("TOTAL STRENGTHENING SEEDS")
     dirs = {
@@ -313,9 +297,7 @@ def compute_total_seeds():
     return grand
 
 
-# ============================================================================
 # Main
-# ============================================================================
 if __name__ == "__main__":
     print("=" * 70)
     print("  STRENGTHENING EXPERIMENTS — FINAL STATISTICS AUDIT")

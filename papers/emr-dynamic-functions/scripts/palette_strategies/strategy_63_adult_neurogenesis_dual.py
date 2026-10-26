@@ -3,7 +3,7 @@
 Extends AdultNeurogenesisStrategy to jointly evolve BOTH activation AND
 aggregation function palettes using hippocampal-inspired neurogenesis.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual stable/young tracking - separate pools per domain
 2. Coordinated birth - new neurons can be born in both domains
 3. Cross-domain maturation boost - success in partner domain helps survival

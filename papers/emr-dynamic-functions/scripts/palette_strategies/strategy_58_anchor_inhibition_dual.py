@@ -3,7 +3,7 @@
 Extends AnchorInhibitionStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using fitness-contribution-based anchoring.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual anchor strength - separate anchoring for act and agg functions
 2. Dual contribution tracking - fitness contribution estimated per domain
 3. Cross-domain anchor boost - success boosts anchors in partner domain

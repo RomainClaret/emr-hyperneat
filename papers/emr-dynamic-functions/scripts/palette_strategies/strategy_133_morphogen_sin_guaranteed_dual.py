@@ -1,9 +1,9 @@
 """Strategy 133: Morphogen-Sin-Guaranteed Dual.
 
-Fixes the 0% sin retention bug in morphogen strategies by guaranteeing sin
-in the initial palette AND giving it a permanent morphogen source.
+Targets the 0% sin retention of the morphogen strategies, such as Strategy 121, by
+guaranteeing sin in the initial palette AND giving it a permanent morphogen source.
 
-Key Fix:
+Mechanism:
 - Sin ALWAYS starts in the initial palette (not discovered - guaranteed)
 - Sin has permanent morphogen source that NEVER decays
 - Extreme aggs (max/min) also get strong, persistent morphogen sources
@@ -41,7 +41,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
     Ensures sin retention by ensuring sin
     is always present and has a permanent morphogen source.
 
-    Critical innovation: Sin's morphogen source NEVER decays, creating
+    Sin's morphogen source NEVER decays, creating
     a permanent attractor in the morphogen field. Extreme aggregations
     (max/min) also get strong persistent sources.
     """
@@ -51,48 +51,48 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === GUARANTEED SOURCES (NEW - CRITICAL FIX) ===
+        # GUARANTEED SOURCES
         sin_always_in_initial_palette: bool = True,
         sin_source_permanent: bool = True,
         sin_source_strength: float = 2.5,
         extreme_agg_source_strength: float = 2.0,
-        # === MORPHOGEN PARAMETERS ===
+        # MORPHOGEN PARAMETERS
         morphogen_diffusion_rate: float = 0.3,
         morphogen_decay_rate: float = 0.05,
         source_creation_threshold: float = 0.6,
         gradient_threshold: float = 0.4,
         min_source_strength: float = 0.5,
-        # === PHASE PARAMETERS ===
+        # PHASE PARAMETERS
         exploration_phase_until: int = 30,
         consolidation_phase_until: int = 60,
         exploration_strength_mult: float = 1.5,
         consolidation_strength_mult: float = 0.5,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === TAGGING PARAMETERS ===
+        # TAGGING PARAMETERS
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Morphogen-Sin-Guaranteed strategy."""
-        # GUARANTEED SOURCES (CRITICAL FIX)
+        # GUARANTEED SOURCES
         self.sin_always_in_initial_palette = sin_always_in_initial_palette
         self.sin_source_permanent = sin_source_permanent
         self.sin_source_strength = sin_source_strength
@@ -153,7 +153,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin is ALWAYS in initial palette
+        # Ensure sin is ALWAYS in initial palette
         if self.sin_always_in_initial_palette and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -190,7 +190,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
         act_morphogen = jnp.zeros(NUM_ACTIVATIONS)
         agg_morphogen = jnp.zeros(NUM_AGGREGATIONS)
 
-        # CRITICAL: Set PERMANENT sin source
+        # Set PERMANENT sin source
         act_morphogen = act_morphogen.at[4].set(self.sin_source_strength)
 
         # Set strong extreme agg sources
@@ -216,7 +216,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
             # Affinities
             'act_affinities': act_affinities,
             'agg_affinities': agg_affinities,
-            # Morphogen fields (CRITICAL)
+            # Morphogen fields
             'act_morphogen': act_morphogen,
             'agg_morphogen': agg_morphogen,
             # Tagging
@@ -269,7 +269,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
         new_act = act_morphogen * (1.0 - self.morphogen_decay_rate)
         new_agg = agg_morphogen * (1.0 - self.morphogen_decay_rate)
 
-        # CRITICAL: Sin source is PERMANENT - never decay below threshold
+        # Sin source is PERMANENT - never decay below threshold
         if self.sin_source_permanent:
             new_act = new_act.at[4].set(max(
                 float(new_act[4]),
@@ -435,7 +435,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_act_aff[i] + lr * fitness_delta * bonus)
                     )
 
-        # CRITICAL: Sin affinity never drops too low
+        # Sin affinity never drops too low
         new_act_aff = new_act_aff.at[4].set(max(0.6, float(new_act_aff[4])))
 
         # Extreme agg affinity floor
@@ -489,7 +489,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
         for idx in top_indices:
             mask = mask.at[int(idx)].set(1.0)
 
-        # CRITICAL: ALWAYS include sin
+        # ALWAYS include sin
         mask = mask.at[4].set(1.0)
 
         active_count = int(jnp.sum(mask > 0.5))
@@ -529,7 +529,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
         for idx in top_indices:
             mask = mask.at[int(idx)].set(1.0)
 
-        # CRITICAL: ALWAYS include at least one extreme agg
+        # ALWAYS include at least one extreme agg
         has_extreme = any(mask[agg] > 0.5 for agg in CORE_EXTREME_AGGS)
         if not has_extreme:
             mask = mask.at[2].set(1.0)  # Add max
@@ -559,14 +559,14 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
 
         phase = self._get_phase(generation)
 
-        # === UPDATE MORPHOGEN FIELDS ===
+        # UPDATE MORPHOGEN FIELDS
         new_act_morphogen, new_agg_morphogen = self._update_morphogen_fields(
             state['act_morphogen'], state['agg_morphogen'],
             state['act_mask'], state['agg_mask'],
             improved, phase
         )
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -577,14 +577,14 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], state['agg_mask'],
@@ -592,7 +592,7 @@ class MorphogenSinGuaranteedDualStrategy(PaletteEvolutionStrategy):
             new_act_morphogen, new_agg_morphogen
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_act_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_morphogen,
             new_cross_affinity, state['agg_mask'], k1

@@ -4,9 +4,9 @@ Extends Strategy 3 (asymmetric_sticky) with neuromodulatory signals that
 dynamically adjust activation/deactivation rates based on learning progress.
 
 Bio-inspired neuromodulation:
-- Dopamine (DA): Reward signal → reduce exploration when improving
-- Acetylcholine (ACh): Uncertainty signal → increase exploration when stagnating
-- Norepinephrine (NE): Arousal signal → amplify plasticity early or when challenged
+- Dopamine (DA): Reward signal -> reduce exploration when improving
+- Acetylcholine (ACh): Uncertainty signal -> increase exploration when stagnating
+- Norepinephrine (NE): Arousal signal -> amplify plasticity early or when challenged
 
 Expected: 100% discovery maintained, 75-85% solve (vs 67% asymmetric_sticky)
 """
@@ -33,9 +33,9 @@ class NeuromodulatedStrategy(PaletteEvolutionStrategy):
     """Asymmetric+Sticky with neuromodulatory rate adjustment.
 
     Neuromodulation dynamically adjusts rates:
-    - Dopamine (reward): When fitness improves → reduce exploration (exploit)
-    - Acetylcholine (uncertainty): When stagnating → increase exploration
-    - Norepinephrine (arousal): Early in evolution → high plasticity
+    - Dopamine (reward): When fitness improves -> reduce exploration (exploit)
+    - Acetylcholine (uncertainty): When stagnating -> increase exploration
+    - Norepinephrine (arousal): Early in evolution -> high plasticity
 
     effective_activate = base_activate * da_factor * ach_factor * ne_factor
     effective_deactivate = base_deactivate / da_factor * ach_factor * ne_factor
@@ -127,7 +127,7 @@ class NeuromodulatedStrategy(PaletteEvolutionStrategy):
         """
         alpha = self.modulation_ema_alpha
 
-        # --- Dopamine: Reward signal ---
+        # Dopamine: Reward signal
         # High when fitness is improving, low when stagnating
         improvement = best_fitness - prev_best_fitness
         if prev_best_fitness > 0:
@@ -139,13 +139,13 @@ class NeuromodulatedStrategy(PaletteEvolutionStrategy):
         da_signal = max(0, min(1, 0.5 + relative_improvement * 10))
         new_dopamine = (1 - alpha) * state['dopamine'] + alpha * da_signal
 
-        # --- Acetylcholine: Uncertainty signal ---
+        # Acetylcholine: Uncertainty signal
         # High when stagnating, low when making progress
         stagnation = state['stagnation_count'] / max(self.stagnation_threshold, 1)
         ach_signal = min(1.0, stagnation)
         new_acetylcholine = (1 - alpha) * state['acetylcholine'] + alpha * ach_signal
 
-        # --- Norepinephrine: Arousal/Plasticity signal ---
+        # Norepinephrine: Arousal/Plasticity signal
         # High early in evolution, decays over time
         # Also spikes when fitness is challenging (far from 1.0)
         time_decay = max(0, 1.0 - generation / 50.0)  # Decay over 50 gens
@@ -170,13 +170,13 @@ class NeuromodulatedStrategy(PaletteEvolutionStrategy):
         Returns:
             Tuple of (effective_activate, effective_deactivate)
         """
-        # Dopamine: High DA → exploit (reduce activation, reduce deactivation)
+        # Dopamine: High DA -> exploit (reduce activation, reduce deactivation)
         da_factor = 1.0 - self.dopamine_sensitivity * (dopamine - 0.5)
 
-        # Acetylcholine: High ACh → explore (increase activation)
+        # Acetylcholine: High ACh -> explore (increase activation)
         ach_factor = 1.0 + self.acetylcholine_sensitivity * (acetylcholine - 0.5)
 
-        # Norepinephrine: High NE → high plasticity (amplify both rates)
+        # Norepinephrine: High NE -> high plasticity (amplify both rates)
         ne_factor = 0.5 + self.norepinephrine_sensitivity * norepinephrine
 
         # Effective activation: base * (explore more with ACh) * (less with DA) * NE

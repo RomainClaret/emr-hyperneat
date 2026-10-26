@@ -3,7 +3,7 @@
 Extends CircadianRhythmStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using intrinsic circadian oscillation dynamics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual phase tracking - separate phases for act and agg functions
 2. Shared master clock - single circadian clock synchronizes both domains
 3. Cross-domain entrainment - successful act-agg pairs influence each other's phases

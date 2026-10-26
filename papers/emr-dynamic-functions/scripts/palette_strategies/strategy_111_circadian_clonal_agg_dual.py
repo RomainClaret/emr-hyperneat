@@ -3,7 +3,7 @@
 Combines circadian rhythm oscillations (strategy 34) with clonal hybrid dual
 (strategy 91) for phase-synchronized sin-extreme discovery.
 
-Key Innovation:
+Mechanism:
 - Sin and extreme aggregations are PHASE-COUPLED
 - When sin peaks, extremes are forced to peak with it
 - Phase synchronization creates automatic co-activation
@@ -43,7 +43,7 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
     Phase coupling ensures sin and extremes
     always peak together, creating automatic co-activation.
 
-    Critical innovation: Sin-extreme phase coupling forces coordinated
+    Sin-extreme phase coupling forces coordinated
     discovery and retention through temporal synchronization.
     """
 
@@ -52,41 +52,41 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === PHASE COUPLING PARAMETERS (KEY INNOVATION) ===
+        # PHASE COUPLING PARAMETERS
         circadian_period: int = 15,                    # Gens per full cycle
         sin_extreme_phase_coupling: float = 0.9,       # How tightly phases lock
         phase_learning_rate: float = 0.15,             # Phase adaptation speed
         phase_noise: float = 0.05,                     # Phase drift
         activity_threshold: float = 0.4,               # Minimum for palette
-        # === Clonal selection (from strategy 91) ===
+        # Clonal selection (from strategy 91)
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         hypermutation_rate: float = 0.08,
         hypermutation_strength: float = 0.2,
-        # === Tagging (from strategy 91) ===
+        # Tagging (from strategy 91)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         captured_hypermutation_protection: float = 0.9,
-        # === Cross-domain ===
+        # Cross-domain
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Circadian + Clonal + Aggregation strategy."""
-        # Circadian phase coupling (KEY INNOVATION)
+        # Circadian phase coupling
         self.circadian_period = circadian_period
         self.sin_extreme_phase_coupling = sin_extreme_phase_coupling
         self.phase_learning_rate = phase_learning_rate
@@ -176,7 +176,7 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
         key = jax.random.PRNGKey(seed + 1110000)
         key, phase_key = jax.random.split(key)
 
-        # CIRCADIAN PHASES (KEY)
+        # CIRCADIAN PHASES
         act_phases, agg_phases = self._initialize_phases(phase_key, initial_act, initial_agg)
         circadian_phase = 0.0
 
@@ -195,7 +195,7 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
             'tag_history': [],
             # Cross-domain
             'cross_affinity': cross_affinity,
-            # CIRCADIAN STATE (KEY)
+            # CIRCADIAN STATE
             'circadian_phase': circadian_phase,
             'act_phases': act_phases,
             'agg_phases': agg_phases,
@@ -251,7 +251,7 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, int]:
         """Adapt phases with SIN-EXTREME COUPLING.
 
-        KEY INNOVATION: When sin or extremes are active with improvement,
+        When sin or extremes are active with improvement,
         their phases are pulled together, creating forced co-activation.
         """
         k1, k2 = jax.random.split(key)
@@ -500,7 +500,7 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === ADVANCE CIRCADIAN CLOCK ===
+        # ADVANCE CIRCADIAN CLOCK
         phase_increment = 2 * jnp.pi / self.circadian_period
         new_circadian_phase = state['circadian_phase'] + phase_increment
         cycles_completed = state['cycles_completed']
@@ -508,18 +508,18 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
             new_circadian_phase = new_circadian_phase % (2 * jnp.pi)
             cycles_completed += 1
 
-        # === ADAPT PHASES WITH COUPLING ===
+        # ADAPT PHASES WITH COUPLING
         new_act_phases, new_agg_phases, phase_sync_events = self._adapt_phases_with_coupling(
             state['act_phases'], state['agg_phases'],
             state['act_mask'], state['agg_mask'],
             new_circadian_phase, fitness_delta, k1
         )
 
-        # === COMPUTE ACTIVITY ===
+        # COMPUTE ACTIVITY
         act_activity = self._compute_activity(new_circadian_phase, new_act_phases, NUM_ACTIVATIONS)
         agg_activity = self._compute_activity(new_circadian_phase, new_agg_phases, NUM_AGGREGATIONS)
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -529,21 +529,21 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross, sin_extreme_coact = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], state['agg_mask'],
             state['cross_affinity'], fitness_delta
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_palette_by_activity(
             act_activity, new_act_aff, new_act_captured, new_act_tags,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -606,7 +606,7 @@ class CircadianClonalAggDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Circadian metrics (KEY)
+            # Circadian metrics
             'circadian_phase': float(new_circadian_phase),
             'clock_position': float(new_circadian_phase) / (2 * jnp.pi),
             'cycles_completed': cycles_completed,

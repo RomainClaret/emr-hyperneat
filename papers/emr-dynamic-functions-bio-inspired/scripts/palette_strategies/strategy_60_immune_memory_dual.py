@@ -3,7 +3,7 @@
 Extends ImmuneMemoryStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using adaptive immune memory principles.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual memory cells - separate memory formation for act and agg
 2. Shared fitness threshold - single success triggers memory in both domains
 3. Cross-domain immunity - memory cells in one domain protect partners

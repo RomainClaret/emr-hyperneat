@@ -42,9 +42,7 @@ class _TeeStream:
         self.file.flush()
 
 
-# =============================================================================
 # Statistical utility functions (reused from analysis_round89.py)
-# =============================================================================
 
 def find_latest_result(results_dir: str, prefix: str) -> Optional[str]:
     """Find the most recent result file/dir matching prefix."""
@@ -137,9 +135,7 @@ def dunns_test(groups: Dict[str, List[float]], alpha: float = 0.05) -> List[Dict
     return results
 
 
-# =============================================================================
 # Workstream A: Single-Task 8-Strategy Analysis
-# =============================================================================
 
 def analyze_single_task(filepath: str) -> Dict:
     """Analyze Workstream A: single-task 8-strategy comparison."""
@@ -238,9 +234,7 @@ def analyze_single_task(filepath: str) -> Dict:
     return results
 
 
-# =============================================================================
 # Workstream B/C: Continual Learning Analysis
-# =============================================================================
 
 def analyze_continual_learning(filepath: str, label: str = "CL") -> Dict:
     """Analyze continual learning results from Workstreams B or C."""
@@ -343,9 +337,7 @@ def analyze_continual_learning(filepath: str, label: str = "CL") -> Dict:
     return strategy_summaries
 
 
-# =============================================================================
 # Workstream D/E: Dual-Domain / Failed Mechanisms Analysis
-# =============================================================================
 
 def analyze_dual_domain(filepath: str, label: str = "Dual Domain") -> Dict:
     """Analyze dual-domain bio strategy results.
@@ -455,9 +447,7 @@ def analyze_dual_domain(filepath: str, label: str = "Dual Domain") -> Dict:
     return results
 
 
-# =============================================================================
 # Combined Analysis: LaTeX Output
-# =============================================================================
 
 def generate_latex_tables(single_task: Dict, cl_elite: Dict, cl_hybrid: Dict,
                           dual_domain: Dict, failed: Dict):
@@ -499,9 +489,7 @@ def generate_latex_tables(single_task: Dict, cl_elite: Dict, cl_hybrid: Dict,
             print(f"{r['strategy']:<30} & {rate} & {ci_str} & {r['n']} \\\\")
 
 
-# =============================================================================
 # Main
-# =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(description='Paper 2 Statistical Analysis')

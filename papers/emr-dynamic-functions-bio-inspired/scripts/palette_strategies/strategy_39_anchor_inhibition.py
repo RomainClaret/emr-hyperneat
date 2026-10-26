@@ -10,11 +10,11 @@ Biological Basis:
 - Synaptic tagging marks important connections for protection
 - Protection is probabilistic, not absolute (allows adaptation)
 
-Key Insight:
+Rationale:
 - Current strategies protect based on temporal patterns (Critical Period) or
   regulatory circuits (GRN), but not direct fitness contribution
 - Anchor strength directly reflects a function's contribution to fitness
-- P(keep) ∝ fitness_contribution → best functions naturally protected
+- P(keep) ∝ fitness_contribution -> best functions naturally protected
 - Simple, interpretable protection without complex circuits
 
 Anchor Mechanism:
@@ -34,7 +34,7 @@ Anchor Mechanism:
         else:
             P(keep) = base_selection_prob
 
-Expected improvements:
+Intended effects:
 - Direct fitness-contribution-based protection
 - Interpretable: anchored functions are provably useful
 - Gradual protection building (no hard switches)
@@ -257,7 +257,7 @@ class AnchorInhibitionStrategy(PaletteEvolutionStrategy):
         new_mask = jnp.zeros(NUM_ACTIVATIONS)
         protection_events = jnp.zeros(NUM_ACTIVATIONS)
 
-        # First pass: keep anchored functions with high probability
+        # Keep anchored functions of the current palette with high probability
         current_palette = mask_to_indices(current_mask)
 
         for i in current_palette:
@@ -338,22 +338,22 @@ class AnchorInhibitionStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update contribution tracking
+        # Update contribution tracking
         fitness_when_active, fitness_when_inactive = self._update_contribution_tracking(
             state, generation, best_fitness
         )
 
-        # Step 2: Estimate contributions
+        # Estimate contributions
         contributions = self._estimate_contributions(fitness_when_active, fitness_when_inactive)
 
-        # Step 3: Update anchor strengths
+        # Update anchor strengths
         new_anchor = self._update_anchor_strength(
             state['anchor_strength'],
             contributions,
             state['mask'],
         )
 
-        # Step 4: Select palette with anchor protection
+        # Select palette with anchor protection
         new_mask, protection_events = self._select_palette_with_anchors(
             new_anchor,
             contributions,

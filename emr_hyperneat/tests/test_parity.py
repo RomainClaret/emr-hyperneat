@@ -2,9 +2,9 @@
 for a fixed XOR config/seed.
 
 EMR-HyperNEAT is deterministic for a fixed seed, so this trajectory is stable across
-runs and machines. It was used to confirm the standalone port reproduces the original
-research implementation bit-for-bit (best + mean fitness to 10 decimals); it now serves
-as a regression/determinism check.
+runs and machines. It is a regression/determinism check, printing best and mean
+fitness to 10 decimals, the precision at which the standalone port was checked
+against the original research implementation.
 
     JAX_PLATFORMS=cpu python emr_hyperneat/tests/test_parity.py
 

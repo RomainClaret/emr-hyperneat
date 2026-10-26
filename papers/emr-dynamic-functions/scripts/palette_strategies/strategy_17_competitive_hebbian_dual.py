@@ -3,7 +3,7 @@
 Extends CompetitiveHebbian to jointly evolve both activation and aggregation palettes
 with zero-sum resource competition in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Separate affinity budgets for activations and aggregations
 2. Competition occurs within each domain independently
 3. Cross-domain learning tracks act-agg combinations
@@ -15,10 +15,10 @@ Biological rationale:
 - Different circuit types have independent resource pools
 - Cross-modal coordination still happens through shared rewards
 
-Expected improvement:
+Intended effects:
 - More diverse palettes in BOTH domains
 - Clear winners emerge in each domain separately
-- Cross-domain competition may help find synergistic combinations
+- Cross-domain competition may help find combinations that work well together
 """
 
 from typing import Dict, Any, List, Optional, Tuple

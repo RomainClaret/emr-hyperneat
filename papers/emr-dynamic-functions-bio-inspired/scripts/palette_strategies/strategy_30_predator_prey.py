@@ -5,12 +5,12 @@ Generalist functions are "prey" (always useful baseline), specialist
 functions are "predators" (context-dependent, high-risk high-reward).
 
 Biological Basis:
-- Predator-prey populations oscillate: high prey → more predators →
-  fewer prey → fewer predators → prey recovery → repeat
+- Predator-prey populations oscillate: high prey -> more predators ->
+  fewer prey -> fewer predators -> prey recovery -> repeat
 - Creates sustained cycling that prevents stable but suboptimal states
 - Natural boom-bust dynamics for exploration
 
-Key Insight:
+Rationale:
 - Evolution can get stuck in local optima with stable function sets
 - Predator-prey oscillations prevent premature convergence
 - Generalists provide baseline stability
@@ -26,17 +26,17 @@ Lotka-Volterra Dynamics:
     predator += d_predator
 
     # Palette cycles between:
-    # 1. High prey (generalists dominate) → predators grow
-    # 2. High predator (specialists dominate) → prey declines
-    # 3. Low prey → predators decline
-    # 4. Low predator → prey recovers
-    # → Repeat
+    # 1. High prey (generalists dominate) -> predators grow
+    # 2. High predator (specialists dominate) -> prey declines
+    # 3. Low prey -> predators decline
+    # 4. Low predator -> prey recovers
+    # -> Repeat
 
     # Fitness feedback modulates death rates
     if fitness improving with predators:
         predator_death *= 0.9  # Predators thrive longer
 
-Expected improvements:
+Intended effects:
 - Prevents premature convergence to suboptimal function sets
 - Natural exploration cycles (specialists rise/fall)
 - Stable baseline (generalists always present)
@@ -83,7 +83,7 @@ class PredatorPreyStrategy(PaletteEvolutionStrategy):
         prey_growth_rate: float = 0.4,       # Prey natural reproduction
         predation_rate: float = 0.5,         # Predator consumption of prey
         predator_death_rate: float = 0.3,    # Predator natural death
-        predator_conversion: float = 0.5,    # Prey energy → predator offspring
+        predator_conversion: float = 0.5,    # Prey energy -> predator offspring
         # Population bounds
         pop_min: float = 0.1,
         pop_max: float = 2.0,
@@ -110,7 +110,7 @@ class PredatorPreyStrategy(PaletteEvolutionStrategy):
             prey_growth_rate: r in Lotka-Volterra
             predation_rate: α in Lotka-Volterra
             predator_death_rate: q in Lotka-Volterra
-            predator_conversion: Efficiency of prey → predator
+            predator_conversion: Efficiency of prey -> predator
             pop_min: Minimum population (prevents extinction)
             pop_max: Maximum population (carrying capacity limit)
             fitness_death_modulation: How much success reduces predator death
@@ -396,28 +396,28 @@ class PredatorPreyStrategy(PaletteEvolutionStrategy):
         else:
             new_predator_success = self.fitness_memory_decay * state['predator_success']
 
-        # Step 1: Lotka-Volterra dynamics
+        # Lotka-Volterra dynamics
         new_prey, new_predator = self._compute_lotka_volterra_step(
             state['prey_populations'],
             state['predator_populations'],
             new_predator_success,
         )
 
-        # Step 2: Determine oscillation phase
+        # Determine oscillation phase
         new_phase = self._determine_phase(
             new_prey, new_predator, state['cycle_phase']
         )
         phase_changed = new_phase != state['cycle_phase']
         new_phase_gens = 0 if phase_changed else state['phase_generations'] + 1
 
-        # Step 3: Update neutral function fitness
+        # Update neutral function fitness
         new_neutral = self._update_neutral_fitness(
             state['neutral_fitness'],
             state['mask'],
             improvement,
         )
 
-        # Step 4: Select palette based on populations
+        # Select palette based on populations
         new_mask = self._select_palette_from_populations(
             new_prey, new_predator, new_neutral, subkey
         )

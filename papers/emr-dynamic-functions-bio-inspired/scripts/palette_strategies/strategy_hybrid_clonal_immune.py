@@ -333,7 +333,7 @@ class ClonalImmuneStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update affinities (Clonal)
+        # Update affinities (Clonal)
         new_affinity = self._update_affinities(
             state['affinity'],
             state['mask'],
@@ -341,10 +341,10 @@ class ClonalImmuneStrategy(PaletteEvolutionStrategy):
             improved,
         )
 
-        # Step 2: Apply hypermutation (Clonal)
+        # Apply hypermutation (Clonal)
         new_affinity, hypermutated = self._apply_hypermutation(new_affinity, k1)
 
-        # Step 3: Update expression (Clonal + Memory)
+        # Update expression (Clonal + Memory)
         new_expression = self._update_expression(
             state['expression'],
             new_affinity,
@@ -352,7 +352,7 @@ class ClonalImmuneStrategy(PaletteEvolutionStrategy):
             state['dormant_pool'],
         )
 
-        # Step 4: Manage memory (Immune Memory)
+        # Manage memory (Immune Memory)
         new_memory, new_dormant, formed, reactivated = self._manage_memory(
             new_affinity,
             new_expression,
@@ -361,15 +361,15 @@ class ClonalImmuneStrategy(PaletteEvolutionStrategy):
             generation,
         )
 
-        # Step 5: Apply cross-reactivity (Immune Memory)
+        # Apply cross-reactivity (Immune Memory)
         new_expression = self._apply_cross_reactivity(new_expression, new_memory)
 
-        # Step 6: Apply reactivation boost
+        # Apply reactivation boost
         for func in reactivated:
             new_expression = new_expression.at[func].multiply(self.rapid_reactivation_boost)
         new_expression = jnp.clip(new_expression, self.expression_min, self.expression_max)
 
-        # Step 7: Select palette
+        # Select palette
         new_mask = self._select_palette(new_expression, new_memory)
         palette_changed = not jnp.allclose(state['mask'], new_mask)
 

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""EMR GPU deep-substrate tail (depths 8-13): total-runtime and JIT IQR from real runs.
+"""EMR GPU deep-substrate tail (depths 8-13): total-runtime and JIT IQR.
 
-Reads the real 30-generation measurements in ``data/runs_emr_gpu.json`` for the
-memory-tiered regime: depths 8-12 use GPU<->RAM streaming (weights exceed VRAM) and
-depth 13 uses memmap offloading. Every value is a measured 30-generation
-``total_runtime_s`` / ``construction_overhead_s`` for populations 300 and 1000 -- there
-is no projection or extrapolation. ``extract_gpu_iqr.py`` reports the full depth 1-13
-band; this script isolates the deep tail and also emits the JIT band fragment.
+Reads ``data/runs_emr_gpu.json`` for the memory-tiered regime: depths 8-12 use GPU<->RAM
+streaming (weights exceed VRAM) and depth 13 uses memmap offloading. The runs at these depths
+(populations 300 and 1000) lasted 10 generations (6 for population 300, seed 123, which solved
+XOR at depths 8 to 12): ``construction_overhead_s`` is measured, and ``total_runtime_s``
+projects 30 generations as the construction time plus 30 times the measured steady
+per-generation time. Depth 13's population-1000 seed 456 was not run: its times are depth
+12's, scaled by 11.0549 (construction) and 11.9349 (steady). ``extract_gpu_iqr.py`` reports
+the full depth 1-13 band; this script isolates the deep tail and also emits the JIT band
+fragment.
 
 Output: per-depth total-runtime IQR + JIT IQR for depths 8-13, plus TikZ fragments to
 append to the figure's GPU total-runtime and GPU JIT bands.

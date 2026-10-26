@@ -12,7 +12,7 @@ Biological Basis:
 - Memory cells have long lifespans (years in humans)
 - Primary response is slow, secondary response is rapid
 
-Key Insight:
+Rationale:
 - Current strategies lack explicit memory formation mechanisms
 - Immune system provides sophisticated memory with similarity-based lookup
 - Successful functions deserve long-term protection like memory cells
@@ -46,7 +46,7 @@ Immune Mechanism:
         if age > memory_cell_lifespan:
             del memory_cells[func]
 
-Expected improvements:
+Intended effects:
 - Long-lived protection for proven functions
 - Rapid re-activation of previously successful functions
 - Generalization through cross-reactivity
@@ -416,7 +416,7 @@ class ImmuneMemoryStrategy(PaletteEvolutionStrategy):
 
         current_palette = mask_to_indices(state['mask'])
 
-        # Step 1: Update memory cells
+        # Update memory cells
         new_memory, formed, recalled = self._update_memory_cells(
             state['memory_cells'],
             current_palette,
@@ -424,16 +424,16 @@ class ImmuneMemoryStrategy(PaletteEvolutionStrategy):
             generation,
         )
 
-        # Step 2: Update plasma cells
+        # Update plasma cells
         new_plasma = self._update_plasma_cells(state['plasma_cells'], formed)
 
-        # Step 3: Update cross-protection
+        # Update cross-protection
         new_cross = self._update_cross_protection(
             state['cross_protection'],
             new_memory,
         )
 
-        # Step 4: Mutate palette with immune dynamics
+        # Mutate palette with immune dynamics
         new_mask, new_exposure, new_naive = self._mutate_palette(
             state['mask'],
             new_memory,

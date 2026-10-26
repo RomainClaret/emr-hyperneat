@@ -10,7 +10,7 @@ Biological Basis:
 - Position along gradient determines cell fate
 - Examples: Sonic hedgehog, BMPs, Wnts in embryogenesis
 
-Key Insight:
+Rationale:
 - Functions can be organized in virtual spatial fields
 - Functions "close together" in morphogen space co-activate
 - This creates emergent functional groupings
@@ -32,7 +32,7 @@ Morphogen Mechanism:
         gradient = weighted_direction_toward(successful_functions)
         source_positions[s] += learning_rate * gradient
 
-Expected improvements:
+Intended effects:
 - Emergent functional organization (similar functions cluster)
 - Smooth activation transitions (gradient-based)
 - Evolvable spatial structure (sources move)
@@ -409,21 +409,21 @@ class MorphogenGradientStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update function success memory
+        # Update function success memory
         new_success = self._update_function_success(
             state['function_success'],
             state['mask'],
             improvement,
         )
 
-        # Step 2: Compute gradients for source movement
+        # Compute gradients for source movement
         gradients = self._compute_source_gradients(
             state['source_positions'],
             new_success,
             state['mask'],
         )
 
-        # Step 3: Update sources
+        # Update sources
         new_positions, new_strengths, new_velocities = self._update_sources(
             state['source_positions'],
             state['source_strengths'],
@@ -432,13 +432,13 @@ class MorphogenGradientStrategy(PaletteEvolutionStrategy):
             improvement,
         )
 
-        # Step 4: Compute new concentrations
+        # Compute new concentrations
         new_concentrations = self._compute_concentrations(
             new_positions,
             new_strengths,
         )
 
-        # Step 5: Select palette from concentrations
+        # Select palette from concentrations
         new_mask = self._select_palette_from_concentrations(new_concentrations)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

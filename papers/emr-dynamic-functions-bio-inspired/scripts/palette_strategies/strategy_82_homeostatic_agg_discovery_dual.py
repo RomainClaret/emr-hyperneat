@@ -4,7 +4,7 @@ Bio inspiration: Homeostatic plasticity maintains stable activity balance while
 allowing discovery of new functions. Extends agg_homeostasis_dual with explicit
 discovery mechanisms.
 
-Key innovation:
+Mechanism:
 - Active balance between averaging and extreme aggregations
 - Discovery bonus for underrepresented categories
 - Cross-domain affinity tracking for sin-extreme pairs

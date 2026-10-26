@@ -6,7 +6,7 @@ E-S25 revealed a search-budget ceiling at 3-input: Pop=2000/3000 don't improve
 over Pop=1500 (50%). This tests whether Adam bypasses the ceiling, confirming
 the 3-input barrier is also evolutionary-search-specific.
 
-Conditions (2 × 30 seeds = 60 runs):
+Conditions (2 x 30 seeds = 60 runs):
   1. adam_tanh_lr0.01, 1L, 20 hidden, uniform tanh, Adam lr=0.01, 2000 steps
   2. adam_pertask_lr0.01, 1L, 20 hidden, per-task activation, Adam lr=0.01, 2000 steps
 
@@ -36,9 +36,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'adam_3input'
 
@@ -99,9 +97,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -116,9 +112,7 @@ def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     return params
 
 
-# ============================================================================
 # Forward pass (differentiable)
-# ============================================================================
 
 def forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                      activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
@@ -142,9 +136,7 @@ def forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
     return output
 
 
-# ============================================================================
 # Loss functions (differentiable)
-# ============================================================================
 
 def multitask_mse_loss_tanh(params: Dict) -> jnp.ndarray:
     total_loss = 0.0
@@ -170,9 +162,7 @@ def multitask_mse_loss_pertask(params: Dict) -> jnp.ndarray:
     return total_loss
 
 
-# ============================================================================
 # Accuracy evaluation (non-differentiable)
-# ============================================================================
 
 def eval_accuracy(params: Dict, activation_mode: str) -> Tuple[float, Dict[str, float]]:
     act_map = {'sin': jnp.sin, 'tanh': jnp.tanh}
@@ -196,9 +186,7 @@ def eval_accuracy(params: Dict, activation_mode: str) -> Tuple[float, Dict[str, 
     return product_fitness, per_task
 
 
-# ============================================================================
 # Adam Optimizer
-# ============================================================================
 
 def run_adam(
     condition: str,
@@ -293,9 +281,7 @@ def run_adam(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -338,9 +324,7 @@ def summarize_condition(results_dir: Path, condition: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

@@ -10,7 +10,7 @@ Biological Basis:
 - Local nonlinearities within dendritic compartments
 - Integration at soma combines compartment outputs
 
-Key Insight:
+Rationale:
 - Previous strategies assume global function interactions
 - This can cause interference: useful functions cancel each other
 - Dendritic computation groups functions into zones
@@ -34,7 +34,7 @@ Zone Mechanism:
     active_zone = argmax(zone_fitness_contributions)
     palette = functions from active_zone + exploration from others
 
-Expected improvements:
+Intended effects:
 - Reduces interference between dissimilar functions
 - Finds coherent function groups faster
 - Better exploration of zone-specific combinations
@@ -364,20 +364,20 @@ class DendriticComputationStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute zone contributions
+        # Compute zone contributions
         zone_contributions = self._compute_zone_contributions(
             state['mask'],
             best_fitness,
             prev_best_fitness,
         )
 
-        # Step 2: Update zone memories
+        # Update zone memories
         new_zone_memories = self._update_zone_memories(
             state['zone_memories'],
             zone_contributions,
         )
 
-        # Step 3: Update function memories within zones
+        # Update function memories within zones
         new_function_memories = self._update_function_memories(
             state['function_memories'],
             state['mask'],
@@ -385,10 +385,10 @@ class DendriticComputationStrategy(PaletteEvolutionStrategy):
             prev_best_fitness,
         )
 
-        # Step 4: Select dominant zone
+        # Select dominant zone
         dominant_zone = self._select_dominant_zone(new_zone_memories)
 
-        # Step 5: Apply dendritic mutation
+        # Apply dendritic mutation
         new_mask, mutation_info = self._apply_dendritic_mutation(
             subkey,
             state['mask'],

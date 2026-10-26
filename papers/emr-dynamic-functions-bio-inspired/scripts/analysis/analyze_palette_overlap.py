@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A2: Cross-Strategy Palette Overlap Analysis.
 
-Aggregates final_act_palette across ALL solved runs (all 8 strategies × all problems)
+Aggregates final_act_palette across ALL solved runs (all 8 strategies x all problems)
 to identify the "palette fingerprint" of success.
 
 Outputs:
@@ -87,7 +87,7 @@ def main():
 
     print(f"\nTotal solved runs with palette data: {len(all_palettes)}")
 
-    # === GLOBAL FREQUENCY ===
+    # GLOBAL FREQUENCY
     print("\n" + "-" * 70)
     print("GLOBAL ACTIVATION FREQUENCY (across all solved runs)")
     print("-" * 70)
@@ -106,7 +106,7 @@ def main():
         osc = "OSC" if idx in OSCILLATORY_INDICES else ""
         print(f"  {idx:<6}{name:<15}{n:<10}{pct:<8.1f}{osc}")
 
-    # === CONSENSUS PALETTE (>80% of runs) ===
+    # CONSENSUS PALETTE (>80% of runs)
     consensus = sorted([
         (idx, 100 * cnt / total_runs)
         for idx, cnt in func_counter.items()
@@ -120,7 +120,7 @@ def main():
     else:
         print("    None — no function appears in >80% of solved runs")
 
-    # === PER-STRATEGY USAGE ===
+    # PER-STRATEGY USAGE
     print("\n" + "-" * 70)
     print("PER-STRATEGY ACTIVATION USAGE (in their solved runs)")
     print("-" * 70)
@@ -147,7 +147,7 @@ def main():
         # Store for Jaccard
         strategy_palettes[s] = set(idx for pal in palettes for idx in pal)
 
-    # === JACCARD SIMILARITY ===
+    # JACCARD SIMILARITY
     print("\n" + "-" * 70)
     print("JACCARD SIMILARITY MATRIX (between strategy palette sets)")
     print("-" * 70)
@@ -169,7 +169,7 @@ def main():
                 print(f"{j:>10.2f}", end='')
             print()
 
-    # === OSCILLATORY VS NON-OSCILLATORY SOLVES ===
+    # OSCILLATORY VS NON-OSCILLATORY SOLVES
     print("\n" + "-" * 70)
     print("OSCILLATORY VS NON-OSCILLATORY SOLVES")
     print("-" * 70)
@@ -191,7 +191,7 @@ def main():
         if no_osc_by_strat[s] > 0:
             print(f"    {s}: {no_osc_by_strat[s]}/{total_by_strat[s]} ({100*no_osc_by_strat[s]/total_by_strat[s]:.0f}%)")
 
-    # === EXPERIMENT BREAKDOWN ===
+    # EXPERIMENT BREAKDOWN
     print("\n" + "-" * 70)
     print("PER-EXPERIMENT OSCILLATORY STATS")
     print("-" * 70)

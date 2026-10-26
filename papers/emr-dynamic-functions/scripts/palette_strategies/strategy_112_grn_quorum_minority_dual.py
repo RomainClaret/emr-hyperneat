@@ -3,11 +3,12 @@
 Combines genetic regulatory network (strategy 33) with quorum sensing
 (strategy 27) for population-consensus-driven regulatory circuits.
 
-Key Innovation:
-- Population CONSENSUS shapes regulatory circuit formation
+Mechanism:
+- CONSENSUS of the palettes' own active functions (a stand-in for population usage)
+  shapes regulatory circuit formation
 - GRN attractors lock sin-extreme pairings into stable expression
 - MINORITY PROTECTION prevents pruning of rare but useful functions
-- Regulatory links form only after population consensus
+- Regulatory links form only after consensus
 
 Bio inspiration: Gene regulatory networks with population-level consensus.
 Minority protection ensures rare genetic variants aren't lost.
@@ -34,7 +35,9 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
     """Population consensus drives regulatory circuit formation.
 
     GRN attractors lock sin-extreme after consensus.
-    Minority protection keeps exploration paths open.
+    Minority protection keeps exploration paths open. The consensus votes come from the
+    palettes' own active functions, weighted by relative fitness, as a stand-in for
+    population usage (population_data is not read).
     """
 
     name = "grn_quorum_minority_dual"
@@ -42,31 +45,31 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === GRN PARAMETERS ===
+        # GRN PARAMETERS
         hill_coefficient: float = 2.0,
         regulation_learning_rate: float = 0.08,
         sin_extreme_regulation_link: float = 0.5,
-        # === QUORUM PARAMETERS (KEY INNOVATION) ===
+        # QUORUM PARAMETERS
         quorum_for_regulation: float = 0.3,      # Consensus needed for regulation
         minority_regulation_protection: float = 0.5,  # Protect minority from deactivation
         regulation_from_quorum_strength: float = 0.4,
         signal_decay: float = 0.85,
         minority_threshold: float = 0.05,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Exploration ===
+        # Exploration
         exploration_rate: float = 0.22,
         minority_explore_boost: float = 2.0,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -76,7 +79,7 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
         self.regulation_learning_rate = regulation_learning_rate
         self.sin_extreme_regulation_link = sin_extreme_regulation_link
 
-        # Quorum (KEY)
+        # Quorum
         self.quorum_for_regulation = quorum_for_regulation
         self.minority_regulation_protection = minority_regulation_protection
         self.regulation_from_quorum_strength = regulation_from_quorum_strength
@@ -125,7 +128,7 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
         # GRN regulation matrix (cross-domain)
         # regulation[i,j] = how much activation i regulates aggregation j
         regulation_matrix = jnp.zeros((NUM_ACTIVATIONS, NUM_AGGREGATIONS))
-        # Initial sin → extreme regulation links
+        # Initial sin -> extreme regulation links
         regulation_matrix = regulation_matrix.at[4, 2].set(self.sin_extreme_regulation_link * 0.5)
         regulation_matrix = regulation_matrix.at[4, 3].set(self.sin_extreme_regulation_link * 0.5)
 
@@ -206,7 +209,7 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
         new_formed = set(regulation_formed)
         formations = 0
 
-        # Check sin → extreme regulation formation
+        # Check sin -> extreme regulation formation
         if float(act_collective[4]) >= self.quorum_for_regulation:
             for j in CORE_EXTREME_AGGS:
                 if float(agg_collective[j]) >= self.quorum_for_regulation:
@@ -327,7 +330,7 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === COLLECTIVE MEMORY UPDATE ===
+        # COLLECTIVE MEMORY UPDATE
         new_act_collective = self._update_collective_memory(
             state['act_collective'], state['act_mask'], best_fitness, new_best
         )
@@ -335,13 +338,13 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
             state['agg_collective'], state['agg_mask'], best_fitness, new_best
         )
 
-        # === GRN REGULATION FROM QUORUM ===
+        # GRN REGULATION FROM QUORUM
         new_reg, new_formed, formations = self._update_regulation_from_quorum(
             state['regulation_matrix'], state['regulation_formed'],
             new_act_collective, new_agg_collective
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff = state['act_affinities'] * self.affinity_decay
         new_agg_aff = state['agg_affinities'] * self.affinity_decay
         if fitness_delta > 0:
@@ -356,12 +359,12 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_agg_aff[j] + self.agg_affinity_lr * fitness_delta)
                     )
 
-        # === APPLY GRN REGULATION ===
+        # APPLY GRN REGULATION
         new_agg_aff = self._apply_regulation(
             new_act_aff, new_agg_aff, state['act_mask'], new_reg
         )
 
-        # === PALETTE SELECTION WITH MINORITY ===
+        # PALETTE SELECTION WITH MINORITY
         new_act_mask, act_minority, _ = self._select_palette_with_minority(
             new_act_aff, new_act_collective, NUM_ACTIVATIONS,
             self.min_active_act, self.max_active_act, self.min_diversity_act,
@@ -407,7 +410,7 @@ class GRNQuorumMinorityDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # GRN metrics (KEY)
+            # GRN metrics
             'sin_to_max_regulation': float(new_reg[4, 2]),
             'sin_to_min_regulation': float(new_reg[4, 3]),
             'n_regulations_formed': len(new_formed),

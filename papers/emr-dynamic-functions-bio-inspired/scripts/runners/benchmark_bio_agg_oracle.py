@@ -12,11 +12,29 @@ Conditions:
 Both use FIXED palettes (no palette evolution, no aggregation evolution).
 
 Design:
-    - Problem: Parity-4 (pop=500, 100 gens, depth=2, feedforward)
+    - Problem: Parity-4 (population 150, 100 gens, depth=2, feedforward).
     - Seeds: 42-71 (N=30 each)
     - Target fitness: 0.95
     - Aggregation: global 'min' (all nodes use min, no evolution)
     - Activation: fixed palette via cppn_output mode (no palette evolution)
+
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+aggregation variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-dynamic-functions-bio-inspired --release 0.1.0 --` followed
+by a command of Usage without its `papers/emr-dynamic-functions-bio-inspired/` prefix runs the
+original on 0.1.0. The EMR version runs the experiment as it ran, on EMR's defaults except where
+noted:
+    - Population 150, whatever the pop_size argument says: the HMR variant read population_size
+      (default 150) and ignored the neat.pop_size this runner passed. The argument is kept and
+      ignored.
+    - Each node's activation comes from a CPPN output of its own, read from the node's
+      self-connection query (HMR averaged it over the node's input-to-node queries); every node
+      aggregates with min (EMR's aggregation block, global mode).
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - Results go to results/agg_oracle_emr/, apart from the published runs in
+      results/agg_oracle/.
 
 Usage:
     python papers/emr-dynamic-functions-bio-inspired/scripts/runners/benchmark_bio_agg_oracle.py --condition monotonic_min
@@ -41,12 +59,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classification_problems import ParityProblem
-from emr_hyperneat._hmr_frozen.hmrhyperneat_dynamic_functions_aggregation import (
-    HMRHyperNEAT,
-)
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 from palette_strategies.base_strategy import ACTIVATION_NAMES, AGGREGATION_NAMES
 
 OSCILLATORY_INDICES = {4, 11, 12, 13, 15}
+
+# The population of every published run: HMR's aggregation variant read population_size
+# (default 150) and ignored the neat.pop_size this runner passed, so the pop_size argument never
+# took effect. The EMR version runs 150 and ignores the argument the same way.
+POPULATION = 150
 
 # Condition configurations
 # Activation indices: tanh=0, sigmoid=1, relu=2, identity=3, band_pass=16, integrate=17
@@ -100,19 +122,20 @@ def run_single_trial(
     # Build algo config: fixed activation palette + global min aggregation
     algo_config = {
         'algorithm_params': {
-            'hmrhyperneat': {
-                'hmr_hyperneat': {
+            'emrhyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': 0.03,
+                    **hmr_rule_and_split(),
                     'dynamic_functions': {
                         'mode': 'cppn_output',
                         'palette': act_palette,
                         'palette_evolution': {'enabled': False},
-                        'aggregation': {
-                            'mode': 'global',
-                            'global_function': agg_function,
-                        },
+                    },
+                    'aggregation': {
+                        'mode': 'global',
+                        'global_function': agg_function,
                     },
                 },
                 'substrate': {
@@ -120,14 +143,14 @@ def run_single_trial(
                     'output_coords': output_coords,
                 },
                 'neat': {
-                    'pop_size': pop_size,
+                    'pop_size': POPULATION,
                     'species_size': 10,
                 },
             }
         }
     }
 
-    algo = HMRHyperNEAT()
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(algo_config)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -195,7 +218,7 @@ def _save_results(filepath: Path, condition_name: str, results: list):
         'act_palette_names': [ACTIVATION_NAMES[i] for i in config['act_palette']],
         'agg_function': config['agg_function'],
         'config': {
-            'pop_size': 500,
+            'pop_size': POPULATION,
             'max_depth': 2,
             'max_gens': 100,
             'target_fitness': 0.95,
@@ -240,7 +263,7 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[3]
-    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'agg_oracle'
+    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'agg_oracle_emr'
     os.makedirs(output_dir, exist_ok=True)
 
     condition_config = CONDITIONS[args.condition]
@@ -276,7 +299,7 @@ def main():
     print(f"Description: {condition_config['description']}")
     print(f"Activation palette: {condition_config['act_palette']} = {act_names}")
     print(f"Aggregation: global '{condition_config['agg_function']}' (fixed, no evolution)")
-    print(f"Problem: Parity-4, pop={args.pop_size}, depth={args.max_depth}, gens={args.max_gens}")
+    print(f"Problem: Parity-4, pop={POPULATION}, depth={args.max_depth}, gens={args.max_gens}")
     print(f"Target fitness: 0.95")
     print(f"Seeds: {len(seeds)} ({seeds[0]}-{seeds[-1]})")
     print(f"{'='*60}\n")

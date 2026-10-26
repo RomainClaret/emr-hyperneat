@@ -5,21 +5,21 @@ This module provides fitness computation functions that support both:
 2. Multi-class classification tasks (e.g., symmetry detection with 4 classes)
 3. Regression tasks (e.g., morphogen gradient interpolation)
 
-The key insight motivating this module:
+Rationale:
 - CPPNs naturally produce soft/smooth outputs
 - MSE penalizes soft outputs even when argmax classification is correct
 - Different metrics reveal different aspects of network capability
 
 Example:
-    A network outputting [0.84, 0.05, 0.05, 0.05] for class 0:
-    - MSE fitness: 0.8125 (penalized for not being [1, 0, 0, 0])
+    A network outputting [0.4, 0.2, 0.2, 0.2] for class 0:
+    - MSE fitness: 0.88 (penalized for not being [1, 0, 0, 0])
     - Argmax accuracy: 100% (correctly identifies class 0)
-    - The network IS solving the task, but MSE says it isn't
+    - The network is solving the task, but MSE says it isn't
 """
 
 import jax
 import jax.numpy as jnp
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict
 
 
 # Valid fitness modes
@@ -222,7 +222,7 @@ def compute_output_statistics(
 ) -> Dict[str, float]:
     """Compute detailed output distribution statistics.
 
-    Useful for understanding WHY MSE fitness differs from accuracy.
+    Useful for understanding why MSE fitness differs from accuracy.
 
     Args:
         outputs: Network outputs, shape (num_samples, num_outputs)

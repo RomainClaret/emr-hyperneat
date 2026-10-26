@@ -4,8 +4,8 @@ Combines clonal_hybrid_dual (91) with BCM metaplasticity (15):
 - Base: Strategy 91 (Clonal+Tag+Homeostatic) - 100% Parity-5, 100% sin retention
 - Extension: Strategy 15 (Metaplastic) - BCM sliding threshold
 
-Key innovation: Capture threshold adapts based on capture frequency. Many
-captures → threshold rises (harder to capture). Few captures → threshold
+Capture threshold adapts based on capture frequency. Many
+captures -> threshold rises (harder to capture). Few captures -> threshold
 drops (easier to capture). Self-regulating protection that adapts to problem
 difficulty.
 
@@ -43,7 +43,7 @@ class ClonalBCMDualStrategy(PaletteEvolutionStrategy):
     - Clonal Hybrid (91): Tag+Homeostatic+Clonal
     - BCM Metaplasticity (15): Sliding threshold based on activity
 
-    Critical interaction: Capture threshold rises with many captures, drops
+    Interaction: Capture threshold rises with many captures, drops
     with few. Creates self-regulating protection.
     """
 
@@ -52,14 +52,14 @@ class ClonalBCMDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === BCM metaplasticity parameters (from strategy 15) ===
+        # BCM metaplasticity parameters (from strategy 15)
         sliding_threshold_min: float = 0.35,      # Minimum capture threshold
         sliding_threshold_max: float = 0.70,      # Maximum capture threshold
         threshold_adaptation_rate: float = 0.05,  # How fast threshold adapts
         bcm_affinity_coupling: float = 0.3,       # How affinity affects threshold
         capture_rate_window: int = 10,            # Window for capture rate calc
         target_capture_rate: float = 0.1,         # Target: 1 capture per 10 gens
-        # === Clonal selection parameters (from 91) ===
+        # Clonal selection parameters (from 91)
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
@@ -68,7 +68,7 @@ class ClonalBCMDualStrategy(PaletteEvolutionStrategy):
         hypermutation_strength: float = 0.2,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Tagging parameters (from 91) ===
+        # Tagging parameters (from 91)
         tag_threshold: float = 0.5,  # This becomes the initial BCM threshold
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -76,21 +76,21 @@ class ClonalBCMDualStrategy(PaletteEvolutionStrategy):
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
         captured_hypermutation_protection: float = 0.9,
-        # === Homeostatic parameters (from 91) ===
+        # Homeostatic parameters (from 91)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -202,8 +202,8 @@ class ClonalBCMDualStrategy(PaletteEvolutionStrategy):
     ) -> float:
         """Update BCM sliding threshold based on capture rate.
 
-        If capturing too much → raise threshold (harder to capture)
-        If capturing too little → lower threshold (easier to capture)
+        If capturing too much -> raise threshold (harder to capture)
+        If capturing too little -> lower threshold (easier to capture)
         """
         if len(capture_history) < 3:
             return current_threshold
@@ -217,10 +217,10 @@ class ClonalBCMDualStrategy(PaletteEvolutionStrategy):
 
         # Adjust threshold
         if rate_diff > 0:
-            # Too many captures → raise threshold
+            # Too many captures -> raise threshold
             new_threshold = current_threshold + self.threshold_adaptation_rate * rate_diff * 2
         else:
-            # Too few captures → lower threshold
+            # Too few captures -> lower threshold
             new_threshold = current_threshold + self.threshold_adaptation_rate * rate_diff
 
         # Clamp to bounds

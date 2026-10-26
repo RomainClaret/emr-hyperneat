@@ -24,7 +24,7 @@ pip install -e third_party/tensorneat -c requirements-lock.txt
 export JAX_PLATFORMS=cpu          # CPU runs the library, the tests, and every published table
 ```
 
-Then evolve a network in ~20 lines (see [Writing experiments](writing-experiments.md)).
+Then evolve a network in about 30 lines (see [Writing experiments](writing-experiments.md)).
 
 ## Status
 

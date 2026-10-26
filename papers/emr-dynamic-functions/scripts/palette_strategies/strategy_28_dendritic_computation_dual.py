@@ -3,7 +3,7 @@
 Extends Dendritic Computation to jointly evolve activation AND aggregation
 function palettes with zone-based local processing for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. Functions grouped into zones by functional similarity
 2. Zone-local learning before global integration
 3. Dominant zone protection, cross-zone exploration

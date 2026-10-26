@@ -3,7 +3,7 @@
 Combines STDP temporal credit (#16) with neurogenesis birth mechanisms (#41).
 High LTD (stagnation-correlated) regions have reduced birth rate.
 
-Key Innovation:
+Mechanism:
 - LTD tracking identifies functions correlated with stagnation
 - Birth probability is REDUCED in regions with high LTD
 - This prevents wasting mutations on failure-prone areas
@@ -39,7 +39,7 @@ class STDPNeurogenesisPriorityDualStrategy(PaletteEvolutionStrategy):
     LTD tracking identifies stagnation-prone regions.
     Birth probability is reduced in high-LTD areas, increased in high-LTP areas.
 
-    Critical innovation: Failure avoidance through LTD-based birth inhibition.
+    Failure avoidance through LTD-based birth inhibition.
     """
 
     name = "stdp_neurogenesis_priority_dual"
@@ -47,29 +47,29 @@ class STDPNeurogenesisPriorityDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters ===
+        # STDP parameters
         ltp_window: int = 5,
         ltd_window: int = 3,
         ltp_rate: float = 0.20,
         ltd_rate: float = 0.15,
         stdp_decay: float = 0.85,
-        # === Birth priority parameters ===
+        # Birth priority parameters
         ltd_birth_inhibition: float = 0.5,
         ltp_birth_boost: float = 0.3,
         ltd_birth_threshold: float = 0.3,
         base_birth_rate: float = 0.12,
-        # === Sin preference ===
+        # Sin preference
         sin_idx: int = 4,
         sin_birth_boost: float = 0.25,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -207,7 +207,7 @@ class STDPNeurogenesisPriorityDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE STDP CREDIT ===
+        # UPDATE STDP CREDIT
         act_ltp = state['act_ltp'] * self.stdp_decay
         act_ltd = state['act_ltd'] * self.stdp_decay
         agg_ltp = state['agg_ltp'] * self.stdp_decay
@@ -253,7 +253,7 @@ class STDPNeurogenesisPriorityDualStrategy(PaletteEvolutionStrategy):
         act_affinities = jnp.clip(act_affinities, 0.0, 1.0)
         agg_affinities = jnp.clip(agg_affinities, 0.0, 1.0)
 
-        # === ACTIVATION BIRTH WITH PRIORITY ===
+        # ACTIVATION BIRTH WITH PRIORITY
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates:
             # Calculate birth probabilities
@@ -280,7 +280,7 @@ class STDPNeurogenesisPriorityDualStrategy(PaletteEvolutionStrategy):
 
                 act_mask = act_mask.at[new_idx].set(1.0)
 
-        # === AGGREGATION BIRTH WITH PRIORITY ===
+        # AGGREGATION BIRTH WITH PRIORITY
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates:
             probs = []

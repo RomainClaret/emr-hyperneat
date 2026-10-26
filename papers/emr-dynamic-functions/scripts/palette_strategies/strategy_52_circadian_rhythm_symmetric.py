@@ -1,16 +1,16 @@
 """Strategy 52S: Circadian Rhythm Symmetric (Protected Oscillatory Gating).
 
-Extends CircadianRhythmDualStrategy to symmetric mode with winning patterns:
+Extends CircadianRhythmDualStrategy to symmetric mode with:
 - Protected indices get activity floor regardless of phase
 - Affinity floors for sin and extreme aggregations
 - Memory cell crystallization for sustained performance
 - Cross-domain affinity matrix for coordinated discovery
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Protected activity floors - sin/max/min always have minimum activity
 2. Phase-independent protection - critical functions never deactivated by phase
 3. Affinity floor enforcement - applied every generation
-4. Memory cell formation - 8 gens sustained → permanent protection
+4. Memory cell formation - 8 gens sustained -> permanent protection
 
 Circadian Insight: Protected indices act like "zeitgebers" (time-givers) that
 anchor the circadian system, providing stable reference points while other
@@ -74,7 +74,7 @@ class CircadianRhythmSymmetricState:
 class CircadianRhythmSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with circadian oscillations and protection.
 
-    Applies winning patterns:
+    Mechanisms:
     - Protected indices (0.1% deactivation for sin/max/min)
     - Affinity floors (sin=0.6, extreme_agg=0.5)
     - Memory cell crystallization (8 gens sustained)
@@ -97,7 +97,7 @@ class CircadianRhythmSymmetricStrategy(PaletteEvolutionStrategy):
         activity_threshold: float = 0.4,
         entrainment_strength: float = 0.3,
         cross_entrainment: float = 0.1,
-        # Protection parameters (winning patterns)
+        # Protection parameters
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
         protected_activity_floor: float = 0.7,
@@ -139,7 +139,7 @@ class CircadianRhythmSymmetricStrategy(PaletteEvolutionStrategy):
         self.min_active_act = min_active_act
         self.min_active_agg = min_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

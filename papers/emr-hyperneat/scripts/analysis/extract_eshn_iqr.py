@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Extract ES-HyperNEAT (PUREPLES) total-runtime IQR per depth for the runtime figure.
+"""Extract ES-HyperNEAT (PUREPLES port) total-runtime IQR per depth for the runtime figure.
 
-Reads the real 30-generation measurements in ``data/runs_eshn.json``. ES-HyperNEAT
-runs on CPU (PUREPLES is CPU-only); each run records ``depth``, ``population``,
-``seed``, ``n_generations`` (= 30), ``total_runtime_s`` (measured wall-clock for the
-full 30-generation run), and ``in_figure_band``.
+Reads ``data/runs_eshn.json``: the baseline, a feed-forward Python port of PUREPLES's
+ES-HyperNEAT algorithm, run on CPU. Each run records ``depth``, ``population``, ``seed``,
+``n_generations`` (= 30), ``total_runtime_s`` (the construction time plus 30 times the
+measured per-generation time) and ``in_figure_band``. Depths 1-6 hold one value per
+population, averaged over its seeds; at depth 7 the construction time is 0.04 s in all 24
+runs, a constant written when the data were assembled, not a measurement.
 
-Output: per-depth IQR (25th/50th/75th percentile of the real ``total_runtime_s``)
+Output: per-depth IQR (25th/50th/75th percentile of ``total_runtime_s``)
 plus TikZ coordinates for the ES-HN band in the runtime comparison figure.
 """
 

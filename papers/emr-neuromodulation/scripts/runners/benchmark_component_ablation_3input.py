@@ -52,9 +52,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'component_ablation_3input'
 
@@ -141,9 +139,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Condition parsing
-# ============================================================================
 
 def _get_modulation_mode(condition: str) -> str:
     for mode in MODULATION_MODES:
@@ -157,9 +153,7 @@ def _get_modulation_mode(condition: str) -> str:
     return 'full'
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     """Initialize parameters for 1-layer neuromodulated MLP with 3-input."""
@@ -189,9 +183,7 @@ def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
     return jax.vmap(init_params)(keys)
 
 
-# ============================================================================
 # Forward pass (ablated neuromodulation)
-# ============================================================================
 
 def _forward_neuromod_ablation(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                                 activation_fn, modulation_mode: str = 'full',
@@ -250,9 +242,7 @@ def get_forward_fn(activation_name: str, modulation_mode: str):
     return _FORWARD_CACHE[key]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, modulation_mode: str) -> Tuple[float, Dict[str, float]]:
     per_task = {}
@@ -276,9 +266,7 @@ def eval_single_multitask(params: Dict, modulation_mode: str) -> Tuple[float, Di
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -399,9 +387,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -455,9 +441,7 @@ def summarize_condition(results_dir: Path, prefix: str):
             print(f"    {t}: avg={np.mean(accs):.4f} (solved: {solved}/{len(accs)})")
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

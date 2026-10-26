@@ -24,25 +24,25 @@ env:
   # EMRHyperNEAT instance with the same configuration hits the cache within the same run too.
   JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax_cache
   # Shard assignment for the nightly: every tests/test_*.py file exactly once (a step checks it).
-  # Balanced on measured per-file durations (2026-09-06, 4 workers, warm cache): ~1240 s each.
+  # Balanced on per-file durations measured with 4 workers.
   SHARDS: |
-    1 test_multi_task.py test_hh_cache.py test_smoke.py test_compaction.py test_parity.py
-    2 test_neuromodulation.py test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py
-    3 test_dynamic_functions.py test_recurrence_engages.py test_depth_offload.py test_dynamic_aggregation.py test_hmr_frozen.py test_golden.py test_data_release.py
-    4 test_experimental_features.py test_substrate_building.py test_multi_gpu_strategies.py test_paper_validation.py test_forward_pass_modes.py test_depth_lookahead.py test_discovery_chunking.py test_isolation.py
+    1 test_multi_task.py test_hh_cache.py test_smoke.py test_compaction.py test_parity.py test_recurrent_rule.py test_generation_metrics.py test_text_style.py test_multi_device_parity.py test_multi_gpu_worker.py test_paper_imports.py test_pytest_config.py test_continual_learning.py test_hmr_base_settings.py test_custom_levels.py test_node_list.py test_engine_layout.py
+    2 test_neuromodulation.py test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py test_substrate_api.py test_compaction_bucketing.py test_anti_node_rule.py test_unified_recipe.py test_additive_settling.py test_x64.py test_islands.py
+    3 test_dynamic_functions.py test_recurrence_engages.py test_depth_offload.py test_depth_offload_gpu.py test_dynamic_aggregation.py test_hmr_reference.py test_golden.py test_data_release.py test_replicate.py test_substrate_recurrent.py test_pmap_pipeline_class_constraint.py test_palette_evolution.py test_hmr_names.py test_pipeline_hh_outside_pmap.py test_device_split.py
+    4 test_experimental_features.py test_substrate_building.py test_multi_gpu_strategies.py test_paper_validation.py test_forward_pass_modes.py test_depth_lookahead.py test_discovery_chunking.py test_isolation.py test_hh_discovery_per_genome.py test_leo_features.py test_live_palette_strategy.py test_leo_hmr_compound.py test_generation_loop.py test_silent_drops.py
 
 jobs:
   smoke:
     name: Smoke + fast gate
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # A superseded push cancels its own gate only; the nightly matrix is never cancelled by it.
+    # A superseded push cancels its own gate only; the nightly matrix is never canceled by it.
     concurrency:
       group: smoke-${{ github.ref }}
       cancel-in-progress: true
-    # Measured on 2 cores: 31 min without a compilation cache (the old timeouts), 7.7 min with an
-    # empty one (within-run reuse), less once restored; install and smoke add a few minutes.
-    timeout-minutes: 25
+    # Measured on 2 x86 cores with an empty compilation cache (reuse within the run only): smoke
+    # 104 s and the fast gate 1014 s, less once the cache is restored; install adds a few minutes.
+    timeout-minutes: 40
     steps:
       - name: Checkout (with the TensorNEAT submodule)
         uses: actions/checkout@v7
@@ -81,8 +81,11 @@ jobs:
         run: |
           pytest emr_hyperneat/tests/test_isolation.py emr_hyperneat/tests/test_configuration_parsing.py \
             emr_hyperneat/tests/test_execution_config.py emr_hyperneat/tests/test_compaction.py \
-            emr_hyperneat/tests/test_recurrence_engages.py emr_hyperneat/tests/test_hmr_frozen.py \
+            emr_hyperneat/tests/test_recurrence_engages.py emr_hyperneat/tests/test_hmr_reference.py \
             emr_hyperneat/tests/test_data_release.py emr_hyperneat/tests/test_golden.py \
+            emr_hyperneat/tests/test_text_style.py emr_hyperneat/tests/test_multi_gpu_worker.py \
+            emr_hyperneat/tests/test_paper_imports.py emr_hyperneat/tests/test_pytest_config.py \
+            emr_hyperneat/tests/test_engine_layout.py \
             -m "not slow and not multi_gpu" -q --tb=short
 
   full-suite:

@@ -9,7 +9,7 @@ Cross-Domain Learning:
 - Coupled oscillations create coordinated exploration patterns
 - Shared fitness feedback modulates death rates in both domains
 
-Key Dual Mechanisms:
+Dual Mechanisms:
 1. Dual population dynamics - separate prey/predator for act and agg
 2. Cross-feeding - successful activations can boost aggregation predators
 3. Synchronized oscillation phases - both domains cycle together
@@ -433,7 +433,7 @@ class PredatorPreyDualStrategy(PaletteEvolutionStrategy):
         act_to_agg_energy = self.cross_feeding_rate * act_prey_energy
         agg_to_act_energy = self.cross_feeding_rate * agg_prey_energy
 
-        # Step 1: Lotka-Volterra for activation domain
+        # Lotka-Volterra for activation domain
         new_act_prey, new_act_pred = self._lotka_volterra_step(
             state['act_prey_pops'], state['act_pred_pops'], new_pred_success,
             self.act_prey_growth, self.act_predation_rate,
@@ -442,7 +442,7 @@ class PredatorPreyDualStrategy(PaletteEvolutionStrategy):
             agg_to_act_energy
         )
 
-        # Step 2: Lotka-Volterra for aggregation domain
+        # Lotka-Volterra for aggregation domain
         new_agg_prey, new_agg_pred = self._lotka_volterra_step(
             state['agg_prey_pops'], state['agg_pred_pops'], new_pred_success,
             self.agg_prey_growth, self.agg_predation_rate,
@@ -451,7 +451,7 @@ class PredatorPreyDualStrategy(PaletteEvolutionStrategy):
             act_to_agg_energy
         )
 
-        # Step 3: Determine phases
+        # Determine phases
         new_act_phase = self._determine_phase(
             new_act_prey, new_act_pred, self.ACT_PREY, self.ACT_PREDATORS
         )
@@ -459,7 +459,7 @@ class PredatorPreyDualStrategy(PaletteEvolutionStrategy):
             new_agg_prey, new_agg_pred, self.AGG_PREY, self.AGG_PREDATORS
         )
 
-        # Step 4: Update neutral fitness
+        # Update neutral fitness
         new_act_neutral = self._update_neutral_fitness(
             state['act_neutral_fit'], state['act_mask'],
             self.ACT_NEUTRAL, improvement
@@ -469,12 +469,12 @@ class PredatorPreyDualStrategy(PaletteEvolutionStrategy):
             self.AGG_NEUTRAL, improvement
         )
 
-        # Step 5: Update cross-domain affinity
+        # Update cross-domain affinity
         new_cross = self._update_cross_affinity(
             state['cross_affinity'], state['act_mask'], state['agg_mask'], improvement
         )
 
-        # Step 6: Select palettes
+        # Select palettes
         new_act_mask = self._select_palette_from_pops(
             new_act_prey, new_act_pred, new_act_neutral,
             self.ACT_PREY, self.ACT_PREDATORS, self.ACT_NEUTRAL,

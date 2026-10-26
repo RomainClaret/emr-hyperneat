@@ -3,7 +3,7 @@
 Extends cross_domain_v2_dual to symmetric palette evolution with multiplicative
 cross-domain dynamics applied to both activation and aggregation discovery.
 
-Key mechanisms:
+Mechanisms:
 1. MULTIPLICATIVE (not additive) cross-domain affinity updates
 2. Sin-extreme multiplier (1.5x) creates robust pairings
 3. Mutual capture bonus when both domains discover together
@@ -54,43 +54,43 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === MULTIPLICATIVE CROSS-DOMAIN PARAMETERS ===
+        # MULTIPLICATIVE CROSS-DOMAIN PARAMETERS
         multiplicative_update: bool = True,
         cross_affinity_growth_factor: float = 1.15,   # Multiply on success
         cross_affinity_decay_factor: float = 0.98,    # Multiply on no success
         sin_extreme_multiplier: float = 1.5,          # Extra boost for sin-extreme
         mutual_capture_bonus: float = 0.4,            # Bonus when both domains capture
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         base_cross_learning_rate: float = 0.10,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Memory cell parameters ===
+        # Memory cell parameters
         memory_threshold: float = 0.75,
         memory_sustain_generations: int = 8,
-        # === Affinity floors (CRITICAL for retention) ===
+        # Affinity floors (CRITICAL for retention)
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
-        # === Mutation parameters ===
+        # Mutation parameters
         act_base_activate_rate: float = 0.12,
         act_base_deactivate_rate: float = 0.05,
         agg_base_activate_rate: float = 0.10,
         agg_base_deactivate_rate: float = 0.04,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 6,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -563,7 +563,7 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -574,7 +574,7 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE WITH MUTUAL BONUS ===
+        # CAPTURE WITH MUTUAL BONUS
         (new_act_captured, new_agg_captured, post_capture_cross,
          capture_count, mutual_capture_count) = self._attempt_capture_with_mutual_bonus(
             new_act_tags, new_agg_tags,
@@ -583,7 +583,7 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === MULTIPLICATIVE AFFINITY UPDATE ===
+        # MULTIPLICATIVE AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity, growth_events = \
             self._update_affinities_multiplicative(
                 state['act_affinities'], state['agg_affinities'],
@@ -592,10 +592,10 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
                 post_capture_cross, fitness_delta
             )
 
-        # === APPLY AFFINITY FLOORS ===
+        # APPLY AFFINITY FLOORS
         new_act_aff, new_agg_aff = self._apply_affinity_floors(new_act_aff, new_agg_aff)
 
-        # === UPDATE MEMORY CELLS ===
+        # UPDATE MEMORY CELLS
         new_act_mem_counts, new_act_mem_cells = self._update_memory_cells(
             new_act_aff, state['act_memory_counts'],
             state['act_memory_cells'], state['act_mask'])
@@ -603,7 +603,7 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
             new_agg_aff, state['agg_memory_counts'],
             state['agg_memory_cells'], state['agg_mask'])
 
-        # === APPLY MUTATIONS WITH PROTECTED INDICES ===
+        # APPLY MUTATIONS WITH PROTECTED INDICES
         new_act_mask, act_mut = self._apply_mutation(
             k1, state['act_mask'], new_act_aff, new_act_captured,
             new_cross_affinity, state['agg_mask'], True,
@@ -674,7 +674,7 @@ class CrossDomainV2SymmetricStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Cross-domain metrics (KEY)
+            # Cross-domain metrics
             'sin_max_cross': float(new_cross_affinity[SIN_IDX, 2]),
             'sin_min_cross': float(new_cross_affinity[SIN_IDX, 3]),
             'max_cross_affinity': float(jnp.max(new_cross_affinity)),

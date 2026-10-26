@@ -34,9 +34,7 @@ from emr_hyperneat.emrhyperneat import (
     ACTIVATION_LIST,
 )
 
-# ──────────────────────────────────────────────────────────────────────────────
 # Configuration
-# ──────────────────────────────────────────────────────────────────────────────
 
 OUTPUT_DIR = str(Path(__file__).resolve().parents[2] / "results" / "depth_sensitivity_n30")
 SEEDS = list(range(42, 72))  # 30 seeds

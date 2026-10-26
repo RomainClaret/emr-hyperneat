@@ -1,6 +1,6 @@
 """Strategy 3: Asymmetric Rates + Sticky Discovery.
 
-Key improvements over baseline:
+Improvements over baseline:
 1. Higher rate (25%) to ACTIVATE inactive functions
 2. Lower rate (5%) to DEACTIVATE active functions
 3. Sticky oscillatory functions - once discovered, can't be deactivated

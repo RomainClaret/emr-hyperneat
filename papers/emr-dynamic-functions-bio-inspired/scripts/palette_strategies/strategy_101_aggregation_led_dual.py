@@ -8,7 +8,7 @@ Problem with current approach:
 - Aggregations evolve reactively, not proactively
 - Sin-extreme coupling is fragile because both can change independently
 
-Key Innovation:
+Mechanism:
 - High aggregation exploration rate (discover extreme aggs early)
 - Conservative activation exploration (let aggs stabilize first)
 - Stable extreme agg base "attracts" sin through cross-domain affinity
@@ -48,7 +48,7 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
     stable extreme aggregation base FIRST, then let activations
     benefit from that foundation.
 
-    Critical innovation: Aggregations explore aggressively while
+    Aggregations explore aggressively while
     activations remain conservative. Once extreme aggs are captured,
     they create a stable "attractor" for sin through cross-domain
     affinity boosting.
@@ -59,36 +59,36 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === AGGREGATION-LED PARAMETERS (NEW) ===
+        # AGGREGATION-LED PARAMETERS
         agg_exploration_rate: float = 0.25,     # HIGH agg exploration
         agg_discovery_bonus: float = 0.6,       # Bonus for finding extreme aggs
         act_exploration_rate: float = 0.08,     # LOW act exploration
         agg_led_activation_boost: float = 0.4,  # Act boost when extreme aggs present
         agg_stability_threshold: int = 5,       # Gens before agg is "stable"
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,          # Higher for aggs
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,      # Higher for cross-domain
         sin_extreme_coupling: float = 0.5,      # Strong sin-extreme coupling
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,        # Lower for easier agg capture
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,         # Higher for extreme aggs
-        # === Homeostatic parameters ===
+        # Homeostatic parameters
         target_extreme_ratio: float = 0.70,     # Higher - prioritize extremes
         discovery_bonus: float = 0.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -165,7 +165,7 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
         # Cross-domain affinity
         cross_affinity = jnp.ones((NUM_ACTIVATIONS, NUM_AGGREGATIONS)) * 0.5
 
-        # Aggregation stability tracking (NEW)
+        # Aggregation stability tracking
         agg_stability_counts = jnp.zeros(NUM_AGGREGATIONS)
 
         return {
@@ -183,7 +183,7 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
             'tag_history': [],
             # Cross-domain
             'cross_affinity': cross_affinity,
-            # Aggregation-led tracking (NEW)
+            # Aggregation-led tracking
             'agg_stability_counts': agg_stability_counts,
             'extreme_agg_discovered': False,
             'extreme_agg_discovery_gen': None,
@@ -515,7 +515,7 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === AGGREGATION STABILITY TRACKING ===
+        # AGGREGATION STABILITY TRACKING
         new_agg_stability, has_stable_extreme = self._update_agg_stability(
             state['agg_mask'], state['agg_stability_counts']
         )
@@ -530,12 +530,12 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
         # Determine if activation boost should be active
         activation_boost_active = new_extreme_discovered
 
-        # === AGGREGATION EXPLORATION (AGGRESSIVE) ===
+        # AGGREGATION EXPLORATION (AGGRESSIVE)
         new_agg_mask, n_agg_explorations = self._explore_aggregations(
             k1, state['agg_mask'], state['agg_affinities'], state['agg_captured']
         )
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], new_agg_mask,
             state['act_tags'], state['agg_tags'],
@@ -546,14 +546,14 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], new_agg_mask,
@@ -561,7 +561,7 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
             new_extreme_discovered
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         # Aggregation palette (prioritized)
         new_agg_mask_selected, agg_diversity_rescue = self._select_agg_palette(
             new_agg_aff, new_agg_captured, new_agg_tags, k2
@@ -632,7 +632,7 @@ class AggregationLedDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Aggregation-led metrics (NEW)
+            # Aggregation-led metrics
             'extreme_agg_discovered': new_extreme_discovered,
             'extreme_agg_discovery_gen': new_extreme_discovery_gen,
             'activation_boost_active': activation_boost_active,

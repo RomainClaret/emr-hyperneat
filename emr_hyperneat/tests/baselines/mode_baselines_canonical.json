@@ -3,7 +3,7 @@
     "auto_below_threshold": {
       "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "2e00bc85b3d7b5b7",
+      "digest": "020199a7dfc6190f",
       "error": null,
       "final_best_fitness": 0.7608263493,
       "generations_completed": 5,
@@ -13,57 +13,57 @@
       "rows": [
         {
           "best_fitness": 0.6696885228,
-          "connections_mean": null,
+          "connections_mean": 39.4,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 10.0,
           "max_fitness": 0.6696885228,
           "mean_fitness": 0.515727818,
           "min_fitness": 0.4674596786,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0471770205
         },
         {
           "best_fitness": 0.7536842823,
-          "connections_mean": null,
+          "connections_mean": 31.7,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 8.0,
           "max_fitness": 0.7536842823,
           "mean_fitness": 0.5536931157,
           "min_fitness": 0.5,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0807786211
         },
         {
           "best_fitness": 0.7608263493,
-          "connections_mean": null,
+          "connections_mean": 16.65,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 4.2,
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.5809593201,
           "min_fitness": 0.5001581311,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0871658996
         },
         {
           "best_fitness": 0.7608263493,
-          "connections_mean": null,
+          "connections_mean": 16.65,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 4.2,
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.6058211327,
           "min_fitness": 0.5004194975,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0852108225
         },
         {
           "best_fitness": 0.7608263493,
-          "connections_mean": null,
+          "connections_mean": 25.7,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 6.6,
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.6322218776,
           "min_fitness": 0.5374609232,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.071627453
         }
       ],
@@ -72,9 +72,9 @@
     "depth_offload": {
       "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "1a5fa219636993b9",
+      "digest": "b42b1753f4f3de59",
       "error": null,
-      "final_best_fitness": 0.7675246,
+      "final_best_fitness": 0.7608263493,
       "generations_completed": 5,
       "generations_requested": 5,
       "name": "depth_offload",
@@ -92,75 +92,6 @@
           "std_fitness": 0.0471770205
         },
         {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.5516514182,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0844105929
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.5636909604,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0879175067
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.583861053,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0894803032
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.6162816286,
-          "min_fitness": 0.5004538894,
-          "num_species": 1,
-          "std_fitness": 0.0918416008
-        }
-      ],
-      "seed": 42
-    },
-    "flag_streaming": {
-      "branch_calls": {},
-      "class": "EMRHyperNEAT",
-      "digest": "2e00bc85b3d7b5b7",
-      "error": null,
-      "final_best_fitness": 0.7608263493,
-      "generations_completed": 5,
-      "generations_requested": 5,
-      "name": "flag_streaming",
-      "note": "Main class with enable_streaming. Swaps only the matrix-building step inside the normal loop, and is the tested streaming path.",
-      "rows": [
-        {
-          "best_fitness": 0.6696885228,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.6696885228,
-          "mean_fitness": 0.515727818,
-          "min_fitness": 0.4674596786,
-          "num_species": 0,
-          "std_fitness": 0.0471770205
-        },
-        {
           "best_fitness": 0.7536842823,
           "connections_mean": null,
           "density_mean": null,
@@ -168,7 +99,7 @@
           "max_fitness": 0.7536842823,
           "mean_fitness": 0.5536931157,
           "min_fitness": 0.5,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0807786211
         },
         {
@@ -179,7 +110,7 @@
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.5809593201,
           "min_fitness": 0.5001581311,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0871658996
         },
         {
@@ -190,7 +121,7 @@
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.6058211327,
           "min_fitness": 0.5004194975,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0852108225
         },
         {
@@ -201,7 +132,76 @@
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.6322218776,
           "min_fitness": 0.5374609232,
-          "num_species": 0,
+          "num_species": 1,
+          "std_fitness": 0.071627453
+        }
+      ],
+      "seed": 42
+    },
+    "flag_streaming": {
+      "branch_calls": {},
+      "class": "EMRHyperNEAT",
+      "digest": "020199a7dfc6190f",
+      "error": null,
+      "final_best_fitness": 0.7608263493,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "flag_streaming",
+      "note": "Main class with enable_streaming. Swaps only the matrix-building step inside the normal loop, and is the tested streaming path.",
+      "rows": [
+        {
+          "best_fitness": 0.6696885228,
+          "connections_mean": 39.4,
+          "density_mean": null,
+          "hidden_nodes_mean": 10.0,
+          "max_fitness": 0.6696885228,
+          "mean_fitness": 0.515727818,
+          "min_fitness": 0.4674596786,
+          "num_species": 1,
+          "std_fitness": 0.0471770205
+        },
+        {
+          "best_fitness": 0.7536842823,
+          "connections_mean": 31.7,
+          "density_mean": null,
+          "hidden_nodes_mean": 8.0,
+          "max_fitness": 0.7536842823,
+          "mean_fitness": 0.5536931157,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0807786211
+        },
+        {
+          "best_fitness": 0.7608263493,
+          "connections_mean": 16.65,
+          "density_mean": null,
+          "hidden_nodes_mean": 4.2,
+          "max_fitness": 0.7608263493,
+          "mean_fitness": 0.5809593201,
+          "min_fitness": 0.5001581311,
+          "num_species": 1,
+          "std_fitness": 0.0871658996
+        },
+        {
+          "best_fitness": 0.7608263493,
+          "connections_mean": 16.65,
+          "density_mean": null,
+          "hidden_nodes_mean": 4.2,
+          "max_fitness": 0.7608263493,
+          "mean_fitness": 0.6058211327,
+          "min_fitness": 0.5004194975,
+          "num_species": 1,
+          "std_fitness": 0.0852108225
+        },
+        {
+          "best_fitness": 0.7608263493,
+          "connections_mean": 25.7,
+          "density_mean": null,
+          "hidden_nodes_mean": 6.6,
+          "max_fitness": 0.7608263493,
+          "mean_fitness": 0.6322218776,
+          "min_fitness": 0.5374609232,
+          "num_species": 1,
           "std_fitness": 0.071627453
         }
       ],
@@ -210,9 +210,9 @@
     "probe_geometry_depth_offload": {
       "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "f52b9b5155f6f9b6",
+      "digest": "4dc313b06154f498",
       "error": null,
-      "final_best_fitness": 0.7755376101,
+      "final_best_fitness": 0.7425842881,
       "generations_completed": 5,
       "generations_requested": 5,
       "name": "probe_geometry_depth_offload",
@@ -230,75 +230,6 @@
           "std_fitness": 0.0612938851
         },
         {
-          "best_fitness": 0.737136066,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.737136066,
-          "mean_fitness": 0.5286054611,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0610338338
-        },
-        {
-          "best_fitness": 0.7755376101,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7755376101,
-          "mean_fitness": 0.5495358109,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0830046013
-        },
-        {
-          "best_fitness": 0.7755376101,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7755376101,
-          "mean_fitness": 0.5702611208,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0937111378
-        },
-        {
-          "best_fitness": 0.7755376101,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7755376101,
-          "mean_fitness": 0.5729340911,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.092380926
-        }
-      ],
-      "seed": 42
-    },
-    "probe_geometry_standard": {
-      "branch_calls": {},
-      "class": "EMRHyperNEAT",
-      "digest": "012003d6f8fd4818",
-      "error": null,
-      "final_best_fitness": 0.7425842881,
-      "generations_completed": 5,
-      "generations_requested": 5,
-      "name": "probe_geometry_standard",
-      "note": "DIVERGENCE 2 reference: geometry seeding on the main class, which switches the CPPN to 7-D inputs.",
-      "rows": [
-        {
-          "best_fitness": 0.737136066,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.737136066,
-          "mean_fitness": 0.5279073119,
-          "min_fitness": 0.5,
-          "num_species": 0,
-          "std_fitness": 0.0612938851
-        },
-        {
           "best_fitness": 0.7379018068,
           "connections_mean": null,
           "density_mean": null,
@@ -306,7 +237,7 @@
           "max_fitness": 0.7379018068,
           "mean_fitness": 0.5398235917,
           "min_fitness": 0.5,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0760244057
         },
         {
@@ -317,7 +248,7 @@
           "max_fitness": 0.7425842881,
           "mean_fitness": 0.5553104281,
           "min_fitness": 0.5001212358,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0855073258
         },
         {
@@ -328,7 +259,7 @@
           "max_fitness": 0.7425842881,
           "mean_fitness": 0.569452703,
           "min_fitness": 0.5000000596,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0918416753
         },
         {
@@ -339,85 +270,95 @@
           "max_fitness": 0.7425842881,
           "mean_fitness": 0.5782043934,
           "min_fitness": 0.4545605183,
-          "num_species": 0,
+          "num_species": 1,
+          "std_fitness": 0.0980172679
+        }
+      ],
+      "seed": 42
+    },
+    "probe_geometry_standard": {
+      "branch_calls": {},
+      "class": "EMRHyperNEAT",
+      "digest": "bc5b5002654a4d30",
+      "error": null,
+      "final_best_fitness": 0.7425842881,
+      "generations_completed": 5,
+      "generations_requested": 5,
+      "name": "probe_geometry_standard",
+      "note": "DIVERGENCE 2 reference: geometry seeding on the main class, which switches the CPPN to 7-D inputs.",
+      "rows": [
+        {
+          "best_fitness": 0.737136066,
+          "connections_mean": 64.3,
+          "density_mean": null,
+          "hidden_nodes_mean": 16.4,
+          "max_fitness": 0.737136066,
+          "mean_fitness": 0.5279073119,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0612938851
+        },
+        {
+          "best_fitness": 0.7379018068,
+          "connections_mean": 43.7,
+          "density_mean": null,
+          "hidden_nodes_mean": 11.2,
+          "max_fitness": 0.7379018068,
+          "mean_fitness": 0.5398235917,
+          "min_fitness": 0.5,
+          "num_species": 1,
+          "std_fitness": 0.0760244057
+        },
+        {
+          "best_fitness": 0.7425842881,
+          "connections_mean": 26.0,
+          "density_mean": null,
+          "hidden_nodes_mean": 6.6,
+          "max_fitness": 0.7425842881,
+          "mean_fitness": 0.5553104281,
+          "min_fitness": 0.5001212358,
+          "num_species": 1,
+          "std_fitness": 0.0855073258
+        },
+        {
+          "best_fitness": 0.7425842881,
+          "connections_mean": 26.65,
+          "density_mean": null,
+          "hidden_nodes_mean": 6.8,
+          "max_fitness": 0.7425842881,
+          "mean_fitness": 0.569452703,
+          "min_fitness": 0.5000000596,
+          "num_species": 1,
+          "std_fitness": 0.0918416753
+        },
+        {
+          "best_fitness": 0.7425842881,
+          "connections_mean": 32.2,
+          "density_mean": null,
+          "hidden_nodes_mean": 8.2,
+          "max_fitness": 0.7425842881,
+          "mean_fitness": 0.5782043934,
+          "min_fitness": 0.4545605183,
+          "num_species": 1,
           "std_fitness": 0.0980172679
         }
       ],
       "seed": 42
     },
     "probe_locality_depth_offload": {
-      "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "1a5fa219636993b9",
-      "error": null,
-      "final_best_fitness": 0.7675246,
-      "generations_completed": 5,
+      "error": "ValueError: execution mode 'depth_offload' evaluates tanh hidden nodes with sum aggregation, no neuromodulation and 1-MSE, without LEO, a locality penalty or a fitness rescaling, so it would ignore locality_radius=0.25. Use execution.mode 'standard' or 'streaming' for these features.",
       "generations_requested": 5,
       "name": "probe_locality_depth_offload",
       "note": "The offload subclass used to ignore locality_radius entirely. After unification this must differ from depth_offload.",
-      "rows": [
-        {
-          "best_fitness": 0.6696885228,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.6696885228,
-          "mean_fitness": 0.515727818,
-          "min_fitness": 0.4674596786,
-          "num_species": 1,
-          "std_fitness": 0.0471770205
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.5516514182,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0844105929
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.5636909604,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0879175067
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.583861053,
-          "min_fitness": 0.5,
-          "num_species": 1,
-          "std_fitness": 0.0894803032
-        },
-        {
-          "best_fitness": 0.7675246,
-          "connections_mean": null,
-          "density_mean": null,
-          "hidden_nodes_mean": null,
-          "max_fitness": 0.7675246,
-          "mean_fitness": 0.6162816286,
-          "min_fitness": 0.5004538894,
-          "num_species": 1,
-          "std_fitness": 0.0918416008
-        }
-      ],
-      "seed": 42
+      "rows": [],
+      "seed": 42,
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/penguinazor/CloneWars/emr-hyperneat-wt-l2d1/emr_hyperneat/tests/capture_mode_baselines.py\", line 177, in run_arm\n    config_obj = algorithm.create_config(config)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/penguinazor/CloneWars/emr-hyperneat-wt-l2d1/emr_hyperneat/emrhyperneat.py\", line 9092, in create_config\n    self._check_feature_combinations()\n  File \"/Users/penguinazor/CloneWars/emr-hyperneat-wt-l2d1/emr_hyperneat/emrhyperneat.py\", line 9373, in _check_feature_combinations\n    self.refuse_depth_offload()\n  File \"/Users/penguinazor/CloneWars/emr-hyperneat-wt-l2d1/emr_hyperneat/emrhyperneat.py\", line 9609, in refuse_depth_offload\n    raise ValueError(\nValueError: execution mode 'depth_offload' evaluates tanh hidden nodes with sum aggregation, no neuromodulation and 1-MSE, without LEO, a locality penalty or a fitness rescaling, so it would ignore locality_radius=0.25. Use execution.mode 'standard' or 'streaming' for these features.\n"
     },
     "probe_locality_flag_streaming": {
       "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "a7bcef230ca86868",
+      "digest": "247d2df37a2f32cc",
       "error": null,
       "final_best_fitness": 0.7553412318,
       "generations_completed": 5,
@@ -427,57 +368,57 @@
       "rows": [
         {
           "best_fitness": 0.7488487363,
-          "connections_mean": null,
+          "connections_mean": 36.35,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 10.0,
           "max_fitness": 0.7488487363,
           "mean_fitness": 0.6736027002,
           "min_fitness": 0.5000023246,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0671133175
         },
         {
           "best_fitness": 0.751488328,
-          "connections_mean": null,
+          "connections_mean": 26.65,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 7.2,
           "max_fitness": 0.751488328,
           "mean_fitness": 0.7027936578,
           "min_fitness": 0.5085416436,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0529645197
         },
         {
           "best_fitness": 0.7553412318,
-          "connections_mean": null,
+          "connections_mean": 19.0,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 5.4,
           "max_fitness": 0.7553412318,
           "mean_fitness": 0.7273803353,
           "min_fitness": 0.6795293093,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0231806599
         },
         {
           "best_fitness": 0.7553412318,
-          "connections_mean": null,
+          "connections_mean": 18.25,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 5.2,
           "max_fitness": 0.7553412318,
           "mean_fitness": 0.7397891879,
           "min_fitness": 0.7115163207,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0108745731
         },
         {
           "best_fitness": 0.7553412318,
-          "connections_mean": null,
+          "connections_mean": 19.95,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 5.8,
           "max_fitness": 0.7553412318,
           "mean_fitness": 0.7408481836,
           "min_fitness": 0.7142677307,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0096692154
         }
       ],
@@ -486,7 +427,7 @@
     "probe_locality_standard": {
       "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "a7bcef230ca86868",
+      "digest": "247d2df37a2f32cc",
       "error": null,
       "final_best_fitness": 0.7553412318,
       "generations_completed": 5,
@@ -496,57 +437,57 @@
       "rows": [
         {
           "best_fitness": 0.7488487363,
-          "connections_mean": null,
+          "connections_mean": 36.35,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 10.0,
           "max_fitness": 0.7488487363,
           "mean_fitness": 0.6736027002,
           "min_fitness": 0.5000023246,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0671133175
         },
         {
           "best_fitness": 0.751488328,
-          "connections_mean": null,
+          "connections_mean": 26.65,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 7.2,
           "max_fitness": 0.751488328,
           "mean_fitness": 0.7027936578,
           "min_fitness": 0.5085416436,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0529645197
         },
         {
           "best_fitness": 0.7553412318,
-          "connections_mean": null,
+          "connections_mean": 19.0,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 5.4,
           "max_fitness": 0.7553412318,
           "mean_fitness": 0.7273803353,
           "min_fitness": 0.6795293093,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0231806599
         },
         {
           "best_fitness": 0.7553412318,
-          "connections_mean": null,
+          "connections_mean": 18.25,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 5.2,
           "max_fitness": 0.7553412318,
           "mean_fitness": 0.7397891879,
           "min_fitness": 0.7115163207,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0108745731
         },
         {
           "best_fitness": 0.7553412318,
-          "connections_mean": null,
+          "connections_mean": 19.95,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 5.8,
           "max_fitness": 0.7553412318,
           "mean_fitness": 0.7408481836,
           "min_fitness": 0.7142677307,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0096692154
         }
       ],
@@ -555,7 +496,7 @@
     "standard": {
       "branch_calls": {},
       "class": "EMRHyperNEAT",
-      "digest": "2e00bc85b3d7b5b7",
+      "digest": "020199a7dfc6190f",
       "error": null,
       "final_best_fitness": 0.7608263493,
       "generations_completed": 5,
@@ -565,57 +506,57 @@
       "rows": [
         {
           "best_fitness": 0.6696885228,
-          "connections_mean": null,
+          "connections_mean": 39.4,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 10.0,
           "max_fitness": 0.6696885228,
           "mean_fitness": 0.515727818,
           "min_fitness": 0.4674596786,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0471770205
         },
         {
           "best_fitness": 0.7536842823,
-          "connections_mean": null,
+          "connections_mean": 31.7,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 8.0,
           "max_fitness": 0.7536842823,
           "mean_fitness": 0.5536931157,
           "min_fitness": 0.5,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0807786211
         },
         {
           "best_fitness": 0.7608263493,
-          "connections_mean": null,
+          "connections_mean": 16.65,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 4.2,
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.5809593201,
           "min_fitness": 0.5001581311,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0871658996
         },
         {
           "best_fitness": 0.7608263493,
-          "connections_mean": null,
+          "connections_mean": 16.65,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 4.2,
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.6058211327,
           "min_fitness": 0.5004194975,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.0852108225
         },
         {
           "best_fitness": 0.7608263493,
-          "connections_mean": null,
+          "connections_mean": 25.7,
           "density_mean": null,
-          "hidden_nodes_mean": null,
+          "hidden_nodes_mean": 6.6,
           "max_fitness": 0.7608263493,
           "mean_fitness": 0.6322218776,
           "min_fitness": 0.5374609232,
-          "num_species": 0,
+          "num_species": 1,
           "std_fitness": 0.071627453
         }
       ],
@@ -632,7 +573,7 @@
   },
   "environment": {
     "numpy": "1.26.4",
-    "platform": "macOS-26.3-arm64-arm-64bit",
+    "platform": "macOS-27.0-arm64-arm-64bit",
     "python": "3.12.10"
   }
 }

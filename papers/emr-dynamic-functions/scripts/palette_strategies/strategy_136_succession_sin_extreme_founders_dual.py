@@ -2,7 +2,7 @@
 
 Sin and extreme aggregations form a "founding coalition" with mutual protection.
 
-Key Innovation:
+Mechanism:
 - Sin and max/min form a founding coalition from generation 0
 - Coalition members get 1.5x protection multiplier
 - All coalition members must be removed together (or none)
@@ -41,42 +41,42 @@ class SuccessionSinExtremeFoundersDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === COALITION PARAMETERS (CRITICAL) ===
+        # COALITION PARAMETERS
         sin_extreme_founding_coalition: bool = True,
         coalition_members_act: List[int] = None,  # [4] = sin
         coalition_members_agg: List[int] = None,  # [2, 3] = max, min
         coalition_protection_multiplier: float = 1.5,
         coalition_fitness_bonus: float = 0.1,
         coalition_break_penalty: float = 0.3,
-        # === SUCCESSION PHASES ===
+        # SUCCESSION PHASES
         pioneer_phase_until: int = 15,
         intermediate_phase_until: int = 40,
         climax_protection: float = 0.9,
-        # === AFFINITY ===
+        # AFFINITY
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.6,
-        # === TAGGING ===
+        # TAGGING
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         extreme_tag_boost: float = 1.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
-        # === INITIAL ===
+        # INITIAL
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Succession-Sin-Extreme-Founders strategy."""
-        # COALITION (CRITICAL)
+        # COALITION
         self.sin_extreme_founding_coalition = sin_extreme_founding_coalition
         self.coalition_members_act = coalition_members_act or [4]
         self.coalition_members_agg = coalition_members_agg or list(CORE_EXTREME_AGGS)

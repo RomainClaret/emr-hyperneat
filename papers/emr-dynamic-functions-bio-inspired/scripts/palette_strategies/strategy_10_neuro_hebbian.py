@@ -4,7 +4,7 @@ Combines the best mechanisms from:
 - Neuromodulated (Strategy 7): Dynamic exploration/exploitation via DA/ACh/NE
 - Hebbian (Strategy 8): Co-occurrence learning to find good activation pairs
 
-Key innovation:
+Mechanism:
 - Hebbian weights guide WHICH activations to try (affinity-based selection)
 - Neuromodulation controls WHEN to explore vs exploit (rate modulation)
 - Double protection: Hebbian consolidation + neuromodulated sticky oscillatory

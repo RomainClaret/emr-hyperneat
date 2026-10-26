@@ -2,20 +2,42 @@
 """P2b: Population Sensitivity on Parity-5.
 
 Tests whether population size affects strategy performance on Parity-5, where
-solve rates range from 47% (neurogenesis) to 97% (circadian). Unlike P4 where
-seed determinism makes pop sensitivity uninformative, P5 has enough failure
-variation that population effects on NEAT search quality could be visible.
+solve rates range from 47% (neurogenesis) to 97% (circadian). It cannot show a population
+effect: every published arm ran at population 150, because the HMR engine's aggregation
+variant ignored the neat.pop_size the runner passed. The arms labeled 200 and 800 are identical
+seed by seed to each other and to the existing P5 runs, as the P4 arms labeled 200 and 1000 are;
+seed determinism is not the cause.
 
 Design:
     - Strategies: circadian_rhythm_dual (P5=97%), adult_neurogenesis_dual (P5=47%),
                   baseline_dual (P5=67%)
-    - Pop sizes: 200 and 800 (vs existing P5 default of 400)
+    - Pop sizes: labeled 200 and 800 (existing P5 runs labeled 400); all ran at 150
     - Problem: Parity-5 (n_bits=5, 32 test cases)
     - Seeds: 42-71 (N=30, same as existing P5)
     - Config: 150 gens, max_depth=4, target=0.90
     - Run ONE strategy+pop combination per invocation (OOM safety)
 
 Key question: Does pop=800 help neurogenesis close the 50pp gap with circadian?
+
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+aggregation variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-dynamic-functions-bio-inspired --release 0.1.0 --` followed
+by a command of Usage without its `papers/emr-dynamic-functions-bio-inspired/` prefix runs the
+original on 0.1.0. The EMR version runs the experiment as it ran, on EMR's defaults except where
+noted:
+    - Population 150, whatever the pop_size argument says: the HMR variant read population_size
+      (default 150) and ignored the neat.pop_size this runner passed. The argument is kept and
+      ignored. The arms labeled 200 and 800 therefore run the same population, as the published
+      arms did; a record keeps the label in pop_size and gives the population that ran in
+      population.
+    - Each node's activation and aggregation come from CPPN outputs of their own (EMR's
+      aggregation block sits beside dynamic_functions), read from the node's self-connection
+      query; HMR averaged them over the node's input-to-node queries.
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - Results go to results/pop_sensitivity_p5_emr/, apart from the published runs in
+      results/pop_sensitivity_p5/.
 
 Usage:
     python papers/emr-dynamic-functions-bio-inspired/scripts/runners/benchmark_bio_pop_sensitivity_p5.py --strategy circadian_rhythm_dual --pop-size 200
@@ -41,15 +63,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classification_problems import ParityProblem
-from emr_hyperneat._hmr_frozen.hmrhyperneat_dynamic_functions_aggregation import (
-    HMRHyperNEAT,
-)
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 from palette_strategies.base_strategy import NUM_ACTIVATIONS, ACTIVATION_NAMES
 from palette_strategies.strategy_52_circadian_rhythm_dual import CircadianRhythmDualStrategy
 from palette_strategies.strategy_47_baseline_dual import BaselineDualStrategy
 from palette_strategies.strategy_63_adult_neurogenesis_dual import AdultNeurogenesisDualStrategy
 
 OSCILLATORY_INDICES = {4, 11, 12, 13, 15}
+
+# The population of every published run: HMR's aggregation variant read population_size
+# (default 150) and ignored the neat.pop_size this runner passed, so the pop_size argument never
+# took effect. The EMR version runs 150 and ignores the argument the same way.
+POPULATION = 150
 
 STRATEGIES = {
     'circadian_rhythm_dual': CircadianRhythmDualStrategy,
@@ -96,19 +122,20 @@ def run_single_trial(
 
     algo_config = {
         'algorithm_params': {
-            'hmrhyperneat': {
-                'hmr_hyperneat': {
+            'emrhyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': 0.03,
+                    **hmr_rule_and_split(),
                     'dynamic_functions': {
                         'mode': 'cppn_output',
                         'palette': current_act_palette,
                         'palette_evolution': {'enabled': False},
-                        'aggregation': {
-                            'mode': 'cppn_output',
-                            'num_aggregations': 6,
-                        },
+                    },
+                    'aggregation': {
+                        'mode': 'cppn_output',
+                        'num_aggregations': 6,
                     },
                 },
                 'substrate': {
@@ -116,14 +143,14 @@ def run_single_trial(
                     'output_coords': output_coords,
                 },
                 'neat': {
-                    'pop_size': pop_size,
+                    'pop_size': POPULATION,
                     'species_size': 10,
                 },
             }
         }
     }
 
-    algo = HMRHyperNEAT()
+    algo = EMRHyperNEAT()
     neat_config = algo.create_config(algo_config)
     state = algo.initialize(neat_config, problem, seed=seed)
 
@@ -162,6 +189,7 @@ def run_single_trial(
         'strategy': strategy.name,
         'problem': 'parity_5',
         'pop_size': pop_size,
+        'population': POPULATION,
         'seed': seed,
         'solved': solved_gen is not None,
         'solved_gen': solved_gen,
@@ -185,6 +213,7 @@ def _save_results(filepath: Path, strategy: str, pop_size: int, results: list):
         'strategy': strategy,
         'problem': 'parity_5',
         'pop_size': pop_size,
+        'population': POPULATION,
         'experiment': 'P2b_pop_sensitivity_p5',
         'timestamp': datetime.now().isoformat(),
         'summary': {
@@ -219,7 +248,7 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parents[3]
-    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'pop_sensitivity_p5'
+    output_dir = Path(__file__).resolve().parents[2] / 'results' / 'pop_sensitivity_p5_emr'
     os.makedirs(output_dir, exist_ok=True)
 
     result_file = output_dir / f'{args.strategy}_pop{args.pop_size}.json'
@@ -248,7 +277,8 @@ def main():
         print(f"Starting fresh: {args.strategy}, pop={args.pop_size}, N={len(seeds)}")
 
     print(f"\n{'='*60}")
-    print(f"POP SENSITIVITY P5: {args.strategy} @ pop={args.pop_size}")
+    print(f"POP SENSITIVITY P5: {args.strategy} @ pop={args.pop_size} "
+          f"(a label: population {POPULATION})")
     print(f"Problem: Parity-5 (32 samples), depth={args.max_depth}, gens={args.max_gens}")
     print(f"Target fitness: 0.90")
     print(f"Seeds: {len(seeds)} ({seeds[0]}-{seeds[-1]})")

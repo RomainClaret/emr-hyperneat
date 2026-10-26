@@ -3,7 +3,7 @@
 Extends ConsolidationWindow to jointly evolve both activation and aggregation palettes
 with periodic consolidation phases for both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Working and long-term memory for both act and agg domains
 2. Periodic consolidation windows apply to both domains
 3. Replay and transfer operate independently in each domain
@@ -15,7 +15,7 @@ Biological rationale:
 - Different modalities have separate but synchronized consolidation
 - Cross-modal associations are strengthened during replay
 
-Expected improvement:
+Intended effects:
 - More stable retention in BOTH domains
 - Prevents oscillation from constant mutation in either domain
 - Better protection of important functions in both domains

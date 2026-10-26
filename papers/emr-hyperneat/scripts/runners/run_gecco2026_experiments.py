@@ -1,12 +1,33 @@
 #!/usr/bin/env python3
 """
-Run all experiments for GECCO 2026 HMR-HyperNEAT Unified Extended paper.
+Run the experiments of the EMR-HyperNEAT paper (GECCO 2026) from scratch.
 
 This script runs:
-1. Caching ablation study (no cache, JAX cache, H→H cache, both)
+1. Caching ablation study (no cache, JAX cache, H->H cache, both)
 2. Multi-hop expansion study (iteration_level 1-4)
 3. Recurrence preset comparison (feedforward through full_recurrent)
 4. Depth scaling study (depths 3-6)
+
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+unified-extended variant, which release 0.1.0 ships: from the repository root,
+`python scripts/replicate.py run emr-hyperneat --release 0.1.0 --` followed by a command of
+Usage without its `papers/emr-hyperneat/` prefix runs the original on 0.1.0. The EMR version
+runs the experiments as they ran, on EMR's defaults except where noted:
+    - Population 500, XOR with a bias input, threshold 0.98, up to 50 generations; the
+      recurrence preset, iteration level (2 unless an experiment sets it), cache refresh
+      interval and mask-change threshold as the runner sets them. The settling rule is the one
+      the published runs used (EMR's).
+    - The hidden-to-hidden connection cache is off, EMR's default, where the published runs had
+      it on; the caching ablation keeps its cache arms on, since the cache is what it measures.
+    - The multi-hop expansion composes each genome's own connections (masked, EMR's default);
+      the published runs composed them through the population's union of active positions.
+    - with_lateral and with_self run the connection classes their names say. HMR's variant ran
+      both as hidden_only (its connection mask dropped their lateral and self connections), so
+      these two arms depart from the published runs, which release 0.1.0 reproduces.
+    - HMR's level-0 variance rule and random key stream, as the published runs had them:
+      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      extra_randkey_split (False gives EMR's defaults).
+    - Results go to results/gecco2026_emr/; the published files are in data/ (the data release).
 
 Usage:
     python papers/emr-hyperneat/scripts/runners/run_gecco2026_experiments.py --experiment all
@@ -14,7 +35,7 @@ Usage:
     python papers/emr-hyperneat/scripts/runners/run_gecco2026_experiments.py --experiment presets
 
 Output:
-    papers/emr-hyperneat/data/gecco2026_results.json
+    papers/emr-hyperneat/results/gecco2026_emr/gecco2026_<experiment>_<timestamp>.json
 """
 
 import os
@@ -36,6 +57,9 @@ import numpy as np
 
 import jax
 import jax.numpy as jnp
+
+from emr_hyperneat.emrhyperneat import EMRHyperNEAT
+from emr_settings import hmr_rule_and_split
 
 
 @dataclass
@@ -85,32 +109,29 @@ def run_single_experiment(
     population: int = 500,
     max_generations: int = 50,
     fitness_threshold: float = 0.98,
-    hh_cache_enabled: bool = True,
+    hh_cache_enabled: bool = False,
     iteration_level: int = 2,
     use_jax_cache: bool = True,
 ) -> ExperimentResult:
-    """Run a single experiment with specified configuration."""
+    """Run a single experiment with specified configuration.
 
-    from emr_hyperneat._hmr_frozen.hmrhyperneat_unified_extended import (
-        HMRHyperNEATUnifiedExtended,
-    )
+    The hidden-to-hidden cache is off unless hh_cache_enabled is True (the published runs had it
+    on; the caching ablation turns it on in its cache arms). with_lateral and with_self run the
+    connection classes their names say, where HMR's unified-extended variant ran both as
+    hidden_only.
+    """
 
     # XOR problem definition
     input_coords = [(-1.0, -1.0), (1.0, -1.0), (0.0, -0.5)]  # x1, x2, bias
     output_coords = [(0.0, 1.0)]
 
-    # No `variance_rule` pin here, unlike the emr-dynamic-functions and
-    # emr-neuromodulation runners: those instantiate EMRHyperNEAT, whose level-0 rule is
-    # `canonical` by default. This runner runs the frozen HMR module, whose
-    # compute_hierarchical_variances_batch(all_weights, grid) hard-wires level 0 to one
-    # scalar per genome over its own four weights (the legacy rule) and takes no flag.
-    # `execution.skip_dead_levels` is likewise never read on the frozen path. The published
-    # numbers therefore reproduce here by construction; adding the key would be dead config.
-    # HMR-HyperNEAT config with recurrence settings
-    hmr_config = {
+    # EMR-HyperNEAT config with recurrence settings, with HMR's level-0 rule and key split, which
+    # the published runs used and emr_settings pins.
+    emr_config = {
         'initial_depth': 0,
         'max_depth': depth,
         'variance_threshold': 0.03,
+        **hmr_rule_and_split(),
         'recurrence': {
             'preset': preset,
             'iteration_level': iteration_level,
@@ -122,9 +143,9 @@ def run_single_experiment(
 
     config_dict = {
         'algorithm_params': {
-            'hmrhyperneat': {
+            'emrhyperneat': {
                 'population_size': population,
-                'hmr_hyperneat': hmr_config,
+                'emr_hyperneat': emr_config,
                 'substrate': {
                     'input_coords': input_coords,
                     'output_coords': output_coords,
@@ -140,14 +161,14 @@ def run_single_experiment(
 
     # Warmup run for JIT compilation
     warmup_start = time.time()
-    warmup_algo = HMRHyperNEATUnifiedExtended()
+    warmup_algo = EMRHyperNEAT()
     warmup_config = warmup_algo.create_config(config_dict)
     warmup_state = warmup_algo.initialize(warmup_config, problem, seed=seed)
     warmup_state, _ = warmup_algo.run_generation_verbose(warmup_state, problem)
     warmup_time = time.time() - warmup_start
 
     # Actual experiment
-    algo = HMRHyperNEATUnifiedExtended()
+    algo = EMRHyperNEAT()
     config = algo.create_config(config_dict)
     state = algo.initialize(config, problem, seed=seed)
 
@@ -437,11 +458,11 @@ def main():
     if args.quick:
         args.seeds = 2
 
-    output_dir = Path(__file__).resolve().parents[2] / "data"
+    output_dir = Path(__file__).resolve().parents[2] / "results" / "gecco2026_emr"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("="*70)
-    print("GECCO 2026 HMR-HyperNEAT Unified Extended Experiments")
+    print("GECCO 2026 EMR-HyperNEAT experiments (EMR version)")
     print("="*70)
     print(f"JAX devices: {jax.devices()}")
     print(f"Experiment: {args.experiment}")

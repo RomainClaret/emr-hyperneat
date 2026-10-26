@@ -16,6 +16,12 @@ Design:
 
 Post-hoc: compute OR-NOR Euclidean distance and direction angle for each set.
 
+Results saved to: papers/emr-neuromodulation/results/expanded_random_nt_emr/ (this script runs the
+shared runner, which runs EMR; the published sets 10-29, on the HMR engine, are the data release's
+results/expanded_random_nt/, which a run here never reads or overwrites). --summary still reads sets
+0-9 from the published results/strengthening/random_nt/ (HMR engine), so its table then lists sets
+of both engines.
+
 Usage:
     python papers/emr-neuromodulation/scripts/runners/benchmark_expanded_random_nt.py
     python papers/emr-neuromodulation/scripts/runners/benchmark_expanded_random_nt.py --summary
@@ -47,11 +53,9 @@ def jnp():
     return _jnp
 
 
-# ============================================================================
 # Constants
-# ============================================================================
 
-RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'expanded_random_nt'
+RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'expanded_random_nt_emr'
 OLD_RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'strengthening' / 'random_nt'
 SEEDS = list(range(1, 31))
 NEW_SET_INDICES = list(range(10, 30))
@@ -60,9 +64,7 @@ NEW_SET_INDICES = list(range(10, 30))
 XOR_NT = [0.95, 0.05, 0.95, 1.0]
 
 
-# ============================================================================
 # NT vector generation
-# ============================================================================
 
 def generate_random_nt_set(set_index: int) -> Dict[str, List[float]]:
     """Generate a random NT vector set deterministically.
@@ -118,9 +120,7 @@ def compute_or_nor_geometry(nt_vectors: Dict[str, List[float]]) -> Tuple[float, 
     return distance, angle_deg
 
 
-# ============================================================================
 # Runner
-# ============================================================================
 
 def make_profiles(nt_vectors: Dict[str, List[float]]) -> Dict:
     """Convert raw NT vectors to JAX arrays for the experiment runner."""
@@ -232,9 +232,7 @@ def _summarize_set(set_index: int, nt_vectors: Dict,
     }
 
 
-# ============================================================================
 # Summary (loads existing data for sets 0-9 from old results)
-# ============================================================================
 
 def load_old_set_results(set_index: int) -> Optional[Dict]:
     """Load results for sets 0-9 from the old strengthening experiment.
@@ -418,9 +416,7 @@ def print_summary():
     print(f"    New (sets 10-29): {new_runs}")
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

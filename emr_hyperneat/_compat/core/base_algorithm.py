@@ -9,7 +9,6 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, List, Optional, Iterator, Union
 from dataclasses import dataclass
 import time
-import numpy as np
 from ..utils.metrics_utils import ensure_dict
 from ..adapters.metrics_storage_adapter import (
     storage_registry, get_optimal_adapter
@@ -202,8 +201,8 @@ class BaseAlgorithm(ABC):
             rebuild_jax: Force JAX cache rebuild before initialization (default: False)
             trial_id: Trial identifier for grid search isolation - creates unique JAX cache per trial (default: None)
         """
-        # Setup JAX cache isolation FIRST (before any other initialization)
-        # This ensures isolated cache directories for parallel grid search trials
+        # Set up JAX cache isolation first, before any other initialization: it gives
+        # parallel grid search trials isolated cache directories
         if trial_id is not None or rebuild_jax:
             self._setup_jax_cache_isolation(implementation, trial_id, rebuild_jax)
 
@@ -370,29 +369,6 @@ class BaseAlgorithm(ABC):
         """
         pass
 
-    def get_config_metadata(self) -> Optional[Dict[str, Any]]:
-        """Return configuration metadata including loaded files and hierarchical config.
-
-        This method provides access to the complete configuration hierarchy and metadata
-        from ConfigManager. It is used by BaseExperiment to save config_hierarchical.json
-        for reproducibility and debugging.
-
-        The default implementation returns metadata stored during create_config() if available.
-        Implementations should store config metadata in create_config() like this:
-
-            config_metadata = config.pop('_metadata', {})
-            self._config_metadata = config_metadata
-
-        Returns:
-            Dictionary containing:
-            - '_metadata': Metadata from ConfigManager (loaded_files, load_errors, etc.)
-            - Hierarchical configuration structure (population, mutation, weights, etc.)
-
-            Returns None if no metadata available (legacy implementations or if not using ConfigManager).
-        """
-        # Default implementation returns stored metadata if available
-        return getattr(self, '_config_metadata', None)
-
     def add_callback(self, callback):
         """Add a callback to be called during evolution."""
         self.callbacks.append(callback)
@@ -455,8 +431,8 @@ class BaseAlgorithm(ABC):
         # Store original target for success determination
         original_target_fitness = target_fitness
         
-        # Set the implementation on the problem BEFORE checking fitness range
-        # This is crucial for getting the correct fitness range for conversion
+        # Set the implementation on the problem before checking the fitness range: the
+        # conversion below needs the fitness range of this implementation
         if hasattr(problem, 'set_current_implementation'):
             problem.set_current_implementation(self.implementation)
             if hasattr(self, 'logger'):
@@ -539,7 +515,7 @@ class BaseAlgorithm(ABC):
         
         while self.current_generation < max_generations:
             if hasattr(self, 'logger'):
-                self.logger.info(f"TOP OF LOOP: Generation {self.current_generation}: checking {self.current_generation} < {max_generations}, will_continue={self.current_generation < max_generations}")
+                self.logger.info(f"Top of loop: Generation {self.current_generation}: checking {self.current_generation} < {max_generations}, will_continue={self.current_generation < max_generations}")
 
             try:
                 state, metrics = self.run_generation(state, problem)
@@ -559,7 +535,7 @@ class BaseAlgorithm(ABC):
                 batch_transfers = getattr(self, 'batch_device_transfers', False)
                 event_interval = getattr(self, 'event_emission_interval', 1)
 
-                # CRITICAL DEBUG: Unconditional logging to verify attribute reading
+                # Unconditional debug logging, to verify the attributes read above
                 import logging as log_module
                 base_algo_logger = log_module.getLogger('base_algorithm_debug')
                 base_algo_logger.warning(
@@ -588,12 +564,12 @@ class BaseAlgorithm(ABC):
                 )
 
                 if hasattr(self, 'logger'):
-                    self.logger.info(f"[DEBUG REPORTER] gen={self.current_generation}, got reporter: {reporter is not None}, enable_realtime_events={enable_realtime_events}, should_emit={should_emit}")
+                    self.logger.info(f"[Debug Reporter] gen={self.current_generation}, got reporter: {reporter is not None}, enable_realtime_events={enable_realtime_events}, should_emit={should_emit}")
 
                 if reporter and enable_realtime_events and should_emit:
                     try:
                         # Collect all metrics that need device transfer for batching
-                        # This reduces 8 separate GPU→CPU transfers to 1 batched transfer
+                        # This reduces 8 separate GPU->CPU transfers to 1 batched transfer
                         if batch_transfers:
                             # Import jax for batched device_get
                             try:
@@ -648,7 +624,7 @@ class BaseAlgorithm(ABC):
                                             metrics_to_transfer['connections'] = complexity['connections']._jax_value
                                             metric_keys.append('connections')
 
-                                # Single batched device transfer (8 transfers → 1 transfer!)
+                                # Single batched device transfer (8 transfers -> 1 transfer!)
                                 if metrics_to_transfer:
                                     transferred = jax.device_get(metrics_to_transfer)
 
@@ -696,7 +672,7 @@ class BaseAlgorithm(ABC):
                             else:
                                 std_fitness = None
 
-                            # Extract NORMALIZED fitness separately
+                            # Extract the normalized fitness separately
                             normalized_best_fitness = None
                             normalized_mean_fitness = None
                             if hasattr(metrics, 'normalized_best_fitness') and metrics.normalized_best_fitness is not None:
@@ -737,9 +713,9 @@ class BaseAlgorithm(ABC):
                                     species_count = metrics.num_species
 
                         if hasattr(self, 'logger'):
-                            self.logger.info(f"[DEBUG REPORTER] About to call report_progress: best={best_fitness}, mean={mean_fitness}, nodes={nodes}, conns={connections}, species={species_count}")
+                            self.logger.info(f"[Debug Reporter] About to call report_progress: best={best_fitness}, mean={mean_fitness}, nodes={nodes}, conns={connections}, species={species_count}")
 
-                        # Report the progress with BOTH raw and normalized fitness
+                        # Report the progress with both the raw and the normalized fitness
                         reporter.report_progress(
                             generation=self.current_generation,
                             total_generations=max_generations,
@@ -754,17 +730,17 @@ class BaseAlgorithm(ABC):
                         )
 
                         if hasattr(self, 'logger'):
-                            self.logger.info(f"[DEBUG REPORTER] report_progress() completed successfully")
+                            self.logger.info("[Debug Reporter] report_progress() completed successfully")
                     except Exception as e:
                         if hasattr(self, 'logger'):
-                            self.logger.error(f"[DEBUG REPORTER] Exception in report_progress(): {type(e).__name__}: {e}")
+                            self.logger.error(f"[Debug Reporter] Exception in report_progress(): {type(e).__name__}: {e}")
                             import traceback
-                            self.logger.error(f"[DEBUG REPORTER] Traceback:\n{traceback.format_exc()}")
+                            self.logger.error(f"[Debug Reporter] Traceback:\n{traceback.format_exc()}")
                 elif reporter and not enable_realtime_events:
                     # Real-time events disabled - skip conversion and emission entirely
                     # Metrics stay on GPU for maximum performance
                     if hasattr(self, 'logger'):
-                        self.logger.debug(f"Real-time events disabled - skipping events.jsonl emission (performance mode)")
+                        self.logger.debug("Real-time events disabled - skipping events.jsonl emission (performance mode)")
 
                 # Save generation history if manager is available
                 if self.generation_history_manager:
@@ -775,7 +751,7 @@ class BaseAlgorithm(ABC):
                         metrics_dict['num_outputs'] = problem.output_size
                         
                         # Add normalized fitness if adapter is available
-                        # NOTE: For TensorNEAT implementations, skip normalization here
+                        # For TensorNEAT implementations, skip normalization here
                         # Let grid_search_engine.py handle it (it has the correct logic)
                         if hasattr(self, 'adapter') and self.adapter is not None:
                             if hasattr(self.adapter, 'normalize_fitness'):
@@ -800,7 +776,7 @@ class BaseAlgorithm(ABC):
                                     # TensorNEAT: Let grid_search_engine handle normalization
                                     if hasattr(self, 'logger'):
                                         self.logger.debug(
-                                            f"Skipping normalization for TensorNEAT - grid_search_engine will handle it"
+                                            "Skipping normalization for TensorNEAT - grid_search_engine will handle it"
                                         )
                         
                         self.generation_history_manager.save_generation(
@@ -873,7 +849,7 @@ class BaseAlgorithm(ABC):
             
             # Log end of loop iteration if logger available
             if hasattr(self, 'logger'):
-                self.logger.info(f"END OF LOOP BODY: About to re-check condition: {self.current_generation} < {max_generations}")
+                self.logger.info(f"End of loop body: About to re-check condition: {self.current_generation} < {max_generations}")
         
         # Log loop exit if logger available
         if hasattr(self, 'logger'):
@@ -904,7 +880,7 @@ class BaseAlgorithm(ABC):
                         metrics_dict['num_outputs'] = problem.output_size
                         
                         # Add normalized fitness if adapter is available
-                        # NOTE: For TensorNEAT implementations, skip normalization here
+                        # For TensorNEAT implementations, skip normalization here
                         # Let grid_search_engine.py handle it (it has the correct logic)
                         if hasattr(self, 'adapter') and self.adapter is not None:
                             if hasattr(self.adapter, 'normalize_fitness'):
@@ -929,7 +905,7 @@ class BaseAlgorithm(ABC):
                                     # TensorNEAT: Let grid_search_engine handle normalization
                                     if hasattr(self, 'logger'):
                                         self.logger.debug(
-                                            f"Final gen: Skipping normalization for TensorNEAT - grid_search_engine will handle it"
+                                            "Final gen: Skipping normalization for TensorNEAT - grid_search_engine will handle it"
                                         )
 
                         # Temporarily override the save check to force saving
@@ -967,15 +943,15 @@ class BaseAlgorithm(ABC):
                 if hasattr(self, 'logger'):
                     self.logger.debug(f"Could not extract network info from winner: {e}")
 
-        # CRITICAL: Collect all metrics into a list ONCE to avoid iterator consumption
+        # Collect all metrics into a list once to avoid iterator consumption
         # StreamOnlyAdapter returns an iterator that can only be consumed once
         # Creating the list here ensures all subsequent operations use the same data
         metrics_list = list(self.metrics_history) if self.metrics_history else []
 
         # Extract best fitness - always use historical maximum across all generations
         # Some implementations (PUREPLES) include 'fitness' in winner dict, but that's
-        # only the best from the FINAL generation, not the overall best. We must use
-        # get_best_fitness() which returns max(m.best_fitness for m in metrics_history)
+        # only the best from the final generation, not the overall best. We must use
+        # the maximum get_best_fitness() returns, max(m.best_fitness for m in metrics_history)
         best_fitness = 0.0
         if metrics_list:
             # Calculate best fitness directly from metrics_list (no iterator consumption)
@@ -996,8 +972,8 @@ class BaseAlgorithm(ABC):
             if hasattr(self, 'logger'):
                 metrics_count = len(metrics_list)
                 self.logger.info(
-                    f"SUCCESS CHECK [{self.name}/{self.implementation}]: "
-                    f"Using metrics_list with {metrics_count} metrics → {best_fitness:.6f}"
+                    f"Success check [{self.name}/{self.implementation}]: "
+                    f"Using metrics_list with {metrics_count} metrics -> {best_fitness:.6f}"
                 )
         else:
             # Fallback: If no metrics history, try winner['fitness'] as last resort
@@ -1005,14 +981,14 @@ class BaseAlgorithm(ABC):
                 best_fitness = winner['fitness']
                 if hasattr(self, 'logger'):
                     self.logger.warning(
-                        f"SUCCESS CHECK [{self.name}/{self.implementation}]: "
-                        f"No metrics_history! Using winner['fitness'] → {best_fitness:.6f}"
+                        f"Success check [{self.name}/{self.implementation}]: "
+                        f"No metrics_history! Using winner['fitness'] -> {best_fitness:.6f}"
                     )
             else:
                 if hasattr(self, 'logger'):
                     self.logger.error(
-                        f"SUCCESS CHECK [{self.name}/{self.implementation}]: "
-                        f"No metrics_history AND no winner['fitness']! Using 0.0"
+                        f"Success check [{self.name}/{self.implementation}]: "
+                        f"No metrics_history and no winner['fitness']! Using 0.0"
                     )
 
         # Determine success and log for debugging
@@ -1027,8 +1003,8 @@ class BaseAlgorithm(ABC):
                 normalized_best = self.adapter.normalize_fitness(best_fitness, fitness_range)
                 success = normalized_best >= original_target_fitness
 
-                # CRITICAL DEBUG LOGGING - DO NOT REMOVE
-                # This helps diagnose fitness normalization and success determination issues
+                # Debug logging, kept on purpose: it helps diagnose problems with the fitness
+                # normalization and the success decision
                 if hasattr(self, 'logger'):
                     min_fit, max_fit = fitness_range
                     normalization_calc = f"({best_fitness:.6f} - {min_fit:.6f}) / ({max_fit:.6f} - {min_fit:.6f})"
@@ -1036,51 +1012,51 @@ class BaseAlgorithm(ABC):
 
                     self.logger.critical(
                         f"\n{'='*80}\n"
-                        f"SUCCESS DETERMINATION DEBUG [{self.name}/{self.implementation}]\n"
+                        f"Success determination debug [{self.name}/{self.implementation}]\n"
                         f"{'='*80}\n"
-                        f"RAW FITNESS:\n"
+                        f"Raw fitness:\n"
                         f"  best_fitness (from metrics) = {best_fitness:.6f}\n"
                         f"\n"
-                        f"FITNESS RANGE:\n"
+                        f"Fitness range:\n"
                         f"  problem.get_fitness_range() = {fitness_range}\n"
                         f"  min_fitness = {min_fit:.6f}\n"
                         f"  max_fitness = {max_fit:.6f}\n"
                         f"\n"
-                        f"NORMALIZATION CALCULATION:\n"
+                        f"Normalization calculation:\n"
                         f"  Formula: (raw - min) / (max - min)\n"
                         f"  Substituted: {normalization_calc}\n"
                         f"  Expected result: {expected_result:.6f}\n"
                         f"  Actual normalized_best: {normalized_best:.6f}\n"
-                        f"  MATCH: {abs(expected_result - normalized_best) < 0.0001}\n"
+                        f"  Match: {abs(expected_result - normalized_best) < 0.0001}\n"
                         f"\n"
-                        f"THRESHOLD COMPARISON:\n"
+                        f"Threshold comparison:\n"
                         f"  original_target_fitness (threshold) = {original_target_fitness:.6f}\n"
                         f"  Comparison: {normalized_best:.6f} >= {original_target_fitness:.6f}\n"
-                        f"  Result: SUCCESS = {success}\n"
+                        f"  Result: success = {success}\n"
                         f"{'='*80}\n"
                     )
 
                     # Also log the standard info message
                     self.logger.info(
-                        f"SUCCESS CHECK [{self.name}/{self.implementation}] (adapter): "
+                        f"Success check [{self.name}/{self.implementation}] (adapter): "
                         f"best_fitness={best_fitness:.6f} (normalized={normalized_best:.6f}), "
                         f"target_fitness={target_fitness:.6f} (original={original_target_fitness:.6f}), "
                         f"fitness_range={fitness_range}, "
-                        f"SUCCESS={success} (comparison: {normalized_best:.6f} >= {original_target_fitness:.6f})"
+                        f"success={success} (comparison: {normalized_best:.6f} >= {original_target_fitness:.6f})"
                     )
             else:
                 # Non-adapter implementations or no conversion done
                 success = best_fitness >= target_fitness
                 if hasattr(self, 'logger'):
                     self.logger.info(
-                        f"SUCCESS CHECK [{self.name}/{self.implementation}] (no adapter): "
+                        f"Success check [{self.name}/{self.implementation}] (no adapter): "
                         f"best_fitness={best_fitness:.6f}, target_fitness={target_fitness:.6f}, "
-                        f"SUCCESS={success} (comparison: {best_fitness:.6f} >= {target_fitness:.6f})"
+                        f"success={success} (comparison: {best_fitness:.6f} >= {target_fitness:.6f})"
                     )
         else:
             success = False
             if hasattr(self, 'logger'):
-                self.logger.debug(f"No target fitness specified, success=False")
+                self.logger.debug("No target fitness specified, success=False")
 
         # Calculate total time from metrics history (use metrics_list to avoid iterator consumption)
         total_time = sum(m.time_elapsed for m in metrics_list) if metrics_list else 0.0

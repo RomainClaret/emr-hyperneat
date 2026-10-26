@@ -3,7 +3,7 @@
 Extends STDP to jointly evolve activation AND aggregation function palettes
 with temporal credit assignment for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. STDP for activations: Track which activations PRECEDE fitness improvement
 2. STDP for aggregations: Same temporal credit for aggregation functions
 3. Cross-domain STDP: Learn which act-agg combinations precede success
@@ -12,7 +12,7 @@ Key mechanisms:
 Biological basis:
 - Temporal causality matters for both what computation (activation) and
   how inputs combine (aggregation)
-- Cross-domain interactions can reveal synergistic combinations
+- Cross-domain interactions can reveal combinations that work well together
 """
 
 from typing import Dict, Any, List, Optional, Tuple

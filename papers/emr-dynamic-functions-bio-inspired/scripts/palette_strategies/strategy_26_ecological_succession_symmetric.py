@@ -2,16 +2,16 @@
 
 Extends EcologicalSuccessionStrategy with symmetric discovery features:
 - Dual succession phases for activation and aggregation
-- Aggregation succession: Averaging → Extreme specialists
+- Aggregation succession: Averaging -> Extreme specialists
 - Memory cells for climax functions (sin + max/min)
 - Cross-domain climax: sin-extreme pairs become ecosystem anchors
 - Affinity floors and discovery tracking
 
-Key mechanisms:
-1. Pioneer → Intermediate → Climax phase progression per domain
+Mechanisms:
+1. Pioneer -> Intermediate -> Climax phase progression per domain
 2. Generalist functions early, specialist functions late
 3. Memory cells for discovered climax specialists
-4. Cross-domain climax detection for sin-extreme synergy
+4. Cross-domain climax detection for sin-extreme pairs
 
 Biological/Ecological basis:
 - Pioneer species: Hardy generalists that colonize first
@@ -45,11 +45,11 @@ class EcologicalSuccessionSymmetricStrategy(PaletteEvolutionStrategy):
     """Ecological succession with dual phase progression and memory cells.
 
     Extends activation-only succession to discover both activation AND
-    aggregation functions through generalist→specialist progression.
+    aggregation functions through generalist->specialist progression.
 
-    Key innovations:
+    Mechanisms:
     - Dual succession phases (activation and aggregation develop at different rates)
-    - Aggregation succession: sum/mean (generalists) → max/min (specialists)
+    - Aggregation succession: sum/mean (generalists) -> max/min (specialists)
     - Memory cells for climax specialists (sin, burst, max, min)
     - Cross-domain climax pairs become ecosystem anchors
     """

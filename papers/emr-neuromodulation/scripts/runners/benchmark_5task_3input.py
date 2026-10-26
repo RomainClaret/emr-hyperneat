@@ -43,9 +43,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / '5task_3input'
 
@@ -135,9 +133,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def _count_layers(condition: str) -> int:
     return int(condition[0])
@@ -184,9 +180,7 @@ def init_population(key: jax.Array, pop_size: int, n_layers: int) -> Dict[str, j
     return jax.vmap(lambda k: init_params(k, n_layers))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       n_layers: int, activation_fn,
@@ -229,9 +223,7 @@ def get_forward_fn(n_layers: int, activation_name: str):
     return _FORWARD_CACHE[key]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, n_layers: int,
                           activation_mode: str) -> Tuple[float, Dict[str, float]]:
@@ -262,9 +254,7 @@ def eval_single_multitask(params: Dict, n_layers: int,
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -382,9 +372,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -433,9 +421,7 @@ def summarize_condition(results_dir: Path, prefix: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

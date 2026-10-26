@@ -4,11 +4,11 @@
 Extends E-S10 (Pop=100-1500) with Pop=2000/3000 to test whether the
 3-input barrier under uniform tanh has a ceiling or is purely search-limited.
 
-E-S10 results: Pop=100→6.7%, Pop=300→10%, Pop=750→20%, Pop=1500→50%.
+E-S10 results: Pop=100->6.7%, Pop=300->10%, Pop=750->20%, Pop=1500->50%.
 Question: Does it continue to ~100% at Pop=3000, or plateau?
 
 Conditions: uniform tanh ONLY
-Pop = {2000, 3000} × 30 seeds = 60 runs
+Pop = {2000, 3000} x 30 seeds = 60 runs
 
 Architecture: MLP + (mu+lambda)-ES (matching E-S10 exactly)
 3 tasks (Parity-3, AND-3, OR-3), N_IN=3, N_HIDDEN=15, 200 gens.
@@ -34,9 +34,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-# ============================================================================
 # Constants, MUST match E-S10 exactly
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'pop_scaling_3input_ceiling'
 
@@ -75,9 +73,7 @@ NT_VECTORS = {
 DEFAULT_POP_SIZES = [2000, 3000]
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -97,9 +93,7 @@ def init_population(key: jax.Array, pop_size: int) -> Dict[str, jnp.ndarray]:
     return jax.vmap(init_params)(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       activation_fn, s: float = MODULATION_STRENGTH) -> jnp.ndarray:
@@ -128,9 +122,7 @@ def forward_tanh(params, inputs, nt):
     return _forward_neuromod(params, inputs, nt, jnp.tanh)
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict) -> Tuple[float, Dict[str, float]]:
     per_task = {}
@@ -151,9 +143,7 @@ def eval_single_multitask(params: Dict) -> Tuple[float, Dict[str, float]]:
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     pop_size: int,
@@ -265,9 +255,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -316,9 +304,7 @@ def summarize_pop(results_dir: Path, pop_size: int):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

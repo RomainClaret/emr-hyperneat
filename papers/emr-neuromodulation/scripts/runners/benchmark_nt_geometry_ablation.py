@@ -6,15 +6,15 @@ NT direction, or ACh inversion (output polarity mechanism).
 
 Key finding from E-S3: for complementary pairs (4/4 truth table conflict),
 NT distance predicts convergence under Schema A:
-  OR+NOR:   dist=0.566 → 0%
-  AND+NOR:  dist=0.894 → 16.7%
-  AND+NAND: dist=1.200 → 100%
+  OR+NOR:   dist=0.566 -> 0%
+  AND+NOR:  dist=0.894 -> 16.7%
+  AND+NAND: dist=1.200 -> 100%
 
 This experiment disentangles the variables:
-  Part A: Reduce AND+NAND distance → does rate drop? (distance matters)
-  Part B: Increase OR+NOR distance → does rate rise? (distance matters)
-  Part C: Rotate OR+NOR direction at fixed distance → stays 0%? (direction irrelevant)
-  Part D: Add ACh inversion to OR+NOR → jumps to ~100%? (polarity mechanism)
+  Part A: Reduce AND+NAND distance -> does rate drop? (distance matters)
+  Part B: Increase OR+NOR distance -> does rate rise? (distance matters)
+  Part C: Rotate OR+NOR direction at fixed distance -> stays 0%? (direction irrelevant)
+  Part D: Add ACh inversion to OR+NOR -> jumps to ~100%? (polarity mechanism)
 
 Conditions (ordered by priority):
   D1: OR+NOR  ACh=0.0   dist=0.566  (inversion mechanism)
@@ -25,7 +25,11 @@ Conditions (ordered by priority):
   C1: OR+NOR  dir=[+DA,-NE]  dist=0.566  (mirror direction)
   C2: OR+NOR  dir=[-5HT,+NE] dist=0.566  (rotated direction)
 
-Total: 7 conditions × 30 seeds = 210 runs
+Total: 7 conditions x 30 seeds = 210 runs
+
+Results saved to: papers/emr-neuromodulation/results/nt_geometry_ablation_emr/ (this script runs the
+shared runner, which runs EMR; the published 210 runs, on the HMR engine, are the data release's
+results/nt_geometry_ablation/, which a run here never reads or overwrites)
 
 Usage:
     python papers/emr-neuromodulation/scripts/runners/benchmark_nt_geometry_ablation.py
@@ -57,18 +61,14 @@ def jnp():
     return _jnp
 
 
-# ============================================================================
 # Schema A baseline NT vectors (for reference)
-# ============================================================================
 # AND  = [0.10, 0.90, 0.10, 1.0]
 # OR   = [0.50, 0.50, 0.50, 1.0]
 # NAND = [0.90, 0.10, 0.50, 1.0]  dist from AND = 1.200
 # NOR  = [0.10, 0.50, 0.90, 1.0]  dist from OR  = 0.566
 
 
-# ============================================================================
 # Experiment conditions
-# ============================================================================
 
 def make_profiles(task1: str, nt1: List[float],
                   task2: str, nt2: List[float]) -> Dict:
@@ -89,7 +89,7 @@ def get_conditions() -> List[Dict]:
             'description': 'OR+NOR with ACh=0.0 for NOR (output inversion)',
             'profiles_fn': lambda: make_profiles(
                 'or',  [0.50, 0.50, 0.50, 1.0],
-                'nor', [0.10, 0.50, 0.90, 0.0],  # ACh=0.0 → inversion
+                'nor', [0.10, 0.50, 0.90, 0.0],  # ACh=0.0 -> inversion
             ),
             'custom_nt': {'or': [0.50, 0.50, 0.50, 1.0],
                           'nor': [0.10, 0.50, 0.90, 0.0]},
@@ -145,7 +145,7 @@ def get_conditions() -> List[Dict]:
             'description': 'AND+NAND with NAND NT at dist=0.566 (matching OR+NOR)',
             'profiles_fn': lambda: make_profiles(
                 'and',  [0.10, 0.90, 0.10, 1.0],
-                'nand', [0.477, 0.523, 0.289, 1.0],  # dist=0.566 along AND→NAND
+                'nand', [0.477, 0.523, 0.289, 1.0],  # dist=0.566 along AND->NAND
             ),
             'custom_nt': {'and': [0.10, 0.90, 0.10, 1.0],
                           'nand': [0.477, 0.523, 0.289, 1.0]},
@@ -183,11 +183,9 @@ def get_conditions() -> List[Dict]:
     ]
 
 
-# ============================================================================
 # Runner
-# ============================================================================
 
-RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'nt_geometry_ablation'
+RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'nt_geometry_ablation_emr'
 SEEDS = list(range(1, 31))
 
 

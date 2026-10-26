@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Extract EMR-HyperNEAT CPU total-runtime IQR per depth for the runtime figure.
 
-Reads the real 30-generation measurements in ``data/runs_emr_cpu.json`` (8 population
-sizes x 3 seeds per depth). Each run records ``depth``, ``population``, ``seed``,
-``n_generations`` (= 30), ``total_runtime_s`` (measured wall-clock for the full
-30-generation run), and ``in_figure_band``. The runtime figure plots the CPU band
-through depth 7 (CPU is not the primary deep-substrate comparison; GPU is); deeper
-depths present in the data are reported here for completeness.
+Reads ``data/runs_emr_cpu.json`` (8 population sizes x 3 seeds per depth). Each run
+records ``depth``, ``population``, ``seed``, ``n_generations`` (= 30), ``total_runtime_s``
+(the construction time plus 30 times the measured steady per-generation time) and
+``in_figure_band``. The runtime figure plots the CPU band through depth 7 (CPU is not the
+primary deep-substrate comparison; GPU is); deeper depths present in the data are reported
+here for completeness. Their 48 runs (depths 8 and 9) lasted 10 generations, so their
+totals project 30, and they were timed on a later version of the code, about 1.2 times
+slower than the one behind depths 1-7.
 
-Output: per-depth IQR (25th/50th/75th percentile of the real ``total_runtime_s``)
+Output: per-depth IQR (25th/50th/75th percentile of ``total_runtime_s``)
 plus TikZ coordinates for the CPU band in the runtime comparison figure.
 """
 

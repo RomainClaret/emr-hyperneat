@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Extract EMR GPU total-runtime IQR for depths 8-11 (deep-substrate detail).
 
-Focused view of the deep-substrate region of the runtime figure, reading the real
-30-generation measurements in ``data/runs_emr_gpu.json`` (populations 300 and 1000 at
-these depths). ``extract_gpu_iqr.py`` reports the full depth 1-13 band; this script
+Focused view of the deep-substrate region of the runtime figure, reading
+``data/runs_emr_gpu.json`` (populations 300 and 1000 at these depths). These runs lasted 10
+generations (6 for population 300, seed 123, which solved XOR at depths 8 to 12), so each
+``total_runtime_s`` projects 30: the construction time plus 30 times the measured steady
+per-generation time. ``extract_gpu_iqr.py`` reports the full depth 1-13 band; this script
 isolates depths 8-11 with the individual per-run totals for inspection.
 
 Output: per-depth IQR for depths 8-11 + the individual run totals + TikZ fragment.

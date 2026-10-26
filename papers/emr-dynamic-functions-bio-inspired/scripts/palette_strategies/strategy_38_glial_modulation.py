@@ -10,7 +10,7 @@ Biological Basis:
 - High-demand neurons get more glial support
 - Energy starvation forces prioritization of essential circuits
 
-Key Insight:
+Rationale:
 - Current strategies don't model resource competition
 - Glial modulation creates metabolic constraints
 - Functions compete for limited energy resources
@@ -33,7 +33,7 @@ Glial Mechanism:
     if energy_pool < starvation_threshold:
         available_functions = filter(f: glial_support[f] > support_threshold)
 
-Expected improvements:
+Intended effects:
 - Metabolic efficiency pressure (fewer, better functions)
 - Natural priority queue based on glial support
 - Energy starvation triggers essential-only mode
@@ -70,19 +70,19 @@ class GlialModulationStrategy(PaletteEvolutionStrategy):
         # Energy pool dynamics
         initial_energy: float = 100.0,          # Starting energy pool
         energy_max: float = 150.0,              # Maximum energy cap
-        energy_regen_rate: float = 15.0,        # Energy regenerated per gen (FIXED: was 8.0)
+        energy_regen_rate: float = 15.0,        # Energy regenerated per gen (was 8.0)
         # Function costs
-        base_function_cost: float = 1.5,        # Base cost per active function (FIXED: was 2.5)
-        complexity_cost_factor: float = 0.05,   # Extra cost based on function index (FIXED: was 0.1)
+        base_function_cost: float = 1.5,        # Base cost per active function (was 2.5)
+        complexity_cost_factor: float = 0.05,   # Extra cost based on function index (was 0.1)
         # Starvation thresholds
-        starvation_threshold: float = 20.0,     # Below this: restricted mode (FIXED: was 25.0)
-        critical_threshold: float = 8.0,        # Below this: emergency mode (FIXED: was 10.0)
+        starvation_threshold: float = 20.0,     # Below this: restricted mode (was 25.0)
+        critical_threshold: float = 8.0,        # Below this: emergency mode (was 10.0)
         # Glial support
-        initial_support: float = 0.4,           # Starting glial support (FIXED: was 0.3)
-        support_learning_rate: float = 0.12,    # How fast support grows (FIXED: was 0.08)
-        support_decay: float = 0.99,            # Support decay per generation (FIXED: was 0.98)
+        initial_support: float = 0.4,           # Starting glial support (was 0.3)
+        support_learning_rate: float = 0.12,    # How fast support grows (was 0.08)
+        support_decay: float = 0.99,            # Support decay per generation (was 0.98)
         support_max: float = 1.5,               # Maximum support level
-        support_threshold: float = 0.4,         # Min support for starvation survival (FIXED: was 0.5)
+        support_threshold: float = 0.4,         # Min support for starvation survival (was 0.5)
         # Selection
         base_selection_weight: float = 1.0,     # Base selection weight
         support_weight_factor: float = 0.5,     # How much support affects selection
@@ -140,7 +140,7 @@ class GlialModulationStrategy(PaletteEvolutionStrategy):
         self.palette_size = palette_size
         self.min_active = min_active
         self.restricted_palette_size = restricted_palette_size
-        # FIXED: Include sin (4) in initial palette for parity problems
+        # Include sin (4) in initial palette for parity problems
         self.initial_palette = initial_palette or [0, 1, 2, 3, 4]  # tanh, sigmoid, relu, identity, sin
 
     def initialize(self, config: Dict[str, Any], seed: int) -> Dict[str, Any]:
@@ -307,7 +307,7 @@ class GlialModulationStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update energy pool
+        # Update energy pool
         new_energy, consumed, energy_state = self._update_energy(
             state['energy_pool'],
             state['mask'],
@@ -321,7 +321,7 @@ class GlialModulationStrategy(PaletteEvolutionStrategy):
         elif energy_state == 'critical':
             new_critical_events += 1
 
-        # Step 2: Update glial support
+        # Update glial support
         new_support = self._update_glial_support(
             state['glial_support'],
             state['mask'],
@@ -329,10 +329,10 @@ class GlialModulationStrategy(PaletteEvolutionStrategy):
             improvement,
         )
 
-        # Step 3: Compute selection weights
+        # Compute selection weights
         weights = self._compute_selection_weights(new_support, energy_state)
 
-        # Step 4: Select new palette
+        # Select new palette
         new_mask = self._select_palette(weights, new_support, energy_state, k1)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

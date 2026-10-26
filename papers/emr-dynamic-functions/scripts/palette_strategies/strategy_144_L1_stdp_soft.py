@@ -43,39 +43,39 @@ class STDPSoftL1Strategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP PARAMETERS ===
+        # STDP PARAMETERS
         ltp_window: int = 5,
         ltd_window: int = 3,
         ltp_rate: float = 0.25,
         ltd_rate: float = 0.10,
         stdp_history_length: int = 10,
         temporal_decay: float = 0.7,
-        # === NEUROGENESIS PARAMETERS ===
+        # NEUROGENESIS PARAMETERS
         agg_neurogenesis_rate: float = 0.10,
         agg_maturation_period: int = 8,
         young_agg_plasticity: float = 2.0,
         base_survival_threshold: float = 0.15,
         max_young_aggs: int = 2,
-        # === STDP-SURVIVAL ===
+        # STDP-SURVIVAL
         stdp_survival_multiplier: float = 0.7,
         young_ltp_plasticity: float = 2.5,
         ltp_survival_threshold: float = 0.4,
         sin_extreme_ltp_boost: float = 0.5,
-        # === SYMBIOSIS PARAMETERS ===
+        # SYMBIOSIS PARAMETERS
         symbiosis_pairs: List[Tuple[int, int]] = None,
         symbiosis_protection: float = 0.8,
         orphan_vulnerability: float = 2.0,
         symbiosis_formation_rate: float = 0.15,
-        # === INITIAL SEEDING (KEPT) ===
+        # INITIAL SEEDING (KEPT)
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
@@ -83,16 +83,16 @@ class STDPSoftL1Strategy(PaletteEvolutionStrategy):
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
         max_stable_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
-        # === INDEPENDENT AGGREGATION STDP ===
+        # INDEPENDENT AGGREGATION STDP
         enable_independent_agg_stdp: bool = True,
         agg_ltp_window: int = 6,             # Separate window for agg LTP
         agg_ltd_window: int = 4,             # Separate window for agg LTD
         agg_ltp_rate: float = 0.30,          # Higher LTP rate for aggs
         agg_ltd_rate: float = 0.12,          # Higher LTD rate for aggs
-        # === CROSS-DOMAIN STDP ===
+        # CROSS-DOMAIN STDP
         enable_cross_stdp: bool = True,
         cross_ltp_rate: float = 0.20,        # LTP for co-active pairs
         cross_ltd_rate: float = 0.08,        # LTD for separated pairs
@@ -500,7 +500,7 @@ class STDPSoftL1Strategy(PaletteEvolutionStrategy):
                                 min(1.0, new_agg_ltp[j] + ltp_delta * bonus)
                             )
 
-        # === Independent aggregation STDP ===
+        # Independent aggregation STDP
         stagnated = fitness_delta < 0.0001
         agg_ltd_credit = state.get('agg_ltd_credit', jnp.zeros(NUM_AGGREGATIONS))
         agg_stdp_history = state.get('agg_stdp_history', [])
@@ -517,7 +517,7 @@ class STDPSoftL1Strategy(PaletteEvolutionStrategy):
             has_partner_agg,
         )
 
-        # === Cross-domain STDP ===
+        # Cross-domain STDP
         cross_ltp_credit = state.get('cross_ltp_credit', jnp.zeros((NUM_ACTIVATIONS, NUM_AGGREGATIONS)))
         cross_ltd_credit = state.get('cross_ltd_credit', jnp.zeros((NUM_ACTIVATIONS, NUM_AGGREGATIONS)))
 
@@ -605,8 +605,8 @@ class STDPSoftL1Strategy(PaletteEvolutionStrategy):
             if 0 <= j < NUM_AGGREGATIONS:
                 new_agg_mask = new_agg_mask.at[j].set(1.0)
 
-        # L1 CRITICAL CHANGE: NO HARD MASK FORCING for extreme aggs
-        # Original code REMOVED:
+        # L1: NO HARD MASK FORCING for extreme aggs
+        # The original strategy forces them at this point:
         # for agg in CORE_EXTREME_AGGS:
         #     new_agg_mask = new_agg_mask.at[agg].set(1.0)
         #     if agg not in stable_aggs:
@@ -657,8 +657,8 @@ class STDPSoftL1Strategy(PaletteEvolutionStrategy):
         for idx in top_indices:
             new_act_mask = new_act_mask.at[int(idx)].set(1.0)
 
-        # L1 CRITICAL CHANGE: NO HARD MASK FORCING for sin
-        # Original code REMOVED:
+        # L1: NO HARD MASK FORCING for sin
+        # The original strategy forces it at this point:
         # new_act_mask = new_act_mask.at[4].set(1.0)
 
         # Ensure minimums

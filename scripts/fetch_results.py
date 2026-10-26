@@ -34,7 +34,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-# --- Data release coordinates -------------------------------------------------
+# Data release coordinates
 # The result data is archived on Zenodo. This is the *concept* DOI: it always
 # resolves to the latest version, so new data releases are fetched automatically.
 # The download URL and checksum for the current version are read from Zenodo at

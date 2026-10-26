@@ -8,7 +8,7 @@ not the exact function.
 Key outputs:
 - Normalized function share per strategy
 - Shannon entropy (portfolio diversity)
-- Chi-square test for independence (8×5 contingency table)
+- Chi-square test for independence (8x5 contingency table)
 - LaTeX-ready numbers for paper integration
 
 Data source:
@@ -27,7 +27,7 @@ from typing import Dict, List, Any
 import numpy as np
 from scipy import stats
 
-# Oscillatory function index → name mapping
+# Oscillatory function index -> name mapping
 OSC_NAMES = {
     4: 'sin',
     11: 'burst',
@@ -84,7 +84,7 @@ def compute_shannon_entropy(data: Dict[str, Any]) -> Dict[str, float]:
 
 
 def build_contingency_table(data: Dict[str, Any]) -> np.ndarray:
-    """Build 8×5 contingency table (strategies × oscillatory functions)."""
+    """Build 8x5 contingency table (strategies x oscillatory functions)."""
     strategies = sorted(data['per_strategy'].keys())
     table = np.zeros((len(strategies), len(OSC_INDICES)), dtype=int)
     for i, strategy in enumerate(strategies):

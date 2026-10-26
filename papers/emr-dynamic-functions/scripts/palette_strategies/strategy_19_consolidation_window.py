@@ -13,15 +13,15 @@ For palette evolution:
 - Active phases: Normal mutation, exploration, learning
 - Consolidation phases: Replay high-affinity functions, suppress new mutations
 - Long-term memory: Separate affinity store for consolidated knowledge
-- Transfer: Gradually move working memory → long-term memory
+- Transfer: Gradually move working memory -> long-term memory
 
-Key mechanisms:
+Mechanisms:
 1. Periodic consolidation windows (every N generations)
 2. During consolidation: Strengthen high-affinity, suppress mutation
 3. Long-term memory: More stable affinity storage
 4. Replay: High-affinity functions get additional boost during consolidation
 
-Expected improvement over continuous learning:
+Intended effects compared with continuous learning:
 - More stable retention of good discoveries
 - Prevents oscillation from constant mutation
 - Better protection of important functions
@@ -65,7 +65,7 @@ class ConsolidationWindowStrategy(PaletteEvolutionStrategy):
         # Consolidation parameters
         replay_strength: float = 1.5,           # Boost for high-affinity during consolidation
         replay_threshold: float = 0.6,          # Affinity threshold for replay
-        transfer_rate: float = 0.1,             # Working → long-term transfer rate
+        transfer_rate: float = 0.1,             # Working -> long-term transfer rate
         ltm_decay_rate: float = 0.02,           # Slow decay in long-term memory
         # Active phase parameters
         active_learning_rate: float = 0.15,     # Learning rate during active phase
@@ -227,7 +227,7 @@ class ConsolidationWindowStrategy(PaletteEvolutionStrategy):
         """Perform memory consolidation.
 
         1. Replay high-affinity functions (boost them)
-        2. Transfer working → long-term memory
+        2. Transfer working -> long-term memory
         3. Slight decay of unused long-term memory
 
         Returns:
@@ -240,7 +240,7 @@ class ConsolidationWindowStrategy(PaletteEvolutionStrategy):
 
         active = (mask > 0.5).astype(jnp.float32)
 
-        # Step 1: Replay - boost high-affinity functions
+        # Replay - boost high-affinity functions
         for i in range(NUM_ACTIVATIONS):
             if float(working[i]) >= self.replay_threshold:
                 # Replay this function
@@ -250,8 +250,8 @@ class ConsolidationWindowStrategy(PaletteEvolutionStrategy):
                 )
                 n_replayed += 1
 
-        # Step 2: Transfer from working to long-term memory
-        # Functions with high working affinity AND active → transfer
+        # Transfer from working to long-term memory
+        # Functions with high working affinity AND active -> transfer
         for i in range(NUM_ACTIVATIONS):
             if float(working[i]) >= self.replay_threshold and float(active[i]) > 0.5:
                 # Transfer toward working memory value
@@ -263,7 +263,7 @@ class ConsolidationWindowStrategy(PaletteEvolutionStrategy):
                 if transfer > 0.01:
                     n_transferred += 1
 
-        # Step 3: Slow decay of long-term memory for inactive functions
+        # Slow decay of long-term memory for inactive functions
         for i in range(NUM_ACTIVATIONS):
             if float(active[i]) < 0.5:
                 # Decay toward baseline
@@ -319,7 +319,7 @@ class ConsolidationWindowStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive: maybe activate
-                # Higher affinity → higher activation probability
+                # Higher affinity -> higher activation probability
                 effective_rate = mutation_rate * (0.5 + affinity)
                 if activate_probs[i] < effective_rate:
                     new_mask = new_mask.at[i].set(1.0)

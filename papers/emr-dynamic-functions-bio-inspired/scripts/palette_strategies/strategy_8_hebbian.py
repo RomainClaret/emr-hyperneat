@@ -5,7 +5,7 @@ Bio-inspired learning: "Activations that fire together, stay together."
 Tracks co-occurrence of activation functions in high-fitness networks and
 uses Hebbian learning to strengthen useful pairs while weakening bad pairs.
 
-Key mechanisms:
+Mechanisms:
 1. Hebbian update: w_ij += lr * (active_i * active_j * fitness_signal)
 2. Anti-Hebbian: w_ij -= decay * (active_i * active_j * failure_signal)
 3. Consolidation: Strong pairs (w_ij > threshold for N gens) become protected
@@ -31,8 +31,8 @@ class HebbianStrategy(PaletteEvolutionStrategy):
     """Hebbian palette evolution with co-occurrence learning.
 
     Learns which activation pairs work well together:
-    - High fitness + pair active → strengthen association
-    - Low fitness + pair active → weaken association
+    - High fitness + pair active -> strengthen association
+    - Low fitness + pair active -> weaken association
     - Strong pairs persist; weak pairs get pruned
 
     Uses learned associations to guide mutation:
@@ -212,9 +212,9 @@ class HebbianStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply Hebbian-guided mutation.
 
-        High affinity inactive functions → more likely to activate
-        Low affinity active functions → more likely to deactivate
-        Protected pairs → cannot be broken
+        High affinity inactive functions -> more likely to activate
+        Low affinity active functions -> more likely to deactivate
+        Protected pairs -> cannot be broken
 
         Args:
             key: JAX random key
@@ -239,7 +239,7 @@ class HebbianStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # Higher affinity → higher activation rate
+                # Higher affinity -> higher activation rate
                 rate = self.base_activate_rate * (1 + self.hebbian_influence * (affinity - 0.5))
                 rate = max(0.05, min(0.5, rate))
 
@@ -259,7 +259,7 @@ class HebbianStrategy(PaletteEvolutionStrategy):
                 if is_protected:
                     continue
 
-                # Lower affinity → higher deactivation rate
+                # Lower affinity -> higher deactivation rate
                 rate = self.base_deactivate_rate * (1 + self.hebbian_influence * (0.5 - affinity))
                 rate = max(0.01, min(0.3, rate))
 

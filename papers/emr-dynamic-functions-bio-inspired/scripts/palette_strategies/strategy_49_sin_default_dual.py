@@ -4,7 +4,7 @@ Extends SinDefaultStrategy to include BOTH activation AND aggregation palettes.
 Fixed palettes with no evolution - tests if having sin and full aggregation
 available from the start is sufficient.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Fixed activation palette including sin
 2. Fixed aggregation palette with all common aggregations
 3. Cross-domain affinity tracking (for analysis only)

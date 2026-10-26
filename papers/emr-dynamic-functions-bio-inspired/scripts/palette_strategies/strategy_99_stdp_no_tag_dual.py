@@ -1,6 +1,6 @@
 """Strategy 99: STDP No-Tag Dual.
 
-Fixes the broken STDP+Tag by REMOVING the tag mechanism entirely.
+Variant of STDP+Tag (89) built by REMOVING the tag mechanism entirely.
 Uses pure STDP with affinity-based protection instead.
 
 Root Cause Analysis of Strategy 89 Failure:
@@ -8,7 +8,7 @@ Root Cause Analysis of Strategy 89 Failure:
 - The tagging mechanism interferes with STDP's natural temporal credit assignment
 - Solution: Remove tagging, rely on STDP weights for protection directly
 
-Key Innovation:
+Mechanism:
 - Pure STDP temporal credit without tagging complexity
 - STDP weight directly determines protection (no tag threshold)
 - Affinity-based selection (high STDP weight = high selection probability)
@@ -45,7 +45,7 @@ class STDPNoTagDualStrategy(PaletteEvolutionStrategy):
     Removes tagging from STDP+Tag entirely.
     Uses STDP weights directly for protection and selection.
 
-    Critical fix: STDP weight IS the protection mechanism. High weight = protected.
+    STDP weight IS the protection mechanism. High weight = protected.
     No separate tagging threshold to create catch-22 scenarios.
     """
 
@@ -54,7 +54,7 @@ class STDPNoTagDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters (simplified from strategy 89) ===
+        # STDP parameters (simplified from strategy 89)
         ltp_window: int = 5,
         ltd_window: int = 3,
         agg_ltp_window: int = 4,
@@ -65,23 +65,23 @@ class STDPNoTagDualStrategy(PaletteEvolutionStrategy):
         agg_ltd_rate: float = 0.06,
         cross_ltp_rate: float = 0.15,
         extreme_ltp_multiplier: float = 1.4,
-        # === STDP PROTECTION PARAMETERS (NEW - replaces tagging) ===
+        # STDP PROTECTION PARAMETERS (replaces tagging)
         stdp_protection_threshold: float = 0.65,  # Weight above this = protected
         stdp_protection_factor: float = 0.85,     # How much protection reduces deactivation
         stdp_floor: float = 0.25,                 # Minimum STDP weight (prevents total depression)
         high_stdp_ltd_reduction: float = 0.6,     # High-weight functions resist LTD
-        # === Selection parameters ===
+        # Selection parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
         weight_influence: float = 0.6,            # How much STDP weight influences selection
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         stagnation_threshold: int = 5,
         fitness_delta_threshold: float = 0.01,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -281,7 +281,7 @@ class STDPNoTagDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Select palette based purely on STDP weights.
 
-        KEY INNOVATION: No tags - STDP weight IS the protection mechanism.
+        No tags - STDP weight IS the protection mechanism.
         High weight = high selection probability, low deactivation probability.
         """
         n_funcs = NUM_ACTIVATIONS if is_act else NUM_AGGREGATIONS
@@ -370,14 +370,14 @@ class STDPNoTagDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE HISTORY ===
+        # UPDATE HISTORY
         new_act_history = self._update_history(state['act_history'], generation, state['act_mask'])
         new_agg_history = self._update_history(state['agg_history'], generation, state['agg_mask'])
         new_fitness_history = state['fitness_history'] + [best_fitness]
         if len(new_fitness_history) > 10:
             new_fitness_history = new_fitness_history[-10:]
 
-        # === STDP MECHANISM ===
+        # STDP MECHANISM
         new_act_weights = state['act_weights']
         new_agg_weights = state['agg_weights']
         new_cross_weights = state['cross_weights']
@@ -412,7 +412,7 @@ class STDPNoTagDualStrategy(PaletteEvolutionStrategy):
             )
             new_ltd_events += n_act_ltd + n_agg_ltd
 
-        # === SELECTION (stagnation-triggered) ===
+        # SELECTION (stagnation-triggered)
         new_act_mask = state['act_mask']
         new_agg_mask = state['agg_mask']
         act_changed = False

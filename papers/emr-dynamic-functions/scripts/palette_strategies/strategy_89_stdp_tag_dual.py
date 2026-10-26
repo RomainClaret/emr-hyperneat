@@ -4,7 +4,7 @@ Combines:
 - Strategy 83 (STDP): Temporal credit for act-agg pairs (80% sin retention)
 - Strategy 81 (Synaptic Tagging): Tag-and-capture consolidation (100% sin retention)
 
-Key innovation: STDP temporal windows influence tag strength, and capture
+STDP temporal windows influence tag strength, and capture
 requires BOTH a tag AND high STDP weight. High STDP weight also reduces
 LTD (temporal importance protects functions).
 
@@ -41,7 +41,7 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
     - STDP (83): Temporal credit assignment for activation-aggregation pairs
     - Synaptic tagging (81): Two-stage tag-and-capture consolidation
 
-    Critical interaction: STDP weights influence tag strength, and capture
+    Interaction: STDP weights influence tag strength, and capture
     requires BOTH high tag AND high STDP weight. High STDP weight protects
     against LTD (depression).
     """
@@ -51,7 +51,7 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters (from strategy 83) ===
+        # STDP parameters (from strategy 83)
         ltp_window: int = 5,
         ltd_window: int = 3,
         agg_ltp_window: int = 4,
@@ -63,7 +63,7 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
         cross_ltp_rate: float = 0.15,
         cross_ltd_rate: float = 0.06,
         extreme_ltp_multiplier: float = 1.4,
-        # === Tagging parameters (from strategy 81) ===
+        # Tagging parameters (from strategy 81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -71,21 +71,21 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
         fitness_delta_threshold: float = 0.01,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Combined: STDP-Tag interaction ===
+        # Combined: STDP-Tag interaction
         stdp_tag_influence: float = 0.4,  # How much STDP weight boosts tagging
         capture_stdp_threshold: float = 0.6,  # STDP weight needed for capture
         high_stdp_ltd_reduction: float = 0.5,  # High STDP weight reduces LTD
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
         weight_influence: float = 0.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         stagnation_threshold: int = 5,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -467,14 +467,14 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE HISTORY ===
+        # UPDATE HISTORY
         new_act_history = self._update_history(state['act_history'], generation, state['act_mask'])
         new_agg_history = self._update_history(state['agg_history'], generation, state['agg_mask'])
         new_fitness_history = state['fitness_history'] + [best_fitness]
         if len(new_fitness_history) > 10:
             new_fitness_history = new_fitness_history[-10:]
 
-        # === STDP MECHANISM ===
+        # STDP MECHANISM
         new_act_weights = state['act_weights']
         new_agg_weights = state['agg_weights']
         new_cross_weights = state['cross_weights']
@@ -509,7 +509,7 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
             )
             new_ltd_events += n_act_ltd + n_agg_ltd
 
-        # === TAGGING MECHANISM (with STDP influence) ===
+        # TAGGING MECHANISM (with STDP influence)
         new_act_tags, new_agg_tags = self._update_tags_with_stdp(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -520,7 +520,7 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE (with STDP requirement) ===
+        # CAPTURE (with STDP requirement)
         new_act_captured, new_agg_captured, capture_count, stdp_capture_count = self._attempt_capture_with_stdp(
             new_act_tags, new_agg_tags,
             new_act_weights, new_agg_weights,
@@ -528,7 +528,7 @@ class STDPTagDualStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === MUTATIONS ===
+        # MUTATIONS
         new_act_mask = state['act_mask']
         new_agg_mask = state['agg_mask']
         act_changed = False

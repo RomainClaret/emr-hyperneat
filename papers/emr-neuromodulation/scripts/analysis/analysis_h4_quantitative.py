@@ -5,8 +5,8 @@ Transforms H4 from "partially supported" to "supported with quantitative evidenc
 by computing NT vector distances and correlating with 2-task convergence rates.
 
 Uses EXISTING data only (zero new experiments):
-  - Schema A (independent): 10 pairs × 30 seeds = 300 datapoints
-  - Schema B (compositional): 10 pairs × 30 seeds = 300 datapoints
+  - Schema A (independent): 10 pairs x 30 seeds = 300 datapoints
+  - Schema B (compositional): 10 pairs x 30 seeds = 300 datapoints
   Total: 600 datapoints
 
 Analysis:
@@ -28,9 +28,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-# ============================================================================
 # NT Vector Definitions (from the two schemas)
-# ============================================================================
 
 # Schema A (NT_PRESETS_4): each task has unique NT, all ACh=1.0
 SCHEMA_A = {
@@ -59,9 +57,7 @@ ALL_TASKS = ['xor', 'and', 'or', 'nand', 'nor']
 ALL_PAIRS = list(combinations(ALL_TASKS, 2))  # 10 pairs
 
 
-# ============================================================================
 # Distance metrics
-# ============================================================================
 
 def euclidean_distance(a: np.ndarray, b: np.ndarray) -> float:
     """Euclidean distance between two NT vectors."""
@@ -89,9 +85,7 @@ def class_match(t1: str, t2: str) -> bool:
     return t1_parity == t2_parity
 
 
-# ============================================================================
 # Data loading
-# ============================================================================
 
 def load_pair_results(results_dir: Path) -> Dict[str, Dict]:
     """Load 2-task convergence results from a results directory.
@@ -150,9 +144,7 @@ def load_pair_results(results_dir: Path) -> Dict[str, Dict]:
     return pair_data
 
 
-# ============================================================================
 # Analysis
-# ============================================================================
 
 def compute_pair_features(schema: Dict[str, np.ndarray]) -> Dict[str, Dict]:
     """Compute all distance features for each task pair under a given schema."""
@@ -304,9 +296,7 @@ def compute_r_squared(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(1.0 - ss_res / ss_tot)
 
 
-# ============================================================================
 # Main analysis
-# ============================================================================
 
 def run_analysis():
     """Run full H4 quantitative analysis."""
@@ -364,7 +354,7 @@ def run_analysis():
     schema_a_features = compute_pair_features(SCHEMA_A)
     schema_b_features = compute_pair_features(SCHEMA_B)
 
-    # ===== Section 1: NT Distance Tables =====
+    # Section 1: NT Distance Tables
     print("\n" + "=" * 70)
     print("SECTION 1: NT Vector Distances")
     print("=" * 70)
@@ -387,7 +377,7 @@ def run_analysis():
             print(f"{pair_name:<15} {feat['euclidean']:<8.3f} {feat['cosine_dist']:<8.3f} "
                   f"{feat['cosine_sim']:<8.3f} {class_str:<8} {rate_str:<8}")
 
-    # ===== Section 2: Correlation Analysis =====
+    # Section 2: Correlation Analysis
     print("\n" + "=" * 70)
     print("SECTION 2: Spearman Rank Correlations")
     print("=" * 70)
@@ -437,7 +427,7 @@ def run_analysis():
         print(f"  Has parity task vs convergence:      rho={rho_parity:+.3f}, p={p_parity:.4f}")
         print(f"  Same class vs convergence:           rho={rho_class:+.3f}, p={p_class:.4f}")
 
-    # ===== Section 3: Combined Analysis Across Both Schemas =====
+    # Section 3: Combined Analysis Across Both Schemas
     print("\n" + "=" * 70)
     print("SECTION 3: Combined Cross-Schema Analysis")
     print("=" * 70)
@@ -482,7 +472,7 @@ def run_analysis():
     print(f"  Combined Cosine vs rate:     rho={rho_cos:+.3f}, p={p_cos:.4f}")
     print(f"  Combined has_parity vs rate: rho={rho_parity:+.3f}, p={p_parity:.4f}")
 
-    # ===== Section 4: Logistic Regression Model =====
+    # Section 4: Logistic Regression Model
     print("\n" + "=" * 70)
     print("SECTION 4: Logistic Regression — P(convergence) ~ f(features)")
     print("=" * 70)
@@ -553,7 +543,7 @@ def run_analysis():
         print(f"    rate ~ has_parity:             R² = {r2_parity:.3f}")
         print(f"    rate ~ euclidean + has_parity:  R² = {r2_combined:.3f}")
 
-    # ===== Section 5: Key Insights =====
+    # Section 5: Summary for H4
     print("\n" + "=" * 70)
     print("SECTION 5: Key Insights for H4")
     print("=" * 70)

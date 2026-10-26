@@ -43,7 +43,7 @@ class MorphogenSoftL1Strategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === MORPHOGEN PARAMETERS ===
+        # MORPHOGEN PARAMETERS
         sin_source_permanent: bool = True,
         sin_source_strength: float = 2.5,
         extreme_agg_source_strength: float = 2.0,
@@ -52,37 +52,37 @@ class MorphogenSoftL1Strategy(PaletteEvolutionStrategy):
         source_creation_threshold: float = 0.6,
         gradient_threshold: float = 0.4,
         min_source_strength: float = 0.5,
-        # === PHASE PARAMETERS ===
+        # PHASE PARAMETERS
         exploration_phase_until: int = 30,
         consolidation_phase_until: int = 60,
         exploration_strength_mult: float = 1.5,
         consolidation_strength_mult: float = 0.5,
-        # === INITIAL SEEDING (KEPT) ===
+        # INITIAL SEEDING (KEPT)
         sin_always_in_initial_palette: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 5,  # Increased from 4 to allow more agg discovery
         min_diversity_act: int = 3,
         min_diversity_agg: int = 3,  # Increased from 2 to explore more aggs
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
-        # === DYNAMIC AGG MORPHOGEN SOURCES ===
+        # DYNAMIC AGG MORPHOGEN SOURCES
         enable_agg_morphogen_discovery: bool = True,
-        agg_source_threshold: float = 0.45,       # Affinity threshold for becoming source (lowered from 0.65)
-        agg_source_contribution_threshold: float = 2,  # Generations contributing before source (lowered from 3)
-        max_agg_sources: int = 5,                 # Max agg morphogen sources (increased from 4)
+        agg_source_threshold: float = 0.45,       # Affinity threshold for becoming source
+        agg_source_contribution_threshold: float = 2,  # Generations contributing before source
+        max_agg_sources: int = 5,                 # Max agg morphogen sources
         dynamic_source_strength: float = 1.5,    # Strength of dynamically discovered sources
-        # === CROSS-MORPHOGEN INFLUENCE ===
+        # CROSS-MORPHOGEN INFLUENCE
         enable_cross_morphogen: bool = True,
         cross_morphogen_influence: float = 0.15,  # How much morphogen affects cross-affinity
         morphogen_attraction_rate: float = 0.10,  # Rate at which morphogen attracts pairs
@@ -464,7 +464,7 @@ class MorphogenSoftL1Strategy(PaletteEvolutionStrategy):
             improved, phase
         )
 
-        # === Dynamic aggregation morphogen source discovery ===
+        # Dynamic aggregation morphogen source discovery
         agg_sources = set(state.get('agg_sources', CORE_EXTREME_AGGS))
         agg_contribution_counts = state.get('agg_contribution_counts', jnp.zeros(NUM_AGGREGATIONS))
 
@@ -477,7 +477,7 @@ class MorphogenSoftL1Strategy(PaletteEvolutionStrategy):
             improved,
         )
 
-        # === Cross-morphogen influence ===
+        # Cross-morphogen influence
         cross_morphogen = state.get('cross_morphogen', jnp.zeros((NUM_ACTIVATIONS, NUM_AGGREGATIONS)))
 
         new_cross_morphogen, cross_affinity_updated, cross_morph_updates = self._apply_cross_morphogen_influence(
@@ -538,8 +538,8 @@ class MorphogenSoftL1Strategy(PaletteEvolutionStrategy):
         for idx in top_indices:
             new_act_mask = new_act_mask.at[int(idx)].set(1.0)
 
-        # L1 CRITICAL CHANGE: NO HARD MASK FORCING for sin
-        # Original code REMOVED:
+        # L1: NO HARD MASK FORCING for sin
+        # The original strategy forces it at this point:
         # new_act_mask = new_act_mask.at[4].set(1.0)
 
         # Select agg palette
@@ -554,8 +554,8 @@ class MorphogenSoftL1Strategy(PaletteEvolutionStrategy):
         for idx in top_agg_indices:
             new_agg_mask = new_agg_mask.at[int(idx)].set(1.0)
 
-        # L1 CRITICAL CHANGE: NO HARD MASK FORCING for extreme aggs
-        # Original code REMOVED:
+        # L1: NO HARD MASK FORCING for extreme aggs
+        # The original strategy forces one at this point:
         # has_extreme = any(new_agg_mask[agg] > 0.5 for agg in CORE_EXTREME_AGGS)
         # if not has_extreme:
         #     new_agg_mask = new_agg_mask.at[2].set(1.0)

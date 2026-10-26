@@ -9,7 +9,7 @@ Problem with pure multiplicative coupling:
 - No structural locking mechanism
 - Domain shifts can erode even strong affinities
 
-Key Innovation:
+Mechanism:
 - GRN regulation creates explicit activation-aggregation links
 - Sin-extreme pairings form stable regulatory attractors
 - Expression-based selection reinforces proven pairings
@@ -42,13 +42,13 @@ from .base_strategy import (
 
 
 class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
-    """GRN-enhanced cross-domain multiplicative dual palette evolution.
+    """Multiplicative cross-domain dual palette evolution with GRN attractor locking.
 
     Combines multiplicative cross-domain affinity
     with GRN regulatory circuits. Sin-extreme pairings form stable
     regulatory attractors.
 
-    Critical innovation: Regulatory circuits create structural locking
+    Regulatory circuits create structural locking
     beyond affinity - pairings are "wired in" through evolved regulation.
     """
 
@@ -57,7 +57,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === GRN PARAMETERS (NEW from genetic_regulatory_network) ===
+        # GRN PARAMETERS (from genetic_regulatory_network)
         hill_coefficient: float = 2.0,             # Sigmoidal steepness
         regulation_learning_rate: float = 0.08,    # How fast links adapt
         regulation_decay: float = 0.98,            # Passive link decay
@@ -65,37 +65,37 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
         sin_extreme_activation_link: float = 0.5,  # Initial sin-extreme link
         multiplicative_regulation_update: bool = True,  # Multiplicative GRN updates
         expression_influence: float = 0.3,         # How much expression affects selection
-        # === MULTIPLICATIVE CROSS-DOMAIN (from #103) ===
+        # MULTIPLICATIVE CROSS-DOMAIN (from #103)
         multiplicative_update: bool = True,
         cross_affinity_growth_factor: float = 1.15,
         cross_affinity_decay_factor: float = 0.98,
         sin_extreme_multiplier: float = 1.5,
         mutual_capture_bonus: float = 0.4,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         base_cross_learning_rate: float = 0.10,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize GRN Cross-Domain v2 strategy."""
-        # GRN parameters (NEW)
+        # GRN parameters
         self.hill_coefficient = hill_coefficient
         self.regulation_learning_rate = regulation_learning_rate
         self.regulation_decay = regulation_decay
@@ -181,7 +181,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
         for j in CORE_EXTREME_AGGS:
             cross_affinity = cross_affinity.at[4, j].set(0.6)
 
-        # GRN state (NEW)
+        # GRN state
         cross_regulation = self._initialize_cross_regulation()
         act_expression = jnp.ones(NUM_ACTIVATIONS) * 0.3
         agg_expression = jnp.ones(NUM_AGGREGATIONS) * 0.3
@@ -207,7 +207,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
             'tag_history': [],
             # Cross-domain
             'cross_affinity': cross_affinity,
-            # GRN state (NEW)
+            # GRN state
             'cross_regulation': cross_regulation,
             'act_expression': act_expression,
             'agg_expression': agg_expression,
@@ -298,7 +298,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, int, int]:
         """Update cross-regulatory links based on co-activity and fitness.
 
-        KEY INNOVATION: Successful sin-extreme co-activation strengthens
+        Successful sin-extreme co-activation strengthens
         regulatory links, creating stable attractor states.
         """
         new_reg = cross_regulation * self.regulation_decay
@@ -373,7 +373,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
                 max_cross = float(jnp.max(cross_affinity[i, :]))
                 tag_strength *= (1 + 0.2 * max_cross)
 
-                # REGULATION BOOST (NEW) - strong regulation = faster tagging
+                # REGULATION BOOST - strong regulation = faster tagging
                 max_reg = float(jnp.max(cross_regulation[i, :]))
                 tag_strength *= (1 + 0.3 * max_reg)
 
@@ -542,7 +542,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
         # Base score
         score = affinities + captured * 0.3 + tags * 0.2
 
-        # EXPRESSION INFLUENCE (NEW)
+        # EXPRESSION INFLUENCE
         score = score + expression * self.expression_influence
 
         # Cross-domain influence
@@ -608,7 +608,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
         prev_best_fitness: float,
         population_data: Optional[Dict] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Update with GRN-enhanced multiplicative cross-domain dynamics."""
+        """Update with multiplicative cross-domain dynamics plus GRN attractor locking."""
         key, k1, k2 = jax.random.split(state['rng_key'], 3)
 
         improved = best_fitness > state['best_fitness_seen']
@@ -621,21 +621,21 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === EXPRESSION UPDATE (NEW) ===
+        # EXPRESSION UPDATE
         new_act_expr, new_agg_expr = self._update_expression(
             state['act_expression'], state['agg_expression'],
             state['act_mask'], state['agg_mask'],
             state['cross_regulation']
         )
 
-        # === REGULATION UPDATE (NEW) ===
+        # REGULATION UPDATE
         new_cross_reg, strengthening_events, attractor_locks = self._update_cross_regulation(
             state['cross_regulation'],
             state['act_mask'], state['agg_mask'],
             state['cross_affinity'], fitness_delta
         )
 
-        # === TAGGING WITH REGULATION ===
+        # TAGGING WITH REGULATION
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -646,7 +646,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE WITH MUTUAL BONUS AND REGULATION ===
+        # CAPTURE WITH MUTUAL BONUS AND REGULATION
         (new_act_captured, new_agg_captured, post_capture_cross, post_capture_reg,
          capture_count, mutual_capture_count) = self._attempt_capture_with_mutual_bonus(
             new_act_tags, new_agg_tags,
@@ -655,7 +655,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === MULTIPLICATIVE AFFINITY UPDATE ===
+        # MULTIPLICATIVE AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity, growth_events = \
             self._update_affinities_multiplicative(
                 state['act_affinities'], state['agg_affinities'],
@@ -663,7 +663,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
                 post_capture_cross, post_capture_reg, fitness_delta
             )
 
-        # === PALETTE SELECTION WITH EXPRESSION ===
+        # PALETTE SELECTION WITH EXPRESSION
         new_act_mask, act_diversity_rescue = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_expr,
             new_cross_affinity, post_capture_reg, state['agg_mask'],
@@ -699,7 +699,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
             'agg_captured': new_agg_captured,
             'tag_history': new_tag_history,
             'cross_affinity': new_cross_affinity,
-            # GRN state (NEW)
+            # GRN state
             'cross_regulation': post_capture_reg,
             'act_expression': new_act_expr,
             'agg_expression': new_agg_expr,
@@ -733,7 +733,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # GRN metrics (NEW)
+            # GRN metrics
             'sin_max_regulation': sin_max_reg,
             'sin_min_regulation': sin_min_reg,
             'max_regulation': float(jnp.max(post_capture_reg)),
@@ -780,7 +780,7 @@ class GRNCrossV2DualStrategy(PaletteEvolutionStrategy):
             'has_sin': 4 in act_palette,
             'has_max': 2 in agg_palette,
             'has_min': 3 in agg_palette,
-            # GRN (NEW)
+            # GRN
             'sin_max_regulation': float(state['cross_regulation'][4, 2]),
             'sin_min_regulation': float(state['cross_regulation'][4, 3]),
             'max_regulation': float(jnp.max(state['cross_regulation'])),

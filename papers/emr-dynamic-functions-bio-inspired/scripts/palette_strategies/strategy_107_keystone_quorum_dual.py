@@ -3,14 +3,15 @@
 Combines quorum sensing (strategy 27), ecosystem dynamics/keystones (strategy 46),
 and clonal hybrid (strategy 91) for population-consensus-driven keystone discovery.
 
-Key Innovation:
-- Population-level VOTING determines which functions become keystones
+Mechanism:
+- VOTING by the palettes' own active functions (a stand-in for population usage)
+  determines which functions become keystones
 - Minority protection keeps exploration paths open for rare but useful functions
 - Keystones emerge from consensus, not just individual success
 - Sin-extreme consensus triggers mutual keystone promotion
 
 Bio inspiration: Bacterial quorum sensing coordinates population behavior.
-Functions that reach population consensus become community keystones.
+Functions that reach consensus become community keystones.
 Minority protection ensures rare variants aren't lost.
 """
 
@@ -34,7 +35,9 @@ from .base_strategy import (
 class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
     """Population voting determines keystones.
 
-    Quorum sensing for collective keystone discovery.
+    Quorum sensing for collective keystone discovery. The votes come from the palettes'
+    own active functions, weighted by relative fitness, as a stand-in for population
+    usage (population_data is not read).
     Sin and extreme aggregations reaching consensus together become super-keystones.
     """
 
@@ -43,35 +46,35 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === QUORUM PARAMETERS (KEY INNOVATION) ===
+        # QUORUM PARAMETERS
         quorum_threshold: float = 0.4,           # 40% consensus for keystone
         minority_threshold: float = 0.05,        # Below 5% = protected exploration
         signal_decay: float = 0.85,              # Collective memory persistence
-        keystone_from_quorum_gens: int = 5,      # Generations at quorum → keystone
-        # === Keystone parameters ===
+        keystone_from_quorum_gens: int = 5,      # Generations at quorum -> keystone
+        # Keystone parameters
         keystone_protection: float = 0.85,       # Protection level for keystones
         keystone_facilitation: float = 0.4,      # Keystone helps neighbors
         sin_extreme_quorum_boost: float = 0.3,   # Boost when sin+extreme both at quorum
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Exploration parameters ===
+        # Exploration parameters
         exploration_rate: float = 0.20,
         minority_explore_boost: float = 1.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Keystone Quorum Dual strategy."""
-        # Quorum (KEY)
+        # Quorum
         self.quorum_threshold = quorum_threshold
         self.minority_threshold = minority_threshold
         self.signal_decay = signal_decay
@@ -324,7 +327,7 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === COLLECTIVE MEMORY UPDATE ===
+        # COLLECTIVE MEMORY UPDATE
         new_act_collective = self._update_collective_memory(
             state['act_collective'], state['act_mask'], best_fitness, new_best
         )
@@ -332,7 +335,7 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
             state['agg_collective'], state['agg_mask'], best_fitness, new_best
         )
 
-        # === SIN-EXTREME CO-QUORUM BOOST ===
+        # SIN-EXTREME CO-QUORUM BOOST
         sin_boost, agg_boost, co_quorum = self._compute_sin_extreme_boost(
             new_act_collective, new_agg_collective
         )
@@ -345,7 +348,7 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
                     min(1.0, new_agg_collective[j] + agg_boost)
                 )
 
-        # === QUORUM STATUS UPDATE ===
+        # QUORUM STATUS UPDATE
         new_act_above, new_act_keystones, act_promotions = self._update_quorum_status(
             new_act_collective, state['act_above_quorum_count'],
             state['act_keystones'], NUM_ACTIVATIONS, prefer_indices=[4]
@@ -355,7 +358,7 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
             state['agg_keystones'], NUM_AGGREGATIONS, prefer_indices=list(CORE_EXTREME_AGGS)
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff = state['act_affinities'] * self.affinity_decay
         new_agg_aff = state['agg_affinities'] * self.affinity_decay
         if fitness_delta > 0:
@@ -370,7 +373,7 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_agg_aff[j] + self.agg_affinity_lr * fitness_delta)
                     )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_minority = self._select_palette(
             new_act_aff, new_act_collective, new_act_keystones,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -421,7 +424,7 @@ class KeystoneQuorumDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Quorum metrics (KEY)
+            # Quorum metrics
             'sin_collective': float(new_act_collective[4]),
             'max_collective': float(new_agg_collective[2]),
             'min_collective': float(new_agg_collective[3]),

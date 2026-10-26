@@ -1,14 +1,15 @@
 """Strategy 27D: Quorum Sensing Dual (Population-Level Consensus for Both Domains).
 
 Extends QuorumSensingStrategy to jointly evolve BOTH activation AND aggregation
-function palettes using population-level voting and consensus mechanisms.
+function palettes using voting by the elite's palettes, standing in for the population,
+and consensus mechanisms.
 
 Cross-Domain Learning:
 - Separate collective memory for activation and aggregation domains
 - Cross-domain consensus: high activation quorum can support related aggregations
 - Shared signal propagation with domain-specific thresholds
 
-Key Dual Mechanisms:
+Dual Mechanisms:
 1. Dual collective memory - separate population signals for both domains
 2. Dual quorum thresholds - aggregations may need different consensus levels
 3. Cross-domain stable promotion - functions supported by cross-domain success
@@ -36,7 +37,9 @@ DEFAULT_AGGREGATION_INDICES = [0, 1]  # sum, mean
 class QuorumSensingDualStrategy(PaletteEvolutionStrategy):
     """Population-level consensus for dual activation+aggregation palettes.
 
-    Functions in both domains accumulate "votes" from across the population.
+    Functions in both domains accumulate "votes" from the palettes' own active
+    functions, weighted by relative fitness, as a stand-in for population usage
+    (population_data is not read).
     When a quorum is reached, functions are promoted to stable status.
     Cross-domain learning allows activation and aggregation discoveries
     to mutually reinforce each other.
@@ -431,7 +434,7 @@ class QuorumSensingDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute population signals for both domains
+        # Compute population signals for both domains
         act_signal, agg_signal = self._compute_population_signal(
             state['act_mask'],
             state['agg_mask'],
@@ -439,7 +442,7 @@ class QuorumSensingDualStrategy(PaletteEvolutionStrategy):
             new_best,
         )
 
-        # Step 2: Update collective memories
+        # Update collective memories
         new_act_collective, new_agg_collective = self._update_collective_memory(
             state['act_collective'],
             state['agg_collective'],
@@ -447,7 +450,7 @@ class QuorumSensingDualStrategy(PaletteEvolutionStrategy):
             agg_signal,
         )
 
-        # Step 3: Update cross-domain affinity
+        # Update cross-domain affinity
         new_cross = self._update_cross_affinity(
             state['cross_affinity'],
             state['act_mask'],
@@ -455,7 +458,7 @@ class QuorumSensingDualStrategy(PaletteEvolutionStrategy):
             fitness_delta,
         )
 
-        # Step 4: Update quorum counts for both domains
+        # Update quorum counts for both domains
         new_act_above, new_act_below, new_act_stable = self._update_quorum_counts(
             new_act_collective,
             state['act_above_quorum'],
@@ -474,7 +477,7 @@ class QuorumSensingDualStrategy(PaletteEvolutionStrategy):
             NUM_AGGREGATIONS,
         )
 
-        # Step 5: Apply mutations to both domains
+        # Apply mutations to both domains
         new_act_mask, act_mutation = self._apply_quorum_mutation_act(
             k1, state['act_mask'], new_act_collective, new_act_stable,
             new_cross, state['agg_mask']

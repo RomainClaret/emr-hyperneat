@@ -4,8 +4,8 @@ Combines:
 - Strategy 81 (Synaptic Tagging): Tag-and-capture consolidation (100% sin retention)
 - Strategy 74 (Cross-Domain Reinforcement): 2x learning when both domains change (67% Parity-5)
 
-Key innovation: Cross-capture requires BOTH tag AND high affinity, combining
-temporal importance (tagging) with cross-domain synergy (reinforcement).
+Cross-capture requires BOTH tag AND high affinity, combining
+temporal importance (tagging) with cross-domain affinity (reinforcement).
 
 Bio inspiration: Synaptic consolidation is modulated by neuromodulatory signals
 that track global reward - tagging marks candidates, reinforcement confirms importance.
@@ -39,8 +39,8 @@ class TagReinforcementDualStrategy(PaletteEvolutionStrategy):
     - Synaptic tagging (81): Two-stage tag-and-capture consolidation
     - Cross-domain reinforcement (74): 2x learning when both domains improve
 
-    Critical interaction: Cross-capture requires BOTH domains tagged AND
-    high cross-affinity, ensuring only synergistic pairs are consolidated.
+    Interaction: Cross-capture requires BOTH domains tagged AND
+    high cross-affinity, ensuring only pairs that succeed together are consolidated.
     """
 
     name = "tag_reinforcement_dual"
@@ -48,7 +48,7 @@ class TagReinforcementDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Tagging parameters (from strategy 81) ===
+        # Tagging parameters (from strategy 81)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -56,23 +56,23 @@ class TagReinforcementDualStrategy(PaletteEvolutionStrategy):
         fitness_delta_threshold: float = 0.01,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Reinforcement parameters (from strategy 74) ===
+        # Reinforcement parameters (from strategy 74)
         base_cross_learning_rate: float = 0.15,
         reinforcement_multiplier: float = 2.0,  # When BOTH domains change
         affinity_protection_threshold: float = 0.6,
         affinity_protection_strength: float = 0.5,
-        # === Combined: Cross-capture threshold ===
+        # Combined: Cross-capture threshold
         cross_capture_affinity_threshold: float = 0.65,  # Need high affinity + tag
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         stagnation_threshold: int = 5,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
         # Alias for compatibility with test scripts
@@ -428,7 +428,7 @@ class TagReinforcementDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === TAGGING MECHANISM ===
+        # TAGGING MECHANISM
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -438,7 +438,7 @@ class TagReinforcementDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === REINFORCEMENT MECHANISM ===
+        # REINFORCEMENT MECHANISM
         new_cross_affinity, reinforcement_events = self._update_cross_affinity_reinforced(
             state['cross_affinity'],
             state['act_mask'], state['agg_mask'],
@@ -446,14 +446,14 @@ class TagReinforcementDualStrategy(PaletteEvolutionStrategy):
             improvement
         )
 
-        # === COMBINED CAPTURE ===
+        # COMBINED CAPTURE
         new_act_captured, new_agg_captured, capture_count, cross_capture_count = self._attempt_capture_combined(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_cross_affinity, new_tag_history, generation, improved
         )
 
-        # === MUTATIONS ===
+        # MUTATIONS
         should_mutate = new_stagnation >= self.stagnation_threshold
         new_act_mask = state['act_mask']
         new_agg_mask = state['agg_mask']

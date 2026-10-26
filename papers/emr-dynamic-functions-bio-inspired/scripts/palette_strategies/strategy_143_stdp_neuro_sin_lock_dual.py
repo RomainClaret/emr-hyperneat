@@ -3,7 +3,7 @@
 Combines the best working mechanism (STDP-Neurogenesis survival) with
 the Sin-Extreme-Lock mechanism for coexistence-based protection.
 
-Key Combination:
+Combination:
 - From #117: STDP temporal credit for survival, neurogenesis, maturation periods
 - From #139: Coexistence locking where sin+extreme pairs become locked
 
@@ -37,7 +37,7 @@ class STDPNeuroSinLockDualStrategy(PaletteEvolutionStrategy):
     Hybrid of best working mechanism with explicit
     sin-extreme protection through coexistence locking.
 
-    Critical innovation: Combines temporal learning (STDP) with spatial
+    Combines temporal learning (STDP) with spatial
     locking (sin-extreme pairs) for robust retention.
     """
 
@@ -46,36 +46,36 @@ class STDPNeuroSinLockDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP PARAMETERS (FROM #117) ===
+        # STDP PARAMETERS (FROM #117)
         stdp_ltp_window: int = 5,
         stdp_ltd_window: int = 8,
         stdp_learning_rate: float = 0.15,
         stdp_survival_multiplier: float = 0.7,
-        # === NEUROGENESIS PARAMETERS (FROM #117) ===
+        # NEUROGENESIS PARAMETERS (FROM #117)
         neurogenesis_rate: float = 0.10,
         maturation_period: int = 8,
         immature_protection: float = 0.3,
-        # === LOCK PARAMETERS (FROM #139) ===
+        # LOCK PARAMETERS (FROM #139)
         coexistence_lock_threshold: int = 5,
         lock_protection_strength: float = 0.9,
         lock_pairs: List[Tuple[int, int]] = None,
-        # === GUARANTEED INITIAL STATE ===
+        # GUARANTEED INITIAL STATE
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_after: int = 6,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -135,7 +135,7 @@ class STDPNeuroSinLockDualStrategy(PaletteEvolutionStrategy):
         initial_act = config.get('initial_palette', self.initial_act_palette)
         initial_agg = config.get('initial_agg_palette', self.initial_agg_palette)
 
-        # CRITICAL: Ensure sin and extreme in initial palette
+        # Ensure sin and extreme in initial palette
         if self.sin_always_initial and 4 not in initial_act:
             initial_act = list(initial_act) + [4]
 
@@ -412,7 +412,7 @@ class STDPNeuroSinLockDualStrategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > agg_protection[j]:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # CRITICAL: Ensure sin and extreme aggs are never removed
+        # Ensure sin and extreme aggs are never removed
         new_act_mask = new_act_mask.at[4].set(1.0)
         for agg in CORE_EXTREME_AGGS:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

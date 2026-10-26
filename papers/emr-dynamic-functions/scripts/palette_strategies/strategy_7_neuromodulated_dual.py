@@ -4,15 +4,15 @@ Extends Neuromodulated strategy to jointly evolve both palettes using same
 neuromodulatory signals:
 
 Bio-inspired neuromodulation:
-- Dopamine (DA): Reward signal → reduce exploration when improving
-- Acetylcholine (ACh): Uncertainty signal → increase exploration when stagnating
-- Norepinephrine (NE): Arousal signal → amplify plasticity early or when challenged
+- Dopamine (DA): Reward signal -> reduce exploration when improving
+- Acetylcholine (ACh): Uncertainty signal -> increase exploration when stagnating
+- Norepinephrine (NE): Arousal signal -> amplify plasticity early or when challenged
 
 Both activation and aggregation palettes respond to the same global neuromodulator
 state - just as in the brain, neuromodulators affect learning globally.
 
-Key innovation: Cross-domain sticky patterns - oscillatory activations (sin, burst,
-resonator) protected together with complementary aggregations.
+Cross-domain sticky patterns: oscillatory activations (sin, burst,
+resonator) are protected together with complementary aggregations.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -43,9 +43,9 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
     """Asymmetric+Sticky with neuromodulatory rate adjustment for BOTH palettes.
 
     Neuromodulation dynamically adjusts rates for both domains:
-    - Dopamine (reward): When fitness improves → reduce exploration (exploit)
-    - Acetylcholine (uncertainty): When stagnating → increase exploration
-    - Norepinephrine (arousal): Early in evolution → high plasticity
+    - Dopamine (reward): When fitness improves -> reduce exploration (exploit)
+    - Acetylcholine (uncertainty): When stagnating -> increase exploration
+    - Norepinephrine (arousal): Early in evolution -> high plasticity
 
     Cross-domain learning:
     - Tracks which activation-aggregation combinations succeed
@@ -164,7 +164,7 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
         """Update neuromodulator levels based on learning progress."""
         alpha = self.modulation_ema_alpha
 
-        # --- Dopamine: Reward signal ---
+        # Dopamine: Reward signal
         improvement = best_fitness - prev_best_fitness
         if prev_best_fitness > 0:
             relative_improvement = improvement / prev_best_fitness
@@ -174,12 +174,12 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
         da_signal = max(0, min(1, 0.5 + relative_improvement * 10))
         new_dopamine = (1 - alpha) * state['dopamine'] + alpha * da_signal
 
-        # --- Acetylcholine: Uncertainty signal ---
+        # Acetylcholine: Uncertainty signal
         stagnation = state['stagnation_count'] / max(self.stagnation_threshold, 1)
         ach_signal = min(1.0, stagnation)
         new_acetylcholine = (1 - alpha) * state['acetylcholine'] + alpha * ach_signal
 
-        # --- Norepinephrine: Arousal/Plasticity signal ---
+        # Norepinephrine: Arousal/Plasticity signal
         time_decay = max(0, 1.0 - generation / 50.0)
         challenge = 1.0 - best_fitness
         ne_signal = max(time_decay, challenge * 0.5)
@@ -243,7 +243,7 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, List[int], List[int]]:
         """Apply neuromodulated mutation to activation palette.
 
-        Key constraint: max_active_act prevents antagonism (>6 activations hurts).
+        Constraint: max_active_act prevents antagonism (>6 activations hurts).
         """
         key1, key2 = jax.random.split(key)
 
@@ -265,7 +265,7 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
         for i in range(NUM_ACTIVATIONS):
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # CRITICAL: Skip if already at max
+                # Skip if already at max
                 if current_active + len(activated) >= self.max_active_act:
                     continue
 
@@ -306,7 +306,7 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, List[int], List[int]]:
         """Apply neuromodulated mutation to aggregation palette.
 
-        Key constraint: max_active_agg prevents overload.
+        Constraint: max_active_agg prevents overload.
         """
         key1, key2 = jax.random.split(key)
 
@@ -331,7 +331,7 @@ class NeuromodulatedDualStrategy(PaletteEvolutionStrategy):
         for i in range(NUM_AGGREGATIONS):
             if mask[i] < 0.5:
                 # Inactive - might activate
-                # CRITICAL: Skip if already at max
+                # Skip if already at max
                 if current_active + len(activated) >= self.max_active_agg:
                     continue
 

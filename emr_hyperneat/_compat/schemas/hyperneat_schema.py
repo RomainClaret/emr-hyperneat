@@ -14,12 +14,11 @@ All defaults verified against TensorNEAT library and YAML configs:
 
 from pydantic import BaseModel, Field
 from typing import List, Literal
-from .neat_schema import NEATConfig, MutationConfig, SpeciesConfig, SelectionConfig
+from .neat_schema import NEATConfig, SpeciesConfig, SelectionConfig
 from .base import (
     WeightConfig,
     BiasConfig,
     ResponseConfig,
-    ActivationConfig,
 )
 
 
@@ -27,12 +26,12 @@ class CPPNActivationConfig(BaseModel):
     """CPPN-specific activation function configuration.
 
     CPPNs use specialized activation functions for generating spatial patterns:
-    - sin: Periodic patterns (regularity) - NEAT-python supports sin but NOT cos
+    - sin: Periodic patterns (regularity) - NEAT-python supports sin but not cos
     - gauss: Localized patterns (symmetry)
     - sigmoid, tanh: Standard non-linearities
     - relu, identity: Linear/piecewise patterns
 
-    NOTE: 'cos' is NOT supported by NEAT-python despite being theoretically useful for CPPNs.
+    'cos' is not supported by NEAT-python despite being theoretically useful for CPPNs.
     """
 
     default: Literal['sigmoid', 'tanh', 'sin', 'gauss', 'relu', 'identity'] = Field(

@@ -7,7 +7,7 @@ Extends ClonalSelectionDualStrategy with symmetric discovery features:
 - Discovery-to-palette bridging
 - Memory cell status for cross-task functions
 
-Key innovations:
+Mechanisms:
 - Affinity floors prevent loss of critical functions (sin, max, min)
 - Discovery tracking measures when new functions are found
 - Discovery boost ensures discovered functions enter palette
@@ -48,7 +48,7 @@ class ClonalSelectionSymmetricStrategy(PaletteEvolutionStrategy):
     how well they match the current problem. High-affinity functions proliferate
     while low-affinity ones decay but aren't eliminated.
 
-    Enhancements:
+    Additions:
     - Sin affinity floor: sin never drops below threshold
     - Extreme agg affinity floor: max/min never drop below threshold
     - Discovery tracking: monitors when new functions enter palette
@@ -511,7 +511,7 @@ class ClonalSelectionSymmetricStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute fitness contributions for both domains
+        # Compute fitness contributions for both domains
         act_contrib, agg_contrib = self._compute_fitness_contributions(
             state['act_mask'],
             state['agg_mask'],
@@ -519,7 +519,7 @@ class ClonalSelectionSymmetricStrategy(PaletteEvolutionStrategy):
             prev_best_fitness,
         )
 
-        # Step 2: Update cross-domain affinity
+        # Update cross-domain affinity
         new_cross = self._update_cross_affinity(
             state['cross_affinity'],
             state['act_mask'],
@@ -550,7 +550,7 @@ class ClonalSelectionSymmetricStrategy(PaletteEvolutionStrategy):
             if i not in agg_ever_discovered and i not in current_agg_palette
         ]
 
-        # Step 3: Update affinities with hypermutation and discovery boost
+        # Update affinities with hypermutation and discovery boost
         new_act_aff, act_hypermut = self._update_affinities(
             state['act_affinities'], act_contrib, act_cross_boost, k1,
             self.act_affinity_lr, self.act_affinity_decay,
@@ -573,7 +573,7 @@ class ClonalSelectionSymmetricStrategy(PaletteEvolutionStrategy):
             new_agg_aff, state['agg_memory_counts'], state['agg_memory_cells']
         )
 
-        # Step 4: Update expressions
+        # Update expressions
         new_act_exp = self._update_expressions(
             state['act_expressions'], new_act_aff,
             self.act_affinity_threshold, self.act_proliferation_rate,
@@ -587,11 +587,11 @@ class ClonalSelectionSymmetricStrategy(PaletteEvolutionStrategy):
             new_agg_mem_cells
         )
 
-        # Step 5: Ensure diversity
+        # Ensure diversity
         new_act_exp = self._ensure_diversity(new_act_exp, self.min_diversity_act)
         new_agg_exp = self._ensure_diversity(new_agg_exp, self.min_diversity_agg)
 
-        # Step 6: Select palettes with discovery slot
+        # Select palettes with discovery slot
         new_act_mask, act_disc_to_pal = self._select_palette(
             new_act_exp, self.act_palette_size,
             self.min_active_act, self.max_active_act,

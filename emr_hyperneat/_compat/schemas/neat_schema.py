@@ -111,14 +111,14 @@ class GenomeConfig(BaseModel):
     )
 
     # Complexity limits
-    # NOTE: These are TensorNEAT-specific, NOT in official NEAT-python docs!
+    # These are TensorNEAT-specific, not in official NEAT-python docs.
     max_nodes: int = Field(
         default=50,
         ge=1,
         description="Maximum number of nodes allowed in genome. TensorNEAT-only (genome.max_nodes), NOT in NEAT-python.",
         json_schema_extra=impl_meta(
-            supported_by={"tensorneat"},  # TensorNEAT-only, NOT PUREPLES!
-            notes="TensorNEAT-specific: genome.max_nodes attribute. NOT in official NEAT-python documentation."
+            supported_by={"tensorneat"},  # TensorNEAT-only, not PUREPLES
+            notes="TensorNEAT-specific: genome.max_nodes attribute. Not in official NEAT-python documentation."
         )
     )
     max_connections: int = Field(
@@ -126,8 +126,8 @@ class GenomeConfig(BaseModel):
         ge=1,
         description="Maximum number of connections allowed in genome. TensorNEAT-only (genome.max_conns), NOT in NEAT-python.",
         json_schema_extra=impl_meta(
-            supported_by={"tensorneat"},  # TensorNEAT-only, NOT PUREPLES!
-            notes="TensorNEAT-specific: genome.max_conns attribute. NOT in official NEAT-python documentation."
+            supported_by={"tensorneat"},  # TensorNEAT-only, not PUREPLES
+            notes="TensorNEAT-specific: genome.max_conns attribute. Not in official NEAT-python documentation."
         )
     )
 
@@ -244,7 +244,7 @@ class GenomeConfig(BaseModel):
         description="Initial hidden layer sizes for topology initialization (empty tuple = minimal topology). TensorNEAT-only.",
         json_schema_extra=impl_meta(
             supported_by={"tensorneat"},
-            notes="Specifies initial hidden nodes instead of starting with direct input→output connections"
+            notes="Specifies initial hidden nodes instead of starting with direct input->output connections"
         )
     )
 
@@ -387,7 +387,7 @@ class SelectionConfig(BaseModel):
     )
 
     # Reproduction
-    # NOTE: These parameters are NOT in official NEAT-python documentation!
+    # These parameters are not in official NEAT-python documentation.
     # Verified against: https://neat-python.readthedocs.io/en/latest/config_file.html
     # [DefaultReproduction] only has: elitism, survival_threshold, min_species_size
     crossover_rate: float = Field(
@@ -396,8 +396,8 @@ class SelectionConfig(BaseModel):
         le=1.0,
         description="Probability of crossover vs cloning for reproduction. NOT IN NEAT-PYTHON - crossover is hardcoded. Invalid parameter.",
         json_schema_extra=impl_meta(
-            supported_by=set(),  # NOT supported by any implementation!
-            notes="NOT in official NEAT-python docs. Crossover is hardcoded in NEAT algorithm. This parameter has no effect."
+            supported_by=set(),  # Not supported by any implementation
+            notes="Not in official NEAT-python docs. Crossover is hardcoded in NEAT algorithm. This parameter has no effect."
         )
     )
     interspecies_crossover_rate: float = Field(
@@ -406,8 +406,8 @@ class SelectionConfig(BaseModel):
         le=1.0,
         description="Probability of mating between different species. NOT IN NEAT-PYTHON. Invalid parameter.",
         json_schema_extra=impl_meta(
-            supported_by=set(),  # NOT supported by any implementation!
-            notes="NOT in official NEAT-python docs or TensorNEAT constructor. This parameter has no effect."
+            supported_by=set(),  # Not supported by any implementation
+            notes="Not in official NEAT-python docs or TensorNEAT constructor. This parameter has no effect."
         )
     )
 
@@ -417,8 +417,8 @@ class SelectionConfig(BaseModel):
         ge=2,
         description="Tournament size for parent selection (None = fitness proportional). TensorNEAT-only, NOT in NEAT-python.",
         json_schema_extra=impl_meta(
-            supported_by={"tensorneat"},  # TensorNEAT-only, NOT PUREPLES!
-            notes="TensorNEAT-specific parameter. NOT in official NEAT-python documentation."
+            supported_by={"tensorneat"},  # TensorNEAT-only, not PUREPLES
+            notes="TensorNEAT-specific parameter. Not in official NEAT-python documentation."
         )
     )
 

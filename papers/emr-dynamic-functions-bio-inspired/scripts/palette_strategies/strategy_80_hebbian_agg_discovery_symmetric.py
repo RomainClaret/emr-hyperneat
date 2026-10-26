@@ -5,7 +5,7 @@ Extended to cross-domain: activation-aggregation pairs that succeed together bec
 In symmetric search, this extends to discovering BOTH activation AND aggregation functions
 through unified Hebbian learning.
 
-Key mechanisms for SYMMETRIC discovery:
+Mechanisms for SYMMETRIC discovery:
 1. 18x6 cross-domain Hebbian matrix tracking activation-aggregation pairs
 2. PLUS within-domain Hebbian for both activation and aggregation discovery
 3. Boosted learning rate for sin-extreme pairs (1.5x multiplier)
@@ -14,7 +14,7 @@ Key mechanisms for SYMMETRIC discovery:
 6. Memory cell crystallization for sustained high-Hebbian functions
 7. Affinity floors for guaranteed retention
 
-Expected: Better sin-max/min synergy discovery through explicit bidirectional pair learning.
+Expected: Better discovery of sin-max/min pairs through explicit bidirectional pair learning.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -48,7 +48,7 @@ class HebbianAggDiscoverySymmetricStrategy(PaletteEvolutionStrategy):
     evolution guided by Hebbian co-occurrence learning. When pairs of
     functions succeed together, their association is strengthened.
 
-    Key improvements over dual version:
+    Improvements over the dual version:
     - Protected indices for sin and extreme aggregations
     - Affinity floors for guaranteed retention
     - Memory cell crystallization for proven functions
@@ -146,7 +146,7 @@ class HebbianAggDiscoverySymmetricStrategy(PaletteEvolutionStrategy):
         self.max_active_act = max_active_act
         self.max_active_agg = max_active_agg
 
-        # CRITICAL: Include sin (idx 4) and extreme aggs (idx 2,3) in initial palettes
+        # Include sin (idx 4) and extreme aggs (idx 2,3) in initial palettes
         # This ensures they start active and can be protected from the beginning
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]  # tanh, sigmoid, relu, identity, sin
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]  # sum, mean, max, min

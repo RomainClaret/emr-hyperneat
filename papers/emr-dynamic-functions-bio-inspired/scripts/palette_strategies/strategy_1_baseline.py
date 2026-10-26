@@ -85,7 +85,7 @@ class BaselineStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, Dict]:
         """Apply uniform symmetric mutation.
 
-        Each activation has mutation_rate chance to flip (on→off or off→on).
+        Each activation has mutation_rate chance to flip (on->off or off->on).
 
         Args:
             key: JAX random key

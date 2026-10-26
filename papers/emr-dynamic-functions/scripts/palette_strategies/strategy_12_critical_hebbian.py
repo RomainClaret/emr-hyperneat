@@ -3,7 +3,7 @@
 Combines critical period developmental phases with Hebbian learning to
 discover what to protect WITHOUT hard-coding any function indices.
 
-Key insight: Instead of hard-coding OSCILLATORY_INDICES, let Hebbian
+Instead of hard-coding OSCILLATORY_INDICES, let Hebbian
 learning discover which functions are valuable based on fitness signal.
 
 Phases:
@@ -263,8 +263,8 @@ class CriticalHebbianStrategy(PaletteEvolutionStrategy):
         """Apply phase-appropriate mutation with Hebbian-learned protection.
 
         During CONFIRMATION:
-        - High protection score → low deactivation rate (LEARNED, not hard-coded)
-        - Low protection score → high deactivation rate
+        - High protection score -> low deactivation rate (LEARNED, not hard-coded)
+        - Low protection score -> high deactivation rate
         """
         key1, key2 = jax.random.split(key)
 
@@ -313,9 +313,9 @@ class CriticalHebbianStrategy(PaletteEvolutionStrategy):
                     deact_rate = self.consolidation_deactivate
 
                 elif phase == CriticalPeriodPhase.CONFIRMATION:
-                    # HEBBIAN-GUIDED PROTECTION (the key innovation)
-                    # High affinity → low deactivation rate
-                    # Low affinity → high deactivation rate
+                    # HEBBIAN-GUIDED PROTECTION
+                    # High affinity -> low deactivation rate
+                    # Low affinity -> high deactivation rate
                     # Linear interpolation between min and max
 
                     if protection >= self.affinity_protection_threshold:
@@ -324,8 +324,8 @@ class CriticalHebbianStrategy(PaletteEvolutionStrategy):
                         protection_info[i] = f"protected (affinity={protection:.2f})"
                     else:
                         # Interpolate: lower affinity = higher deactivation
-                        # affinity 0 → deactivate_max
-                        # affinity threshold → deactivate_min
+                        # affinity 0 -> deactivate_max
+                        # affinity threshold -> deactivate_min
                         t = protection / self.affinity_protection_threshold
                         deact_rate = (
                             self.confirmation_deactivate_max * (1 - t) +

@@ -12,7 +12,7 @@ Biological Basis:
 - Early periods favor basic features, late periods favor specialization
 - Different brain regions have different critical period timing
 
-Key Insight:
+Rationale:
 - Previous critical period strategies use single binary periods
 - Real development has multiple overlapping windows
 - Gradual closure provides smoother transitions
@@ -37,7 +37,7 @@ Refined Mechanism:
         for period in recently_closed_periods:
             openness[period] = min(openness[period] + reopening_boost, 1.0)
 
-Expected improvements:
+Intended effects:
 - More biologically realistic developmental trajectory
 - Better exploration of different function types at optimal times
 - Graceful transitions instead of abrupt closures
@@ -413,7 +413,7 @@ class CriticalPeriodRefinedStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Check for reopening
+        # Check for reopening
         new_reopened, new_last_reopen, reopened_periods = self._check_for_reopening(
             state['period_openness'],
             state['reopened_until'],
@@ -422,17 +422,17 @@ class CriticalPeriodRefinedStrategy(PaletteEvolutionStrategy):
             generation,
         )
 
-        # Step 2: Update period openness
+        # Update period openness
         new_period_openness, newly_closed = self._update_all_period_openness(
             state['period_openness'],
             new_reopened,
             generation,
         )
 
-        # Step 3: Compute function-level openness
+        # Compute function-level openness
         new_func_openness = self._compute_function_openness(new_period_openness)
 
-        # Step 4: Mutate palette
+        # Mutate palette
         new_mask, new_usage = self._mutate_palette(
             state['mask'],
             new_func_openness,

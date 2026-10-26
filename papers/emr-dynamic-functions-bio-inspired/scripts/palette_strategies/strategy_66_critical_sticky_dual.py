@@ -3,7 +3,7 @@
 Extends CriticalStickyStrategy to jointly evolve BOTH activation AND
 aggregation function palettes with coordinated critical periods.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual phase progression - synchronized phases for both domains
 2. Cross-domain sticky protection - successful pairs protected together
 3. Dual confirmation tracking - persistence for both domains

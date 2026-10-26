@@ -3,7 +3,7 @@
 Combines Ecological Succession (#26) with Immune Memory (#60).
 Pioneer species that succeed become long-lived founder memories.
 
-Key Innovation:
+Mechanism:
 - Pioneer phase: Functions discovered early get "founder" status opportunity
 - Intermediate phase: Successful founders form long-lived immune memories
 - Climax phase: Founder memories are strongly protected from removal
@@ -47,7 +47,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
     with immune memory persistence. Early pioneers that prove successful
     form founder memories with exceptional longevity.
 
-    Critical innovation: Functions discovered during pioneer phase AND
+    Functions discovered during pioneer phase AND
     successful during intermediate phase become "founder memories" with
     much longer lifespan and stronger protection than regular memories.
     """
@@ -63,36 +63,36 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Succession timing ===
+        # Succession timing
         pioneer_end: int = 15,
         intermediate_end: int = 40,
-        # === Pioneer memory parameters (NEW) ===
+        # Pioneer memory parameters
         pioneer_memory_threshold: float = 0.6,    # Fitness to form pioneer memory
         pioneer_memory_lifespan: int = 50,        # Much longer than regular
         regular_memory_lifespan: int = 25,        # Regular memory lifespan
         founder_cross_protection: float = 0.5,    # Cross-domain founder protection
         founder_protection_strength: float = 0.95,# Founder memories very protected
         regular_protection_strength: float = 0.8, # Regular memory protection
-        # === Immune memory parameters (from #60) ===
+        # Immune memory parameters (from #60)
         memory_formation_threshold: float = 0.75,
         plasma_cell_duration: int = 5,
         plasma_cell_boost: float = 1.5,
-        # === Succession exploration rates ===
+        # Succession exploration rates
         pioneer_mutation_rate: float = 0.25,
         pioneer_generalist_bias: float = 2.0,
         intermediate_mutation_rate: float = 0.12,
         climax_mutation_rate: float = 0.04,
         climax_specialist_bias: float = 1.5,
-        # === Affinity parameters ===
+        # Affinity parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.01,
         cross_learning_rate: float = 0.08,
-        # === Constraints ===
+        # Constraints
         max_active_act: int = 6,
         max_active_agg: int = 4,
         min_active_act: int = 2,
         min_active_agg: int = 1,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -101,7 +101,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
         self.pioneer_end = pioneer_end
         self.intermediate_end = intermediate_end
 
-        # Pioneer memory (NEW)
+        # Pioneer memory
         self.pioneer_memory_threshold = pioneer_memory_threshold
         self.pioneer_memory_lifespan = pioneer_memory_lifespan
         self.regular_memory_lifespan = regular_memory_lifespan
@@ -173,7 +173,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
         # Cross-domain
         cross_affinity = jnp.ones((NUM_ACTIVATIONS, NUM_AGGREGATIONS)) * 0.5
 
-        # Pioneer discovery tracking (NEW)
+        # Pioneer discovery tracking
         act_pioneers: Set[int] = set(initial_act)  # Functions discovered during pioneer
         agg_pioneers: Set[int] = set(initial_agg)
 
@@ -193,7 +193,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
             'act_affinity': act_affinity,
             'agg_affinity': agg_affinity,
             'cross_affinity': cross_affinity,
-            # Pioneer tracking (NEW)
+            # Pioneer tracking
             'act_pioneers': act_pioneers,
             'agg_pioneers': agg_pioneers,
             # Memory state
@@ -252,7 +252,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[Dict[int, Dict], Dict[int, int], int, int]:
         """Update memory cells with founder distinction.
 
-        KEY INNOVATION: Pioneers that succeed become founder memories.
+        Pioneers that succeed become founder memories.
         """
         new_memory = dict(memory)
         new_plasma = {}
@@ -341,7 +341,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
         if func in plasma:
             base_prob *= 0.5
 
-        # Cross-domain founder protection (NEW)
+        # Cross-domain founder protection
         # If partner domain has founder memories, protect this function
         for partner_func, partner_info in partner_memory.items():
             if partner_mask[partner_func] > 0.5 and partner_info.get('is_founder', False):
@@ -580,7 +580,7 @@ class SuccessionImmunePioneerDualStrategy(PaletteEvolutionStrategy):
             # Phase metrics
             'phase': phase,
             'phase_changed': phase_changed,
-            # Pioneer metrics (NEW)
+            # Pioneer metrics
             'n_act_pioneers': len(new_act_pioneers),
             'n_agg_pioneers': len(new_agg_pioneers),
             'sin_is_pioneer': 4 in new_act_pioneers,

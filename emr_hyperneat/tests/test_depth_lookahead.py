@@ -1,24 +1,23 @@
 """Substrate depth controls: initial_depth forcing, lookahead budget, dead levels.
 
-Substrate depth used to be governed solely by variance_threshold: initial_depth
-was parsed and never read, and the variance lookahead substituted zeros for
-levels larger than its position budget, silently truncating the substrate.
-These tests pin the repaired contracts:
+Substrate depth is not governed by variance_threshold alone: initial_depth forces
+full levels, and the variance lookahead computes levels larger than its position
+budget instead of substituting zeros, which would silently truncate the
+substrate. These tests pin the contracts:
 
 - initial_depth=0 (the default) reproduces the variance-only substrate exactly,
   on every execution mode;
 - initial_depth=k forces full occupancy, 4^(l+1) x population positions, on
-  every level l <= k -- on STANDARD, STREAMING, and DEPTH_OFFLOAD alike, and
+  every level l <= k (on STANDARD, STREAMING, and DEPTH_OFFLOAD alike), and
   the three modes agree on reach and fitness while forcing (reach exactly;
   fitness bitwise on CPU and to float32 rounding on a GPU);
-- max_lookahead_positions is a MEMORY budget on the offload path: any budget
+- max_lookahead_positions is a memory budget on the offload path: any budget
   yields the same substrate (oversized levels are computed in parent-row
-  slabs), unless truncate_variance_lookahead=True explicitly requests the old
-  zeroing;
+  slabs), unless truncate_variance_lookahead=True explicitly zeroes their variance;
 - skip_dead_levels changes cost, never reach or fitness;
 - division_threshold warns: nothing on the eager multi-resolution path reads it.
 
-Assertions are on OCCUPANCY (_last_reached_per_level), not the deepest live
+Assertions are on occupancy (_last_reached_per_level), not the deepest live
 level: forcing fills levels completely while variance still prunes immediately
 below, so the deepest live level is not monotonic in initial_depth; occupancy
 is, and occupancy is what forcing controls.
@@ -29,10 +28,10 @@ import warnings
 import pytest
 
 from conftest import DEFAULT_SEED, XORProblem, assert_trajectories_agree
-from emr_hyperneat.emrhyperneat import (  # noqa: E501
+from emr_hyperneat.emrhyperneat import (
     EMRHyperNEAT,
 )
-from emr_hyperneat.execution import (  # noqa: E501
+from emr_hyperneat.execution import (
     ExecutionMode,
 )
 
@@ -143,16 +142,19 @@ class TestLookaheadBudget:
     def test_budget_is_a_memory_knob(self):
         """Tiny and huge budgets produce the identical substrate and fitness.
 
-        variance_threshold=0.0 keeps every level live so the tiny budget's slab
-        path genuinely engages -- at the production threshold subdivision dies
-        at level 2-3 and the invariance would hold vacuously.
+        variance_threshold=1e-6 keeps every level live (58,276 of the 81,920 positions of the deepest
+        level on the CPU), so the tiny budget's slab path genuinely engages: at the production
+        threshold subdivision dies at level 2-3 and the invariance would hold vacuously. The
+        threshold sits far above float32 rounding. At 0.0 a position whose variance is exactly 0 on
+        one path and a rounding speck on the other subdivided on V100 and H100 GPUs (81,916 against
+        81,912 positions).
         """
         tiny = _reach(_make_config(
-            variance_threshold=0.0,
+            variance_threshold=1e-6,
             execution_extra={'max_lookahead_positions': 1000}),
             ExecutionMode.DEPTH_OFFLOAD)
         huge = _reach(_make_config(
-            variance_threshold=0.0,
+            variance_threshold=1e-6,
             execution_extra={'max_lookahead_positions': 10_000_000}),
             ExecutionMode.DEPTH_OFFLOAD)
         assert tiny[0] == huge[0], (tiny, huge)
@@ -160,7 +162,7 @@ class TestLookaheadBudget:
             {'tiny': [tiny[1]], 'huge': [huge[1]]}, "lookahead budget")
 
     def test_truncate_restores_zeroing(self):
-        """truncate_variance_lookahead=True is the old cap: a smaller substrate."""
+        """truncate_variance_lookahead=True caps the lookahead: a smaller substrate."""
         slabbed, _ = _reach(_make_config(
             variance_threshold=0.0,
             execution_extra={'max_lookahead_positions': 1000}),
@@ -177,8 +179,8 @@ class TestSkipDeadLevels:
     """skip_dead_levels changes cost, never results."""
 
     def test_noop_on_reach_and_fitness(self):
-        # Explicit on both sides: the default is True since 0.4 and the reported
-        # runtimes were measured with it off, so neither arm relies on the default.
+        # Explicit on both sides: the default is True and the reported runtimes
+        # were measured with it off, so neither arm relies on the default.
         base = _reach(_make_config(
             execution_extra={'skip_dead_levels': False}),
             ExecutionMode.DEPTH_OFFLOAD)
@@ -192,7 +194,7 @@ class TestSkipDeadLevels:
 
 class TestVarianceRule:
     """variance_rule: 'canonical' (default) unifies the modes; 'legacy' reproduces
-    the pre-0.4 standard path."""
+    the original standard path."""
 
     def _cfg(self, rule=None, mode='standard'):
         cfg = _make_config(mode=mode)
@@ -210,11 +212,39 @@ class TestVarianceRule:
 
     def test_legacy_is_all_or_nothing_at_level_one(self):
         """Under the legacy rule every genome has 0 or all 16 level-1 positions,
-        so the level-1 total is a multiple of 16 -- an integer property that holds
+        so the level-1 total is a multiple of 16, an integer property that holds
         on every platform (the exact counts are platform-conditional)."""
         reach, _ = _reach(self._cfg(rule='legacy'), ExecutionMode.STANDARD)
         assert reach[1] % 16 == 0
         assert reach[1] > 0
+
+    @pytest.mark.parametrize('mode, chunked', [('streaming', False), ('depth_offload', False),
+                                               ('depth_offload', True)])
+    def test_legacy_is_the_same_substrate_on_every_mode(self, mode, chunked, monkeypatch):
+        """Under `legacy`, streaming and depth_offload apply the legacy level-0 rule too, not the
+        canonical one. `chunked` sends depth_offload through its population-chunked loop
+        (max_population_chunk below the population), the third place the rule is read; the spy
+        shows that loop ran."""
+        std = _reach(self._cfg(rule='legacy'), ExecutionMode.STANDARD)
+        cfg = self._cfg(rule='legacy', mode=mode)
+        chunked_calls = []
+        if chunked:
+            cfg['algorithm_params']['emrhyperneat']['emr_hyperneat']['execution'][
+                'max_population_chunk'] = POPULATION // 2
+            from emr_hyperneat.execution import offload
+            original = offload._run_generation_population_chunked
+
+            def spy(*args, **kwargs):
+                chunked_calls.append(1)
+                return original(*args, **kwargs)
+            monkeypatch.setattr(offload, '_run_generation_population_chunked', spy)
+        other = _reach(cfg, _MODE_ENUM[mode])
+        assert len(chunked_calls) == int(chunked)
+        assert std[0] == other[0], (std, other)
+        assert other[0][1] % 16 == 0
+        assert_trajectories_agree(
+            {'standard': [std[1]], mode: [other[1]]},
+            f"legacy standard vs {mode} (chunked={chunked})")
 
     def test_legacy_differs_from_canonical(self):
         legacy = _reach(self._cfg(rule='legacy'), ExecutionMode.STANDARD)

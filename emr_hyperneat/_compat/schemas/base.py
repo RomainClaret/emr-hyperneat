@@ -325,7 +325,7 @@ class AggregationConfig(BaseModel):
         description="Default aggregation function for new nodes",
         json_schema_extra=impl_meta(
             supported_by={"pureples", "tensorneat"},
-            notes="⚠️ TensorNEAT only supports 'sum' - other values will fail"
+            notes="TensorNEAT only supports 'sum' - other values will fail"
         )
     )
 
@@ -334,7 +334,7 @@ class AggregationConfig(BaseModel):
         description="Available aggregation functions (TensorNEAT supports 'sum' only)",
         json_schema_extra=impl_meta(
             supported_by={"pureples", "tensorneat"},
-            notes="⚠️ TensorNEAT limited to ['sum'], PUREPLES supports all aggregation functions"
+            notes="TensorNEAT limited to ['sum'], PUREPLES supports all aggregation functions"
         )
     )
 

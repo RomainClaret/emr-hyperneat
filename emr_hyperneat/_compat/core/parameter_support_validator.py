@@ -18,7 +18,7 @@ Example:
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Set, Any, Union, Optional
+from typing import List, Any, Union
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -46,10 +46,6 @@ class ValidationResult:
         for warning in self.warnings:
             logger.warning(warning)
 
-    def has_issues(self) -> bool:
-        """Returns True if there are any errors or warnings."""
-        return len(self.errors) > 0 or len(self.warnings) > 0
-
 
 class ParameterSupportValidator:
     """Validates configuration parameters against implementation support metadata.
@@ -58,7 +54,7 @@ class ParameterSupportValidator:
     determine which parameters are supported by which implementations.
 
     Validation Strategy:
-        - WARNINGS ONLY: Unsupported parameters generate warnings, not errors
+        - Warnings only: Unsupported parameters generate warnings, not errors
         - Non-default values only: Only warn if user explicitly set a value
         - Recursive validation: Walks nested config structures
         - Clear messages: Each warning includes parameter name, value, and supported implementations
@@ -196,123 +192,3 @@ class ParameterSupportValidator:
                 f"TensorNEAT only supports aggregation=['sum'], but {options} was specified. "
                 f"Change to ['sum'] or use PUREPLES implementation for other aggregation functions."
             )
-
-    @staticmethod
-    def get_supported_parameters(
-        config_class: type,
-        implementation: str
-    ) -> Set[str]:
-        """Get set of parameter names supported by an implementation.
-
-        Args:
-            config_class: Pydantic model class (e.g., NEATConfig)
-            implementation: Implementation name ('pureples', 'tensorneat', etc.)
-
-        Returns:
-            Set of parameter names (dot-notation paths) supported by implementation
-
-        Example:
-            >>> from emr_hyperneat._compat.schemas.neat_schema import NEATConfig
-            >>> params = ParameterSupportValidator.get_supported_parameters(
-            ...     NEATConfig, 'tensorneat'
-            ... )
-            >>> 'population_size' in params
-            True
-            >>> 'genome.enabled_mutate_rate' in params  # PUREPLES-only
-            False
-        """
-        supported = set()
-
-        def walk_fields(model_class: type, path: str = ""):
-            """Recursively walk model fields."""
-            if not hasattr(model_class, 'model_fields'):
-                return
-
-            for field_name, field_info in model_class.model_fields.items():
-                current_path = f"{path}.{field_name}" if path else field_name
-
-                # Check if field has implementation support
-                if hasattr(field_info, 'json_schema_extra') and field_info.json_schema_extra:
-                    extra = field_info.json_schema_extra
-
-                    if isinstance(extra, dict) and 'implementation_support' in extra:
-                        support_info = extra['implementation_support']
-                        supported_by = set(support_info.get('supported_by', []))
-
-                        if implementation in supported_by:
-                            supported.add(current_path)
-
-                # Recurse into nested BaseModel fields
-                if hasattr(field_info, 'annotation'):
-                    annotation = field_info.annotation
-                    # Handle Optional types
-                    if hasattr(annotation, '__origin__'):
-                        args = getattr(annotation, '__args__', ())
-                        if args:
-                            annotation = args[0]
-
-                    # Recurse if it's a BaseModel
-                    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-                        walk_fields(annotation, current_path)
-
-        walk_fields(config_class)
-        return supported
-
-    @staticmethod
-    def get_unsupported_parameters(
-        config_class: type,
-        implementation: str
-    ) -> Set[str]:
-        """Get set of parameter names NOT supported by an implementation.
-
-        Args:
-            config_class: Pydantic model class (e.g., NEATConfig)
-            implementation: Implementation name ('pureples', 'tensorneat', etc.)
-
-        Returns:
-            Set of parameter names (dot-notation paths) NOT supported by implementation
-
-        Example:
-            >>> from emr_hyperneat._compat.schemas.neat_schema import NEATConfig
-            >>> params = ParameterSupportValidator.get_unsupported_parameters(
-            ...     NEATConfig, 'tensorneat'
-            ... )
-            >>> 'genome.enabled_mutate_rate' in params  # PUREPLES-only
-            True
-        """
-        unsupported = set()
-
-        def walk_fields(model_class: type, path: str = ""):
-            """Recursively walk model fields."""
-            if not hasattr(model_class, 'model_fields'):
-                return
-
-            for field_name, field_info in model_class.model_fields.items():
-                current_path = f"{path}.{field_name}" if path else field_name
-
-                # Check if field has implementation support
-                if hasattr(field_info, 'json_schema_extra') and field_info.json_schema_extra:
-                    extra = field_info.json_schema_extra
-
-                    if isinstance(extra, dict) and 'implementation_support' in extra:
-                        support_info = extra['implementation_support']
-                        supported_by = set(support_info.get('supported_by', []))
-
-                        if implementation not in supported_by:
-                            unsupported.add(current_path)
-
-                # Recurse into nested BaseModel fields
-                if hasattr(field_info, 'annotation'):
-                    annotation = field_info.annotation
-                    # Handle Optional types
-                    if hasattr(annotation, '__origin__'):
-                        args = getattr(annotation, '__args__', ())
-                        if args:
-                            annotation = args[0]
-
-                    # Recurse if it's a BaseModel
-                    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-                        walk_fields(annotation, current_path)
-
-        walk_fields(config_class)
-        return unsupported

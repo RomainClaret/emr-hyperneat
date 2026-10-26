@@ -2,7 +2,7 @@
 
 Biological Basis: Homeostatic plasticity maintains stable activity balance.
 
-Key mechanism: Track aggregation "activity balance" between averaging (sum/mean)
+Mechanism: Track aggregation "activity balance" between averaging (sum/mean)
 and extreme-value (max/min/product/maxabs) categories. If one category dominates,
 boost exploration in the underrepresented category.
 

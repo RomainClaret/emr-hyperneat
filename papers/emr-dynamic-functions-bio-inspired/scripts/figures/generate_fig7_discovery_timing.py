@@ -11,9 +11,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
 # Configuration
-# ---------------------------------------------------------------------------
 
 DATA_PATH = Path(__file__).resolve().parents[2] / "results" / "single_task" / "combined_results.json"
 OUT_DIR = Path(__file__).resolve().parents[2] / "figures"
@@ -36,9 +34,7 @@ CATEGORY_COLORS = {  # Okabe-Ito colorblind-safe palette
     "Baseline":        "#4D4D4D",
 }
 
-# ---------------------------------------------------------------------------
 # Load and filter data
-# ---------------------------------------------------------------------------
 
 with open(DATA_PATH) as f:
     raw = json.load(f)
@@ -62,9 +58,7 @@ for key, meta in STRATEGY_META.items():
 # means fastest = highest y position)
 sorted_keys = sorted(strategy_data.keys(), key=lambda k: strategy_data[k]["median"])
 
-# ---------------------------------------------------------------------------
 # Plot
-# ---------------------------------------------------------------------------
 
 plt.rcParams.update({
     "font.family": "serif",

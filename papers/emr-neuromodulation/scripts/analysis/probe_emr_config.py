@@ -11,7 +11,8 @@ because EMR's create_config has silent traps (verified by reading the code):
 PASS criteria: neuromod_config.true_neuromodulation is True AND _neuromod_true has
 finite, non-degenerate base_gains (~[0.5,1]) + receptor_densities (not all-zero).
 
-Usage:  JAX_PLATFORM_NAME=cpu python papers/emr-neuromodulation/scripts/analysis/probe_emr_config.py
+Usage, from papers/emr-neuromodulation/ (the shared runner is in scripts/runners/):
+    JAX_PLATFORM_NAME=cpu python scripts/analysis/probe_emr_config.py
 """
 import sys
 from pathlib import Path
@@ -23,7 +24,8 @@ import numpy as np
 import jax.numpy as jnp
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The shared runner, in scripts/runners/
+sys.path.insert(0, str(_HERE.parents[1] / 'runners'))
 from multihead_palette_neuromodulation import RefProblem, INPUTS, TRUTH_TABLES
 from emr_hyperneat.emrhyperneat import (
     EMRHyperNEAT,

@@ -3,7 +3,7 @@
 Combines immune memory cross-reactivity (strategy 44) with aggregation-led
 dual discovery (strategy 101) for bidirectional protection.
 
-Key Innovation:
+Mechanism:
 - Sin forms MEMORY that CROSS-PROTECTS extreme aggregations
 - Extreme aggregations form memory that cross-protects sin
 - Bidirectional cross-reactivity creates mutual protection
@@ -43,7 +43,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
     Sin and extremes cross-protect each other
     through immune memory-style bidirectional protection.
 
-    Critical innovation: Sin's memory protects extremes, and extreme's
+    Sin's memory protects extremes, and extreme's
     memory protects sin, creating redundant retention.
     """
 
@@ -52,42 +52,42 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === CROSS-REACTIVITY PARAMETERS (KEY INNOVATION) ===
+        # CROSS-REACTIVITY PARAMETERS
         memory_formation_threshold: float = 0.7,       # Fitness to form memory
         sin_extreme_cross_radius: int = 1,             # Cross-protection radius
         cross_protection_strength: float = 0.5,        # Protection level
         mutual_memory_boost: float = 0.4,              # Boost when both form memory
         memory_cell_lifespan: int = 40,                # Memory duration
         cross_decay_rate: float = 0.05,                # Cross-protection decay
-        # === Aggregation-led parameters (from strategy 101) ===
+        # Aggregation-led parameters (from strategy 101)
         agg_exploration_rate: float = 0.25,            # Aggressive agg exploration
         agg_capture_priority: float = 1.2,             # Prioritize agg capture
         sin_extreme_capture_bonus: float = 0.4,        # Bonus for sin-extreme capture
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         base_cross_learning_rate: float = 0.10,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Cross-Reactive Memory + Aggregation strategy."""
-        # Cross-reactivity (KEY INNOVATION)
+        # Cross-reactivity
         self.memory_formation_threshold = memory_formation_threshold
         self.sin_extreme_cross_radius = sin_extreme_cross_radius
         self.cross_protection_strength = cross_protection_strength
@@ -174,7 +174,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
             'tag_history': [],
             # Cross-domain affinity
             'cross_affinity': cross_affinity,
-            # MEMORY (KEY)
+            # MEMORY
             'act_memory_cells': {},  # {idx: {'formation_gen', 'protection'}}
             'agg_memory_cells': {},
             'act_cross_protection': act_cross_protection,
@@ -298,7 +298,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, int]:
         """Update bidirectional cross-protection.
 
-        KEY INNOVATION: Sin's memory protects extreme aggregations.
+        Sin's memory protects extreme aggregations.
         Extreme aggregation's memory protects sin.
         """
         cross_protection_events = 0
@@ -307,7 +307,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
         new_act_cross = act_cross_protection * (1 - self.cross_decay_rate)
         new_agg_cross = agg_cross_protection * (1 - self.cross_decay_rate)
 
-        # SIN → EXTREMES: Sin's memory protects extreme aggregations
+        # SIN -> EXTREMES: Sin's memory protects extreme aggregations
         if 4 in act_memory:
             sin_protection = act_memory[4]['protection']
             for j in CORE_EXTREME_AGGS:
@@ -318,7 +318,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
                 )
                 cross_protection_events += 1
 
-        # EXTREMES → SIN: Extreme memory protects sin
+        # EXTREMES -> SIN: Extreme memory protects sin
         for j in CORE_EXTREME_AGGS:
             if j in agg_memory:
                 extreme_protection = agg_memory[j]['protection']
@@ -466,7 +466,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
         prefer_indices: List[int] = None,
         is_agg: bool = False,
     ) -> jnp.ndarray:
-        """Add exploration of new functions - KEY FIX for discovery."""
+        """Add exploration of new functions; the rate grows with stagnation."""
         k1, k2 = jax.random.split(key)
         new_mask = mask.copy()
 
@@ -577,7 +577,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === MEMORY UPDATE ===
+        # MEMORY UPDATE
         new_act_memory, new_agg_memory, memory_formed, mutual_memory = \
             self._update_memory_cells(
                 state['act_memory_cells'], state['agg_memory_cells'],
@@ -585,13 +585,13 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
                 best_fitness, generation
             )
 
-        # === CROSS-PROTECTION UPDATE ===
+        # CROSS-PROTECTION UPDATE
         new_act_cross, new_agg_cross, cross_events = self._update_cross_protection(
             state['act_cross_protection'], state['agg_cross_protection'],
             new_act_memory, new_agg_memory
         )
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -602,7 +602,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
@@ -610,7 +610,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], state['agg_mask'],
@@ -618,7 +618,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
             state['cross_affinity'], fitness_delta
         )
 
-        # === PALETTE SELECTION (with exploration) ===
+        # PALETTE SELECTION (with exploration)
         new_act_mask, act_diversity_rescue = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_cross, new_act_memory,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -677,7 +677,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Memory metrics (KEY)
+            # Memory metrics
             'n_act_memory': len(new_act_memory),
             'n_agg_memory': len(new_agg_memory),
             'sin_has_memory': 4 in new_act_memory,
@@ -685,7 +685,7 @@ class CrossReactiveAggDualStrategy(PaletteEvolutionStrategy):
             'min_has_memory': 3 in new_agg_memory,
             'memory_formation_events': new_state['memory_formation_events'],
             'mutual_memory_events': new_state['mutual_memory_events'],
-            # Cross-protection (KEY)
+            # Cross-protection
             'sin_cross_protection': float(new_act_cross[4]),
             'max_cross_protection': float(new_agg_cross[2]),
             'min_cross_protection': float(new_agg_cross[3]),

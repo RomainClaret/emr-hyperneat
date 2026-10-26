@@ -3,7 +3,7 @@
 Extends ComplementaryLearning to jointly evolve both activation and aggregation palettes
 with fast/slow memory systems in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Fast (hippocampus-like) and slow (cortex-like) systems for BOTH domains
 2. Consolidation transfers from fast to slow in both domains
 3. Cross-domain fast/slow tracking for act-agg combinations
@@ -15,7 +15,7 @@ Biological rationale:
 - Visual, motor, and semantic memories all use CLS
 - Cross-modal associations are consolidated together
 
-Expected improvement:
+Intended effects:
 - Solves stability-plasticity in BOTH domains
 - Fast discovery + slow retention for both act and agg
 - Cross-domain consolidation links successful combinations

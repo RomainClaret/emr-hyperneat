@@ -9,8 +9,9 @@ Tests cover:
 - Depth configuration validation
 """
 
+import copy
+
 import pytest
-import numpy as np
 from conftest import (
     EMRHyperNEAT,
     create_base_config,
@@ -18,10 +19,8 @@ from conftest import (
     run_quick_evolution,
     assert_no_errors,
     assert_positive_fitness,
-    XORProblem,
     DEFAULT_SEED,
     QUICK_GENERATIONS,
-    DEFAULT_MAX_DEPTH,
 )
 
 
@@ -36,7 +35,7 @@ class TestSubstrateCoordinates:
         """Verify standard input coordinates are accepted."""
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Initialization should complete without error
         # (substrate coords are processed internally)
@@ -45,7 +44,7 @@ class TestSubstrateCoordinates:
         """Verify standard output coordinates are accepted."""
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Initialization should complete without error
 
@@ -58,7 +57,7 @@ class TestSubstrateCoordinates:
 
         # XOR expects 3 inputs, but we're testing config acceptance
         # Use a 5-input problem or just verify initialization
-        config_obj = algorithm.create_config(config)
+        algorithm.create_config(config)
         # Note: This would fail during evolution due to shape mismatch with XOR
         # Just verify config is parsed
 
@@ -70,7 +69,7 @@ class TestSubstrateCoordinates:
         ]
 
         # XOR expects 1 output, but we're testing config acceptance
-        config_obj = algorithm.create_config(config)
+        algorithm.create_config(config)
         # Note: This would fail during evolution due to shape mismatch
         # Just verify config is parsed
 
@@ -83,7 +82,7 @@ class TestDepthConfiguration:
         """Verify different max depth values work."""
         config = create_base_config(max_depth=max_depth)
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.max_depth == max_depth
 
@@ -94,7 +93,7 @@ class TestDepthConfiguration:
         hmr['initial_depth'] = 0
 
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.initial_depth == 0
 
@@ -159,7 +158,7 @@ class TestWeightMatrixConstruction:
         hmr['max_weight'] = 5.0
 
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.max_weight == 5.0
 
@@ -196,10 +195,10 @@ class TestExtendedSubstrate:
         assert_positive_fitness(result)
 
     def test_hh_cache_enabled(self, algorithm, xor_problem):
-        """Verify H→H caching is enabled when configured."""
+        """Verify H->H caching is enabled when configured."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.extended_config.hh_cache_enabled == True
 
@@ -211,7 +210,7 @@ class TestHierarchicalPositions:
         """Verify position hierarchy is created during initialization."""
         config = create_base_config(max_depth=3)
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Should have hierarchical grid structure
         assert algorithm.max_depth == 3
@@ -230,25 +229,32 @@ class TestActivationConfiguration:
 
     @pytest.mark.parametrize("hidden_act", ['tanh', 'sigmoid', 'relu'])
     def test_hidden_activations(self, algorithm, xor_problem, hidden_act):
-        """Verify different hidden activations work."""
+        """substrate.hidden_activation is dynamic_functions mode 'global''s default, as in HMR's dynamic-functions
+        variant; with dynamic functions disabled EMR would not apply it, so that configuration raises."""
         config = create_base_config()
         config['algorithm_params']['emrhyperneat']['substrate']['hidden_activation'] = hidden_act
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {'mode': 'global'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result, f"Hidden activation {hidden_act} failed")
         assert_positive_fitness(result)
+        assert algorithm.df_hidden_activation == hidden_act
 
     @pytest.mark.parametrize("output_act", ['sigmoid', 'tanh', 'identity'])
     def test_output_activations(self, algorithm, xor_problem, output_act):
-        """Verify different output activations work."""
+        """substrate.output_activation applies where the evaluation is not plain (here global tanh); the plain
+        evaluation applies a sigmoid, so there another output raises rather than running sigmoid."""
         config = create_base_config()
         config['algorithm_params']['emrhyperneat']['substrate']['output_activation'] = output_act
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {
+            'mode': 'global', 'hidden_activation': 'tanh'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         # Some activations may not work well for XOR, but should not error
         assert_no_errors(result, f"Output activation {output_act} failed")
+        assert algorithm.df_output_activation == output_act
 
 
 class TestSubstrateWithFeatures:
@@ -303,7 +309,7 @@ class TestSubstrateValidation:
         """Verify substrate initialization completes successfully."""
         config = create_base_config()
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Essential attributes should be initialized
         # Note: input_coords/output_coords are processed internally, not exposed
@@ -311,7 +317,7 @@ class TestSubstrateValidation:
 
 
 class TestComprehensiveSubstrate:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: XOR at several substrate depths, and the default substrate on three seeds."""
 
     @pytest.mark.slow
     @pytest.mark.parametrize("depth", [2, 3, 4, 5])
@@ -343,51 +349,34 @@ class TestComprehensiveSubstrate:
             assert fitness > 0
 
 
-# =============================================================================
 # Substrate Configuration Gap Tests
-# =============================================================================
 
 class TestMaxConnectionsConfig:
-    """Tests for max_connections parameter."""
+    """recurrence.max_connections has no effect: the per-genome h->h cap is max_sparse_conns.
 
-    @pytest.mark.parametrize("max_conns", [1000, 5000, 10000])
-    def test_max_connections_values(self, algorithm, xor_problem, max_conns):
-        """Verify different max_connections values work."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['max_connections'] = max_conns
+    HMR's unified model capped each genome's hidden-to-hidden connections with max_connections.
+    EMR parses the key, warns that it has no effect and runs as without it;
+    TestMaxSparseConnsConfig covers the cap itself.
+    """
 
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
+    def test_warns_and_changes_nothing(self, xor_problem):
+        """A hidden_only run with the key at 100 warns and evolves what the same run without it
+        does."""
+        config = create_config_with_recurrence('hidden_only', iteration_level=1,
+                                               hh_cache_enabled=False)
+        with_key = copy.deepcopy(config)
+        recurrence = with_key['algorithm_params']['emrhyperneat']['emr_hyperneat']['recurrence']
+        recurrence['max_connections'] = 100
 
-        assert_no_errors(result)
-        assert_positive_fitness(result)
-
-    def test_max_connections_with_recurrence(self, algorithm, xor_problem):
-        """Verify max_connections works with hidden_only recurrence."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
-            'preset': 'hidden_only',
-            'max_connections': 5000,
-        }
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
+        with pytest.warns(UserWarning, match=r"recurrence\.max_connections=100 has no effect"):
+            result = run_quick_evolution(EMRHyperNEAT(), with_key, xor_problem,
+                                         generations=QUICK_GENERATIONS)
+        baseline = run_quick_evolution(EMRHyperNEAT(), config, xor_problem,
+                                       generations=QUICK_GENERATIONS)
 
         assert_no_errors(result)
-
-    def test_low_max_connections(self, algorithm, xor_problem):
-        """Verify low max_connections value works (sparse mode)."""
-        config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['max_connections'] = 100  # Very sparse
-
-        result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
-
-        assert_no_errors(result)
+        assert_no_errors(baseline)
+        assert result.fitness_history == baseline.fitness_history
 
 
 class TestMaxSparseConnsConfig:
@@ -564,7 +553,9 @@ class TestCombinedSubstrateConfig:
         hmr['locality_radius'] = 0.3
         hmr['recurrence'] = {
             'preset': 'hidden_only',
-            'max_sparse_conns': 500,  # Very sparse
+            # A cap that holds every genome's set: at 500 some genomes exceed it, which raises
+            # (test_hh_discovery_per_genome.py)
+            'max_sparse_conns': 10000,
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
@@ -672,7 +663,7 @@ class TestGeometrySeeding:
         hmr['locality_radius'] = 0.3  # Enables geometry seeding
 
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Locality radius should be set
         assert algorithm.locality_radius == 0.3
@@ -688,7 +679,7 @@ class TestGeometrySeeding:
         hmr['locality_radius'] = None
 
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.locality_radius is None
 

@@ -1,4 +1,4 @@
-"""Comprehensive statistics audit for the dynamic functions paper.
+"""Statistics audit for the dynamic functions paper.
 
 Loads ALL result JSON files and computes every statistic cited in the paper.
 Outputs a structured report for paper verification.
@@ -23,9 +23,7 @@ if not os.path.isdir(RESULTS_DIR):
         "Fetch the data release first: python scripts/fetch_results.py"
     )
 
-# ============================================================================
 # Function definitions for extrema counting (from analysis_extrema_correlation.py)
-# ============================================================================
 FUNCTION_DEFS = {
     "sin":        lambda x: np.sin(x),
     "osc_adapt":  lambda x: np.sin(x) * (1 - 0.2 * np.abs(x)),
@@ -74,9 +72,7 @@ def load_json(path):
         return json.load(f)
 
 
-# ============================================================================
 # E1: Per-function ablation (Table 1 / Section 4.3)
-# ============================================================================
 def compute_e1_per_function_ablation():
     """Per-function ablation on Parity-4 (N=30)."""
     report = {"experiment": "E1: Per-function ablation on Parity-4"}
@@ -116,9 +112,7 @@ def compute_e1_per_function_ablation():
     return report
 
 
-# ============================================================================
 # E1b: Extrema vs solvability Spearman rho (Section 4.3)
-# ============================================================================
 def compute_e1b_extrema_correlation():
     """Spearman rho between extrema count and solve rate."""
     report = {"experiment": "E1b: Extrema-solvability Spearman correlation"}
@@ -145,9 +139,7 @@ def compute_e1b_extrema_correlation():
     return report
 
 
-# ============================================================================
 # E1c: Cross-task Spearman rho (Parity-4 vs XOR)
-# ============================================================================
 def compute_e1c_cross_task_correlation():
     """Spearman rho between Parity-4 and XOR solve rates."""
     report = {"experiment": "E1c: Cross-task Spearman correlation (Parity-4 vs XOR)"}
@@ -175,9 +167,7 @@ def compute_e1c_cross_task_correlation():
     return report
 
 
-# ============================================================================
 # E2: Parity scaling sin/tanh (Table 3)
-# ============================================================================
 def compute_e2_parity_scaling():
     """Parity scaling: sin vs tanh, Parity-2 through Parity-8."""
     report = {"experiment": "E2: Parity scaling (sin vs tanh)"}
@@ -215,9 +205,7 @@ def compute_e2_parity_scaling():
     return report
 
 
-# ============================================================================
 # E3: Population sensitivity (Table 4)
-# ============================================================================
 def compute_e3_pop_sensitivity():
     """Population sensitivity: sin and tanh across pop sizes."""
     report = {"experiment": "E3: Population sensitivity"}
@@ -240,9 +228,7 @@ def compute_e3_pop_sensitivity():
     return report
 
 
-# ============================================================================
 # E5: Assignment method comparison (Table 5)
-# ============================================================================
 def compute_e5_assignment_methods():
     """Assignment method comparison on Two Spirals."""
     report = {"experiment": "E5: Assignment method comparison (Two Spirals)"}
@@ -295,13 +281,11 @@ def compute_e5_assignment_methods():
     return report
 
 
-# ============================================================================
 # E6: Palette size Spearman rho (Table 6)
-# ============================================================================
 def compute_e6_palette_size():
     """Palette size vs convergence speed, Spearman rho.
 
-    NOTE: The palette size data is encoded in the paper tables (hardcoded),
+    The palette size data is encoded in the paper tables (hardcoded),
     not in separate result files. We reproduce the table values here.
     """
     report = {"experiment": "E6: Palette size Spearman correlation"}
@@ -317,9 +301,7 @@ def compute_e6_palette_size():
     return report
 
 
-# ============================================================================
 # E4: Recurrent per-function (Table 7) + Parity-8 monotonic partial
-# ============================================================================
 def compute_e4_recurrent():
     """Recurrent per-function ablation + Parity-8 partial monotonic results."""
     report = {"experiment": "E4: Recurrent architectures"}
@@ -405,9 +387,7 @@ def compute_e4_recurrent():
     return report
 
 
-# ============================================================================
 # E5b: Recurrence type (Table 8)
-# ============================================================================
 def compute_e5b_recurrence_type():
     """Recurrence type comparison on Parity-4."""
     report = {"experiment": "E5b: Recurrence type comparison"}
@@ -450,9 +430,7 @@ def compute_e5b_recurrence_type():
     return report
 
 
-# ============================================================================
 # E6b: Gradient baseline (Table 10)
-# ============================================================================
 def compute_e6b_gradient_baseline():
     """Gradient baseline comparison."""
     report = {"experiment": "E6b: Gradient baseline"}
@@ -481,9 +459,7 @@ def compute_e6b_gradient_baseline():
     return report
 
 
-# ============================================================================
 # E8: Depth sensitivity
-# ============================================================================
 def compute_e8_depth_sensitivity():
     """Depth sensitivity: sin and tanh at depths 2, 4, 6."""
     report = {"experiment": "E8: Depth sensitivity"}
@@ -516,9 +492,7 @@ def compute_e8_depth_sensitivity():
     return report
 
 
-# ============================================================================
 # E9: lts_low CI at N=60
-# ============================================================================
 def compute_e9_lts_low_extended():
     """lts_low extended to N=60 for tighter CI."""
     report = {"experiment": "E9: lts_low extended (N=60)"}
@@ -574,16 +548,14 @@ def compute_e9_lts_low_extended():
     return report
 
 
-# ============================================================================
 # Total experiment count
-# ============================================================================
 def compute_total_experiments():
     """Count total experimental runs across all result files."""
     report = {"experiment": "Total experiment count"}
     total = 0
     breakdown = {}
 
-    # Per-function ablation: 18 functions × 30 seeds
+    # Per-function ablation: 18 functions x 30 seeds
     ablation_dir = os.path.join(RESULTS_DIR, "per_function_ablation_n30")
     ablation_count = 0
     for fpath in glob.glob(os.path.join(ablation_dir, "*.json")):
@@ -600,7 +572,7 @@ def compute_total_experiments():
     breakdown["per_function_ablation"] = ablation_count
     total += ablation_count
 
-    # XOR per-function: 18 × 30
+    # XOR per-function: 18 x 30
     xor_dir = os.path.join(RESULTS_DIR, "xor_per_function_n30")
     xor_count = 0
     for fpath in glob.glob(os.path.join(xor_dir, "*.json")):
@@ -612,7 +584,7 @@ def compute_total_experiments():
     breakdown["xor_per_function"] = xor_count
     total += xor_count
 
-    # Parity scaling (sin): 7 sizes × 30
+    # Parity scaling (sin): 7 sizes x 30
     sin_dir = os.path.join(RESULTS_DIR, "parity_scaling_n30")
     sin_count = 0
     for fpath in glob.glob(os.path.join(sin_dir, "parity_*.json")):
@@ -621,7 +593,7 @@ def compute_total_experiments():
     breakdown["parity_scaling_sin"] = sin_count
     total += sin_count
 
-    # Monotonic parity scaling (tanh): 7 sizes × 30
+    # Monotonic parity scaling (tanh): 7 sizes x 30
     tanh_dir = os.path.join(RESULTS_DIR, "monotonic_parity_scaling_n30")
     tanh_count = 0
     for fpath in glob.glob(os.path.join(tanh_dir, "parity_*.json")):
@@ -630,7 +602,7 @@ def compute_total_experiments():
     breakdown["parity_scaling_tanh"] = tanh_count
     total += tanh_count
 
-    # Pop sensitivity: 10 conditions × 30
+    # Pop sensitivity: 10 conditions x 30
     pop_dir = os.path.join(RESULTS_DIR, "pop_sensitivity_n30")
     pop_count = 0
     for fpath in glob.glob(os.path.join(pop_dir, "*.json")):
@@ -639,7 +611,7 @@ def compute_total_experiments():
     breakdown["pop_sensitivity"] = pop_count
     total += pop_count
 
-    # Two Spirals N=30: 9 configs × 30
+    # Two Spirals N=30: 9 configs x 30
     ts_combined = os.path.join(RESULTS_DIR, "two_spirals_n30", "combined_results.json")
     if os.path.exists(ts_combined):
         d = load_json(ts_combined)
@@ -651,7 +623,7 @@ def compute_total_experiments():
         breakdown["two_spirals_assignment"] = ts_count
         total += ts_count
 
-    # Two Spirals per-function: 6 functions × 30
+    # Two Spirals per-function: 6 functions x 30
     ts_pf_dir = os.path.join(RESULTS_DIR, "two_spirals_per_function_n30")
     ts_pf_count = 0
     for fpath in glob.glob(os.path.join(ts_pf_dir, "*.json")):
@@ -663,7 +635,7 @@ def compute_total_experiments():
     breakdown["two_spirals_per_function"] = ts_pf_count
     total += ts_pf_count
 
-    # Recurrence type: 6 presets × 30
+    # Recurrence type: 6 presets x 30
     rt_dir = os.path.join(RESULTS_DIR, "recurrence_type_n30")
     rt_count = 0
     for fpath in glob.glob(os.path.join(rt_dir, "*.json")):
@@ -724,9 +696,7 @@ def compute_total_experiments():
     return report
 
 
-# ============================================================================
 # Main
-# ============================================================================
 def main():
     print("=" * 70)
     print("PAPER STATISTICS AUDIT")

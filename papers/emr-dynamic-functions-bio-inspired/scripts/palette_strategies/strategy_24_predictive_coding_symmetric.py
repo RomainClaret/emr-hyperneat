@@ -1,21 +1,21 @@
 """Strategy 24 Symmetric: Predictive Coding.
 
-COMPLETE REWRITE using winning patterns from eligibility_trace_symmetric:
+Builds on the design of eligibility_trace_symmetric:
 - Shared dopamine signal (fitness-based, same for both domains)
 - Surprise-modulated learning (like eligibility traces but using prediction error)
 - Affinity floors for sin and extreme aggregations
 - Memory cells from sustained high affinity
 
-Key biological insight preserved:
+Biological basis:
 - Cortical hierarchies predict incoming signals
 - Learning is driven by prediction ERRORS (surprise)
 - Unexpected outcomes teach more than expected outcomes
 
-Changes:
-- Replaced error-based affinity with fitness-based affinity (like eligibility_trace)
-- Added shared dopamine signal across domains
-- Fixed memory cell formation to use affinity-based path
-- Kept predictive coding biology (surprise modulates learning rate)
+Design choices:
+- Fitness-based affinity (like eligibility_trace) instead of error-based affinity
+- A dopamine signal shared across domains
+- Memory cells form from affinity, not from surprise
+- Surprise modulates the learning rate (predictive coding biology)
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -42,19 +42,19 @@ CORE_EXTREME_AGGS = [2, 3]  # max, min
 class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
     """Predictive coding with shared dopamine and memory cells.
 
-    Uses winning patterns from eligibility_trace_symmetric.
+    Builds on the design of eligibility_trace_symmetric.
 
-    Key changes:
+    Main differences from Strategy 24:
     - Shared dopamine signal (same for both domains) - CRITICAL for coordination
     - Fitness-based affinity updates (not prediction-error-based)
     - Surprise modulates learning rate (preserves predictive coding biology)
-    - Memory cells from sustained high affinity (not low-surprise)
+    - Memory cells from sustained high affinity (Strategy 24 has none)
 
     Biological rationale:
     - Dopamine = reward prediction error (same as eligibility trace)
     - Surprise = how unexpected the outcome was (modulates learning)
-    - High surprise → higher learning rate (pay attention to unexpected)
-    - Low surprise → lower learning rate (already know this)
+    - High surprise -> higher learning rate (pay attention to unexpected)
+    - Low surprise -> lower learning rate (already know this)
     """
 
     name = "predictive_coding_symmetric"
@@ -68,7 +68,7 @@ class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
         dopamine_learning_rate: float = 0.15,
         # Prediction/surprise parameters (predictive coding biology)
         prediction_lr: float = 0.15,
-        surprise_boost_factor: float = 1.3,  # High surprise → faster learning
+        surprise_boost_factor: float = 1.3,  # High surprise -> faster learning
         surprise_threshold: float = 0.2,  # Above this = surprising
         # Memory cell parameters - COPIED FROM ELIGIBILITY TRACE
         memory_cell_affinity_threshold: float = 0.75,
@@ -279,7 +279,7 @@ class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
         Use fitness-based dopamine, not prediction errors.
         Surprise modulates the learning rate (predictive coding biology).
 
-        affinity[i] += lr × dopamine × (1 + surprise_boost if surprising)
+        affinity[i] += lr × dopamine × active[i] × (surprise_boost_factor if surprising else 1)
         """
         newly_discovered = newly_discovered or []
 
@@ -477,13 +477,13 @@ class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
             if i not in agg_ever_discovered and i not in current_agg_palette
         ]
 
-        # Step 1: Compute SHARED dopamine signal (like eligibility trace)
+        # Compute SHARED dopamine signal (like eligibility trace)
         dopamine, new_baseline = self._compute_dopamine(
             best_fitness,
             state['dopamine_baseline']
         )
 
-        # Step 2: Update predictions and compute surprise per domain
+        # Update predictions and compute surprise per domain
         new_act_pred, act_surprise = self._update_predictions(
             state['act_predictions'], best_fitness, state['act_mask']
         )
@@ -491,7 +491,7 @@ class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_predictions'], best_fitness, state['agg_mask']
         )
 
-        # Step 3: Update affinity using SHARED dopamine (with surprise modulation)
+        # Update affinity using SHARED dopamine (with surprise modulation)
         new_act_aff = self._update_affinity_with_dopamine(
             state['act_affinity'], state['act_mask'], dopamine, act_surprise,
             state['act_memory_cells'], act_new_candidates
@@ -504,7 +504,7 @@ class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
         # Apply affinity floors - CRITICAL FOR RETENTION
         new_act_aff, new_agg_aff = self._apply_affinity_floors(new_act_aff, new_agg_aff)
 
-        # Step 4: Update memory cells from affinity (not surprise)
+        # Update memory cells from affinity (not surprise)
         new_act_mc, new_act_mem_cells = self._update_memory_cells_from_affinity(
             new_act_aff, state['act_mask'],
             state['act_memory_counts'], state['act_memory_cells']
@@ -514,7 +514,7 @@ class PredictiveCodingSymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_memory_counts'], state['agg_memory_cells']
         )
 
-        # Step 5: Apply mutation with DA modulation
+        # Apply mutation with DA modulation
         new_act_mask, act_mut_info, act_disc_to_pal = self._mutate_palette(
             k1, state['act_mask'], new_act_aff, new_act_mem_cells,
             dopamine, self.act_min_active, self.act_max_active, act_new_candidates

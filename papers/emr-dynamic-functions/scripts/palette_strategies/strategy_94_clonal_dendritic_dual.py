@@ -4,7 +4,7 @@ Combines clonal_hybrid_dual with dendritic computation:
 - Base: Strategy 91 (Clonal+Tag+Homeostatic) - 100% Parity-5, 100% sin retention
 - Extension: Strategy 28 (Dendritic Computation) - Zone-based local processing
 
-Key Innovation: Zone-based protection - sin's zone-mates (burst, resonator)
+Zone-based protection: sin's zone-mates (burst, resonator)
 act as buffer. When the oscillatory zone captures, ALL its members get
 protection, not just sin. This creates redundant pathways.
 
@@ -51,7 +51,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
     Extend clonal_hybrid_dual
     with dendritic computation's zone-based organization.
 
-    Critical innovation: Zone capture - when a function captures, its
+    Zone capture: when a function captures, its
     entire zone gets partial protection. This creates redundant discovery
     pathways so losing one function doesn't lose the whole zone.
     """
@@ -85,7 +85,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Clonal selection parameters (from strategy 91) ===
+        # Clonal selection parameters (from strategy 91)
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
@@ -93,31 +93,31 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
         hypermutation_strength: float = 0.2,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Tagging parameters (from strategy 91) ===
+        # Tagging parameters (from strategy 91)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.8,
         captured_hypermutation_protection: float = 0.9,
-        # === ZONE-BASED PARAMETERS (NEW from strategy 28) ===
+        # ZONE-BASED PARAMETERS (from strategy 28)
         zone_capture_threshold: float = 0.6,       # Zone capture requires high zone activity
         zone_capture_spread: float = 0.4,          # How much capture spreads to zone-mates
         zone_hypermutation_protection: float = 0.7,  # Zone-mates get partial protection
         zone_learning_rate: float = 0.15,          # Zone memory learning rate
         zone_decay: float = 0.92,                  # Zone memory decay
-        # === Homeostatic parameters ===
+        # Homeostatic parameters
         target_extreme_ratio: float = 0.60,
         discovery_bonus: float = 0.5,
-        # === Cross-domain parameters ===
+        # Cross-domain parameters
         cross_learning_rate: float = 0.08,
         sin_extreme_affinity_boost: float = 0.3,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -139,7 +139,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
         self.captured_protection = captured_protection
         self.captured_hypermutation_protection = captured_hypermutation_protection
 
-        # Zone-based (NEW)
+        # Zone-based
         self.zone_capture_threshold = zone_capture_threshold
         self.zone_capture_spread = zone_capture_spread
         self.zone_hypermutation_protection = zone_hypermutation_protection
@@ -211,7 +211,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
         act_captured = jnp.zeros(NUM_ACTIVATIONS)
         agg_captured = jnp.zeros(NUM_AGGREGATIONS)
 
-        # Zone memories (NEW)
+        # Zone memories
         act_zone_memories = jnp.zeros(self.ACT_N_ZONES)
         agg_zone_memories = jnp.zeros(self.AGG_N_ZONES)
         act_zone_captured = jnp.zeros(self.ACT_N_ZONES)  # Zone-level capture
@@ -233,7 +233,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
             'act_captured': act_captured,
             'agg_captured': agg_captured,
             'tag_history': [],
-            # Zone (NEW)
+            # Zone
             'act_zone_memories': act_zone_memories,
             'agg_zone_memories': agg_zone_memories,
             'act_zone_captured': act_zone_captured,
@@ -339,7 +339,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, int, int]:
         """Attempt capture with zone-level spread.
 
-        KEY INNOVATION: When a function captures AND its zone memory is high,
+        When a function captures AND its zone memory is high,
         the entire zone gets partial capture status. This protects zone-mates.
 
         Returns: (new_act_captured, new_agg_captured, new_act_zone_captured,
@@ -571,14 +571,14 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === ZONE MEMORY UPDATE ===
+        # ZONE MEMORY UPDATE
         new_act_zone_mem, new_agg_zone_mem = self._update_zone_memories(
             state['act_mask'], state['agg_mask'],
             state['act_zone_memories'], state['agg_zone_memories'],
             fitness_delta
         )
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags']
@@ -588,7 +588,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE WITH ZONE SPREAD ===
+        # CAPTURE WITH ZONE SPREAD
         (new_act_captured, new_agg_captured, new_act_zone_captured,
          new_agg_zone_captured, capture_count, zone_capture_count) = \
             self._attempt_capture_with_zone_spread(
@@ -599,7 +599,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
                 new_tag_history, generation, improved
             )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity, hypermut_count = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], state['agg_mask'],
@@ -608,7 +608,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
             state['cross_affinity'], fitness_delta, k1
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_zone_captured,
             NUM_ACTIVATIONS, self.ACT_N_ZONES, self.ACT_ZONES,
@@ -672,7 +672,7 @@ class ClonalDendriticDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Zone metrics (NEW)
+            # Zone metrics
             'dominant_act_zone': self.ACT_ZONE_NAMES[dominant_act_zone],
             'dominant_agg_zone': self.AGG_ZONE_NAMES[dominant_agg_zone],
             'oscillatory_zone_captured': bool(new_act_zone_captured[0] > 0.5),

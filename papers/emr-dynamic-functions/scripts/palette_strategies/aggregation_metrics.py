@@ -3,7 +3,7 @@
 This module provides per-aggregation tracking for symmetric activation-aggregation
 discovery in bio-inspired palette evolution strategies.
 
-Key metrics tracked:
+Metrics tracked:
 - Per-aggregation discovery timing (generation when first found)
 - Per-aggregation stability (generations retained after discovery)
 - Per-aggregation loss events (when discovered function is lost)

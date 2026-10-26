@@ -56,9 +56,7 @@ EXTREME_AGGS = [2, 3, 4, 5]  # max, min, product, maxabs
 # Core extreme aggregations (most important for hard parity)
 CORE_EXTREME_AGGS = [2, 3]  # max, min - required for P5/P6
 
-# ============================================================================
 # Aggregation Categories for Symmetric Discovery
-# ============================================================================
 
 # Aggregation categories for discovery and protection
 AGG_CATEGORIES = {
@@ -78,9 +76,7 @@ ACT_CATEGORIES = {
     'specialized': [15, 16, 17],    # receptive, band_pass, integrate
 }
 
-# ============================================================================
 # Cross-Domain Pair Categories for Affinity Learning
-# ============================================================================
 
 # Known synergistic pairs
 CROSS_PAIR_KNOWN_SYNERGISTIC = [(4, 2), (4, 3)]  # sin-max, sin-min

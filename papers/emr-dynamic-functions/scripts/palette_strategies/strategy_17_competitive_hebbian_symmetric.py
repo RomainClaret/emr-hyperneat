@@ -4,7 +4,7 @@ Extends CompetitiveHebbian to symmetric palette evolution with zero-sum resource
 competition in both domains, combined with memory cells and affinity floors for
 guaranteed sin/extreme aggregation retention.
 
-Key mechanisms:
+Mechanisms:
 1. Zero-sum competition - functions compete for limited affinity budget
 2. Winner-take-all - top-k functions get boosted, bottom-k get penalized
 3. Lateral inhibition between functions
@@ -19,7 +19,7 @@ Biological rationale:
 - Lateral inhibition forces differentiation
 - Cross-domain coordination through shared rewards
 
-Expected improvement:
+Intended effects:
 - More diverse, cleaner palettes in BOTH domains
 - Clear winners emerge through competition
 - 100% sin/extreme retention via protected indices
@@ -103,7 +103,7 @@ class CompetitiveHebbianSymmetricStrategy(PaletteEvolutionStrategy):
         affinity_protection_threshold: float = 0.55,
         exploration_lr_multiplier: float = 1.5,
         confirmation_lr_multiplier: float = 0.5,
-        # Memory cell parameters (from winning patterns)
+        # Memory cell parameters
         memory_threshold: float = 0.75,
         memory_sustain_generations: int = 8,
         memory_decay_rate: float = 0.05,
@@ -332,7 +332,7 @@ class CompetitiveHebbianSymmetricStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Apply affinity floors for sin and extreme aggregations.
 
-        CRITICAL: This guarantees minimum affinity levels, which combined
+        This guarantees minimum affinity levels, which combined
         with protected_indices ensures 100% retention.
         """
         new_act = act_affinity.copy()

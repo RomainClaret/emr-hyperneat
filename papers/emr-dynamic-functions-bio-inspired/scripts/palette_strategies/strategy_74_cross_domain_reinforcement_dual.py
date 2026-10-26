@@ -3,13 +3,13 @@
 Biological Basis: Neuromodulatory reinforcement of cross-modal associations.
 Dopaminergic signals reinforce synapses that were active during reward.
 
-Key mechanisms:
+Mechanisms:
 1. Double cross-domain learning rate when BOTH domains contribute to fitness
 2. Use cross-affinity to guide aggregation selection
 3. Sin-guided aggregation: When sin (idx 4) has high affinity with specific
    aggregations, protect those aggregations.
 
-Expected: Better cross-domain synergy through enhanced affinity learning.
+Expected: Better cross-domain pairings through faster affinity learning.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -33,7 +33,7 @@ from .base_strategy import (
 class CrossDomainReinforcementDualStrategy(PaletteEvolutionStrategy):
     """Dual palette evolution with neuromodulatory cross-domain reinforcement.
 
-    Enhances cross-domain learning when both domains contribute to fitness,
+    Raises the cross-domain learning rate when both domains contribute to fitness,
     and uses affinity to guide mutation decisions.
     """
 

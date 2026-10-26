@@ -4,7 +4,7 @@ History
 -------
 Streaming and depth offload used to be two subclasses that each forked the whole
 generation loop. Folding them into one config-selected class was deliberately
-behaviour-changing, so "assert the modes agree" was not a valid pre-fold test --
+behavior-changing, so "assert the modes agree" was not a valid pre-fold test:
 they did not agree. This script was written to record what each mode did *before*
 the fold, while the subclasses still existed, so the fold could be checked against
 those recordings instead of against an assumption.
@@ -12,7 +12,7 @@ those recordings instead of against an assumption.
 `baselines/mode_baselines.json` as committed is that pre-fold record, and it is
 what the unified modes were verified against: standard, streaming and depth
 offload each reproduce their recorded digest bit-for-bit. Regenerating the file
-now overwrites the pre-fold record with a post-fold one -- useful for comparing
+now overwrites the pre-fold record with a post-fold one: useful for comparing
 modes to each other, but no longer a before/after reference. The original stays in
 git history either way.
 
@@ -34,20 +34,17 @@ import platform
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from conftest import (  # noqa: E402
+from conftest import (
     EMRHyperNEAT,
     XORProblem,
     create_base_config,
     DEFAULT_SEED,
-)
-from emr_hyperneat.execution import (  # noqa: E402,E501
-    ExecutionMode,
 )
 
 # Small on purpose: the point is a reproducible fingerprint, not a competitive run.
@@ -183,7 +180,7 @@ def run_arm(
 
     # Count which branch the subclass dispatcher actually takes. Without this, an
     # arm whose threshold never fires looks identical to one that ran the offload
-    # path and happened to agree with streaming -- and those are opposite findings.
+    # path and happened to agree with streaming. Those are opposite findings.
     branch_counts = _install_branch_probe(algorithm)
 
     # Positional call only: the subclasses take (state, problem, skip_metrics) and
@@ -213,7 +210,7 @@ def build_arms() -> List[Dict[str, Any]]:
     """Define every arm to capture.
 
     Five dispatch arms cover the branches the unified dispatcher must reproduce, and
-    the divergence probes pin the specific behaviours that the fold is going to
+    the divergence probes pin the specific behaviors that the fold is going to
     change, so that each change is asserted afterwards rather than assumed.
     """
     locality = 0.25  # small enough that the penalty is unmistakable if applied
@@ -223,7 +220,7 @@ def build_arms() -> List[Dict[str, Any]]:
         return base_config(execution={"mode": mode}, **overrides)
 
     return [
-        # ---- dispatch arms -------------------------------------------------
+        # dispatch arms
         {
             "name": "standard",
             "build": EMRHyperNEAT,
@@ -252,7 +249,7 @@ def build_arms() -> List[Dict[str, Any]]:
             "note": "auto at a depth below both thresholds, so it must resolve to "
                     "standard and match the standard arm exactly.",
         },
-        # ---- divergence probes ---------------------------------------------
+        # divergence probes
         {
             "name": "probe_locality_standard",
             "build": EMRHyperNEAT,
@@ -278,8 +275,7 @@ def build_arms() -> List[Dict[str, Any]]:
             "name": "probe_geometry_standard",
             "build": EMRHyperNEAT,
             "config": base_config(
-                geometry_seeding={"enabled": True, "seed_weight": -1.0,
-                                  "use_7d_inputs": True}),
+                geometry_seeding={"enabled": True, "seed_weight": -1.0}),
             "note": "DIVERGENCE 2 reference: geometry seeding on the main class, "
                     "which switches the CPPN to 7-D inputs.",
         },
@@ -288,8 +284,7 @@ def build_arms() -> List[Dict[str, Any]]:
             "build": EMRHyperNEAT,
             "config": mode_config(
                 "depth_offload",
-                geometry_seeding={"enabled": True, "seed_weight": -1.0,
-                                  "use_7d_inputs": True}),
+                geometry_seeding={"enabled": True, "seed_weight": -1.0}),
             "note": "Geometry seeding used to raise a 5-D against 7-D shape error on "
                     "the offload path. After unification it must run.",
         },

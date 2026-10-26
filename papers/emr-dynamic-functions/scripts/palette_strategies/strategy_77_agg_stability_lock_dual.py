@@ -4,7 +4,7 @@ Biological Basis: Metaplasticity - stable synapses become harder to change.
 Synapses that have been stable for long periods require stronger signals
 to modify, providing natural protection for learned patterns.
 
-Key mechanism: Track consecutive generations each aggregation is active.
+Mechanism: Track consecutive generations each aggregation is active.
 Aggregations active 5+ consecutive generations become progressively harder
 to remove. "If it works, don't change it" for aggregation domain.
 

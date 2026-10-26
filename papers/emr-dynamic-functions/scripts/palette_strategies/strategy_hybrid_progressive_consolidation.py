@@ -63,7 +63,7 @@ class ProgressiveConsolidationStrategy(PaletteEvolutionStrategy):
         consolidation_frequency: int = 10,  # Every N gens, consolidate
         consolidation_duration: int = 3,    # Gens of consolidation
         replay_strength: float = 1.5,       # Boost for high-affinity during consolidation
-        transfer_rate: float = 0.1,         # Addition → frozen transfer during sleep
+        transfer_rate: float = 0.1,         # Addition -> frozen transfer during sleep
         # Shared parameters
         contribution_window: int = 10,
         exploration_rate: float = 0.15,
@@ -168,7 +168,7 @@ class ProgressiveConsolidationStrategy(PaletteEvolutionStrategy):
         contribution: jnp.ndarray,
         additions: List[int],
     ) -> Tuple[Dict, jnp.ndarray, List[int]]:
-        """Run consolidation: transfer working → long-term memory."""
+        """Run consolidation: transfer working -> long-term memory."""
         new_ltm = dict(long_term_memory)
         new_contribution = contribution.copy()
         promoted_to_freeze = []

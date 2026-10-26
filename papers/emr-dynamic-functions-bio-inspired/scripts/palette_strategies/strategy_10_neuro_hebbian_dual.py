@@ -9,7 +9,7 @@ Cross-Domain Learning:
 - Cross-domain Hebbian: learn which act-agg pairs succeed together
 - Double protection from both mechanisms in both domains
 
-Key Dual Mechanisms:
+Dual Mechanisms:
 1. Shared neuromodulation - same DA/ACh/NE for both domains
 2. Dual Hebbian matrices - separate co-occurrence learning
 3. Cross-domain Hebbian matrix - act-agg pair associations

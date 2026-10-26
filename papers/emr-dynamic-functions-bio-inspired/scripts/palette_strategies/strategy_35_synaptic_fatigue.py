@@ -10,7 +10,7 @@ Biological Basis:
 - Short-term synaptic depression is ubiquitous in neural circuits
 - Recovery during non-use restores synaptic efficacy
 
-Key Insight:
+Rationale:
 - Current strategies don't account for overuse degradation
 - Synaptic fatigue creates natural novelty detection
 - Overused functions become less effective, forcing exploration
@@ -31,7 +31,7 @@ Fatigue Mechanism:
     # Selection uses effective weights
     selection_prob = softmax(effective_weight)
 
-Expected improvements:
+Intended effects:
 - Natural novelty detection (overuse triggers exploration)
 - Automatic function rotation
 - Prevention of getting stuck on suboptimal functions
@@ -289,7 +289,7 @@ class SynapticFatigueStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Update fatigue levels
+        # Update fatigue levels
         new_fatigue = self._update_fatigue(
             state['fatigue'],
             state['mask'],
@@ -297,7 +297,7 @@ class SynapticFatigueStrategy(PaletteEvolutionStrategy):
             new_stagnation,
         )
 
-        # Step 2: Update base weights
+        # Update base weights
         new_base_weights = self._update_base_weights(
             state['base_weights'],
             state['mask'],
@@ -305,10 +305,10 @@ class SynapticFatigueStrategy(PaletteEvolutionStrategy):
             improvement,
         )
 
-        # Step 3: Compute effective weights
+        # Compute effective weights
         effective_weights = self._compute_effective_weights(new_base_weights, new_fatigue)
 
-        # Step 4: Select new palette
+        # Select new palette
         new_mask, rotation_count = self._select_palette(effective_weights, state['mask'], k1)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

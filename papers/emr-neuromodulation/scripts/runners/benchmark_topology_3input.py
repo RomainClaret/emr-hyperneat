@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """E-S12: Topology x Arity Interaction.
 
-Tests whether topology remains neutral at 3-input (where tanh=20%).
-The E-S5 finding (topology strictly neutral on 2-input Boolean tasks)
-may not hold when the task is harder and activation is suboptimal.
+Tests whether topology matters at 3-input (where tanh=20%).
+The 2-input result (topology strictly neutral) is an artifact: the 2-input topology
+runner evaluated all six presets as one feed-forward network.
 
 Tasks (3-input, 8 patterns each):
   - Parity-3: output 1 if odd number of 1s
@@ -41,9 +41,7 @@ import jax
 import jax.numpy as jnp
 from itertools import product as iterproduct
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / 'topology_3input'
 
@@ -100,9 +98,7 @@ NT_VECTORS = {
 ALL_CONDITIONS = ['feedforward', 'full_recurrent']
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array, topology: str) -> Dict[str, jnp.ndarray]:
     """Initialize parameters for neuromodulated MLP with optional lateral connections.
@@ -150,9 +146,7 @@ def init_population(key: jax.Array, pop_size: int, topology: str) -> Dict[str, j
     return jax.vmap(lambda k: init_params(k, topology))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       topology: str,
@@ -227,9 +221,7 @@ def get_forward_fn(topology: str):
     return _FORWARD_CACHE[topology]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, topology: str) -> Tuple[float, Dict[str, float]]:
     """Evaluate one individual on all 3 tasks.
@@ -258,9 +250,7 @@ def eval_single_multitask(params: Dict, topology: str) -> Tuple[float, Dict[str,
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -395,9 +385,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     """Check if a result file already exists and is non-empty."""
@@ -461,9 +449,7 @@ def summarize_condition(results_dir: Path, prefix: str):
     print()
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

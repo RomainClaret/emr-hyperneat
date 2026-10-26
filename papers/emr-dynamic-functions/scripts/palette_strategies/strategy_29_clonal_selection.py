@@ -12,7 +12,7 @@ Biological Basis:
 - Hypermutation creates variation to match new antigens
 - Immune memory preserves successful antibodies
 
-Key Insight:
+Rationale:
 - Previous strategies don't maintain diversity under selection pressure
 - Clonal selection allows dormant functions with high latent affinity
 - When problem context shifts, dormant functions can rapidly expand
@@ -34,7 +34,7 @@ Clonal Mechanism:
 
     # Palette = top K functions by expression level
 
-Expected improvements:
+Intended effects:
 - Maintains latent diversity (dormant but available functions)
 - Rapid adaptation when problem context changes
 - Protects rare but high-affinity functions
@@ -334,33 +334,33 @@ class ClonalSelectionStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute per-function fitness contributions
+        # Compute per-function fitness contributions
         contributions = self._compute_fitness_contribution(
             state['mask'],
             best_fitness,
             prev_best_fitness,
         )
 
-        # Step 2: Update affinities with hypermutation
+        # Update affinities with hypermutation
         new_affinities, hypermutation_mask = self._update_affinities(
             state['affinities'],
             contributions,
             k1,
         )
 
-        # Step 3: Update expression levels (clonal dynamics)
+        # Update expression levels (clonal dynamics)
         new_expressions = self._update_expressions(
             state['expressions'],
             new_affinities,
         )
 
-        # Step 4: Ensure diversity
+        # Ensure diversity
         new_expressions = self._ensure_diversity(
             new_expressions,
             new_affinities,
         )
 
-        # Step 5: Select palette based on expressions
+        # Select palette based on expressions
         new_mask = self._select_palette(new_expressions, k2)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

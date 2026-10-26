@@ -2,7 +2,7 @@
 
 Extends Hebbian learning with zero-sum resource competition.
 
-Key insight: Standard Hebbian allows ALL successful functions to reach high
+Standard Hebbian allows ALL successful functions to reach high
 affinity simultaneously. This can lead to "god functions" that dominate and
 prevent exploration of alternative solutions.
 
@@ -17,13 +17,13 @@ For palette evolution:
 - Prevents all oscillatory functions from saturating at 1.0
 - Forces specialization: discover the MOST important functions
 
-Key mechanisms:
+Mechanisms:
 1. Affinity budget: Total affinity sum is maintained near target
 2. Winner boost: Functions with highest fitness correlation get extra
 3. Loser penalty: Functions with lowest correlation lose affinity
 4. Redistribution: Affinity is redistributed, not created/destroyed
 
-Expected improvement over standard Hebbian:
+Intended effects compared with standard Hebbian:
 - More diverse palettes (no single dominant function)
 - Better function ranking (clear winners emerge)
 - Faster pruning of useless functions
@@ -475,12 +475,12 @@ class CompetitiveHebbianStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update fitness contributions
+        # Update fitness contributions
         new_contributions = self._compute_fitness_contributions(
             state['mask'], fitness_signal, state['fitness_contributions']
         )
 
-        # Step 2: Standard Hebbian update
+        # Standard Hebbian update
         new_weights, new_affinity = self._hebbian_update(
             state['hebbian_weights'],
             state['function_affinity'],
@@ -489,15 +489,15 @@ class CompetitiveHebbianStrategy(PaletteEvolutionStrategy):
             phase,
         )
 
-        # Step 3: Apply competition (winner boost, loser penalty)
+        # Apply competition (winner boost, loser penalty)
         new_affinity, winners, losers = self._apply_competition(
             new_affinity, new_contributions, state['mask'], phase
         )
 
-        # Step 4: Apply lateral inhibition
+        # Apply lateral inhibition
         new_affinity = self._apply_lateral_inhibition(new_affinity, new_weights)
 
-        # Step 5: Normalize to maintain zero-sum constraint
+        # Normalize to maintain zero-sum constraint
         new_affinity = self._normalize_affinity_sum(new_affinity)
 
         # Compute protection scores

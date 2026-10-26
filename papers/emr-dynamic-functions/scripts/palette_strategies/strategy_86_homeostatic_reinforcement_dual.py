@@ -4,7 +4,7 @@ Combines:
 - Strategy 82 (Homeostatic): Balance + discovery bonus (100% sin retention)
 - Strategy 74 (Cross-Domain Reinforcement): 2x learning when both domains change (67% Parity-5)
 
-Key innovation: Reinforcement boosts affinity learning, and high-affinity pairs
+Reinforcement boosts affinity learning, and high-affinity pairs
 get double protection from homeostatic mechanisms.
 
 Bio inspiration: Homeostatic plasticity maintains network stability while
@@ -39,7 +39,7 @@ class HomeostaticReinforcementDualStrategy(PaletteEvolutionStrategy):
     - Homeostatic plasticity (82): Balance between averaging/extreme aggregations
     - Cross-domain reinforcement (74): 2x learning when both domains improve
 
-    Critical interaction: High-affinity pairs get double protection from
+    Interaction: High-affinity pairs get double protection from
     homeostatic deactivation, creating exploration-exploitation balance.
     """
 
@@ -48,30 +48,30 @@ class HomeostaticReinforcementDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Homeostatic parameters (from strategy 82) ===
+        # Homeostatic parameters (from strategy 82)
         target_extreme_ratio: float = 0.60,
         imbalance_threshold: float = 0.15,
         correction_strength: float = 1.8,
         discovery_bonus: float = 0.5,
         extreme_protection: float = 0.6,
         sin_protection: float = 0.5,
-        # === Reinforcement parameters (from strategy 74) ===
+        # Reinforcement parameters (from strategy 74)
         base_cross_learning_rate: float = 0.15,
         reinforcement_multiplier: float = 2.0,
         affinity_protection_threshold: float = 0.6,
         affinity_protection_strength: float = 0.5,
-        # === Combined: Double protection threshold ===
+        # Combined: Double protection threshold
         double_protection_affinity: float = 0.7,  # Very high affinity = extra protection
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         stagnation_threshold: int = 5,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -363,7 +363,7 @@ class HomeostaticReinforcementDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === REINFORCEMENT MECHANISM ===
+        # REINFORCEMENT MECHANISM
         new_cross_affinity, reinforcement_events = self._update_cross_affinity_reinforced(
             state['cross_affinity'],
             state['act_mask'], state['agg_mask'],
@@ -371,10 +371,10 @@ class HomeostaticReinforcementDualStrategy(PaletteEvolutionStrategy):
             improvement
         )
 
-        # === HOMEOSTATIC BALANCE ===
+        # HOMEOSTATIC BALANCE
         extreme_ratio = self._compute_extreme_ratio(state['agg_mask'])
 
-        # === MUTATIONS ===
+        # MUTATIONS
         should_mutate = new_stagnation >= self.stagnation_threshold
         new_act_mask = state['act_mask']
         new_agg_mask = state['agg_mask']

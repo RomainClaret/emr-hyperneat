@@ -1,14 +1,14 @@
 """Strategy 97: STDP Domain-Aware Dual.
 
-Fixes the broken STDP+Tag (strategy 89) by detecting domain shifts and
-suspending LTD during transitions.
+Variant of STDP+Tag (strategy 89) that detects domain shifts and suspends LTD
+during transitions.
 
 Root Cause of Strategy 89 Failure:
 - LTD window (1-3 gens) depresses functions during domain shifts
-- Functions don't immediately produce results in new domain → LTD kicks in
+- Functions don't immediately produce results in new domain -> LTD kicks in
 - Tag-STDP coupling creates catch-22: need high STDP for capture, but LTD drops it
 
-Key Innovation:
+Mechanism:
 - Detect domain shifts via high fitness variance
 - SUSPEND LTD for N generations during transitions
 - Apply LTP boost after suspension ends to help re-establish useful functions
@@ -45,7 +45,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
     Adjusts the STDP+Tag mechanism by detecting
     domain shifts and protecting functions during transitions.
 
-    Critical fix: When fitness variance is high (domain shift), suspend LTD
+    When fitness variance is high (domain shift), suspend LTD
     for N generations. This prevents valuable functions from being depressed
     before they can prove useful in the new domain.
     """
@@ -55,7 +55,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP parameters (from strategy 89) ===
+        # STDP parameters (from strategy 89)
         ltp_window: int = 5,
         ltd_window: int = 3,
         agg_ltp_window: int = 4,
@@ -67,12 +67,12 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
         cross_ltp_rate: float = 0.15,
         cross_ltd_rate: float = 0.06,
         extreme_ltp_multiplier: float = 1.4,
-        # === DOMAIN SHIFT DETECTION (NEW) ===
+        # DOMAIN SHIFT DETECTION
         domain_shift_variance_threshold: float = 0.15,  # Fitness variance threshold
         ltd_suspension_duration: int = 10,               # Generations to suspend LTD
         post_suspension_ltp_boost: float = 1.3,          # LTP boost after suspension
         fitness_history_window: int = 8,                 # Window for variance calculation
-        # === Tagging parameters (from strategy 89) ===
+        # Tagging parameters (from strategy 89)
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.45,
         tag_decay: float = 0.9,
@@ -80,21 +80,21 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
         fitness_delta_threshold: float = 0.01,
         captured_protection: float = 0.8,
         extreme_tag_boost: float = 1.3,
-        # === STDP-Tag interaction ===
+        # STDP-Tag interaction
         stdp_tag_influence: float = 0.4,
         capture_stdp_threshold: float = 0.55,  # Lowered from 0.6 to make capture easier
         high_stdp_ltd_reduction: float = 0.5,
-        # === Mutation parameters ===
+        # Mutation parameters
         base_activate_rate: float = 0.12,
         base_deactivate_rate: float = 0.08,
         weight_influence: float = 0.5,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         stagnation_threshold: int = 5,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -112,7 +112,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
         self.cross_ltd_rate = cross_ltd_rate
         self.extreme_ltp_multiplier = extreme_ltp_multiplier
 
-        # Domain shift detection (NEW)
+        # Domain shift detection
         self.domain_shift_variance_threshold = domain_shift_variance_threshold
         self.ltd_suspension_duration = ltd_suspension_duration
         self.post_suspension_ltp_boost = post_suspension_ltp_boost
@@ -185,7 +185,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             'agg_history': [],
             'tag_history': [],
             'fitness_history': [],
-            # Domain shift tracking (NEW)
+            # Domain shift tracking
             'ltd_suspension_counter': 0,  # Generations remaining in suspension
             'domain_shifts_detected': 0,
             'current_fitness_variance': 0.0,
@@ -193,7 +193,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             # Tracking
             'ltp_events': 0,
             'ltd_events': 0,
-            'ltd_suspended_events': 0,  # NEW: LTD events that were suspended
+            'ltd_suspended_events': 0,  # LTD events that were suspended
             'cross_ltp_events': 0,
             'capture_events': 0,
             'stdp_capture_events': 0,
@@ -512,14 +512,14 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE HISTORY ===
+        # UPDATE HISTORY
         new_act_history = self._update_history(state['act_history'], generation, state['act_mask'])
         new_agg_history = self._update_history(state['agg_history'], generation, state['agg_mask'])
         new_fitness_history = state['fitness_history'] + [best_fitness]
         if len(new_fitness_history) > self.fitness_history_window + 2:
             new_fitness_history = new_fitness_history[-(self.fitness_history_window + 2):]
 
-        # === DOMAIN SHIFT DETECTION (NEW) ===
+        # DOMAIN SHIFT DETECTION
         is_domain_shift, fitness_variance = self._detect_domain_shift(new_fitness_history)
 
         # Update suspension counter
@@ -545,7 +545,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             # Just ended suspension - apply boost
             ltp_boost = self.post_suspension_ltp_boost
 
-        # === STDP MECHANISM (with domain-aware LTD) ===
+        # STDP MECHANISM (with domain-aware LTD)
         new_act_weights = state['act_weights']
         new_agg_weights = state['agg_weights']
         new_cross_weights = state['cross_weights']
@@ -583,7 +583,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             new_ltd_events += n_act_ltd + n_agg_ltd
             new_ltd_suspended_events += n_act_suspended + n_agg_suspended
 
-        # === TAGGING (with STDP influence) ===
+        # TAGGING (with STDP influence)
         new_act_tags, new_agg_tags = self._update_tags_with_stdp(
             state['act_mask'], state['agg_mask'],
             state['act_tags'], state['agg_tags'],
@@ -594,7 +594,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count, stdp_capture_count = \
             self._attempt_capture(
                 new_act_tags, new_agg_tags,
@@ -603,7 +603,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
                 new_tag_history, generation, improved
             )
 
-        # === MUTATIONS ===
+        # MUTATIONS
         new_act_mask = state['act_mask']
         new_agg_mask = state['agg_mask']
         act_changed = False
@@ -636,7 +636,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             'agg_history': new_agg_history,
             'tag_history': new_tag_history,
             'fitness_history': new_fitness_history,
-            # Domain shift state (NEW)
+            # Domain shift state
             'ltd_suspension_counter': new_ltd_suspension_counter,
             'domain_shifts_detected': new_domain_shifts,
             'current_fitness_variance': fitness_variance,
@@ -666,7 +666,7 @@ class STDPDomainAwareDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Domain shift metrics (NEW)
+            # Domain shift metrics
             'ltd_suspended': ltd_suspended,
             'ltd_suspension_counter': new_ltd_suspension_counter,
             'domain_shifts_detected': new_domain_shifts,

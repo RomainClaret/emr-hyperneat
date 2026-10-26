@@ -9,7 +9,7 @@ Cross-Domain Learning:
 - Shared hypermutation: exploration in one domain can trigger exploration in other
 - Coordinated clonal expansion based on joint success
 
-Key Dual Mechanisms:
+Dual Mechanisms:
 1. Dual affinities - how well each function matches current problem
 2. Dual expressions - current activation probability for each function
 3. Cross-affinity learning - which act-agg combinations succeed together
@@ -356,7 +356,7 @@ class ClonalSelectionDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Compute fitness contributions for both domains
+        # Compute fitness contributions for both domains
         act_contrib, agg_contrib = self._compute_fitness_contributions(
             state['act_mask'],
             state['agg_mask'],
@@ -364,7 +364,7 @@ class ClonalSelectionDualStrategy(PaletteEvolutionStrategy):
             prev_best_fitness,
         )
 
-        # Step 2: Update cross-domain affinity
+        # Update cross-domain affinity
         new_cross = self._update_cross_affinity(
             state['cross_affinity'],
             state['act_mask'],
@@ -380,7 +380,7 @@ class ClonalSelectionDualStrategy(PaletteEvolutionStrategy):
         act_cross_boost = act_cross_boost / max(jnp.sum(state['agg_mask'] > 0.5), 1)
         agg_cross_boost = agg_cross_boost / max(jnp.sum(state['act_mask'] > 0.5), 1)
 
-        # Step 3: Update affinities with hypermutation
+        # Update affinities with hypermutation
         new_act_aff, act_hypermut = self._update_affinities(
             state['act_affinities'], act_contrib, act_cross_boost, k1,
             self.act_affinity_lr, self.act_affinity_decay
@@ -390,7 +390,7 @@ class ClonalSelectionDualStrategy(PaletteEvolutionStrategy):
             self.agg_affinity_lr, self.agg_affinity_decay
         )
 
-        # Step 4: Update expressions
+        # Update expressions
         new_act_exp = self._update_expressions(
             state['act_expressions'], new_act_aff,
             self.act_affinity_threshold, self.act_proliferation_rate,
@@ -402,11 +402,11 @@ class ClonalSelectionDualStrategy(PaletteEvolutionStrategy):
             self.agg_expression_decay, self.agg_expression_min, self.agg_expression_max
         )
 
-        # Step 5: Ensure diversity
+        # Ensure diversity
         new_act_exp = self._ensure_diversity(new_act_exp, self.min_diversity_act)
         new_agg_exp = self._ensure_diversity(new_agg_exp, self.min_diversity_agg)
 
-        # Step 6: Select palettes
+        # Select palettes
         new_act_mask = self._select_palette(
             new_act_exp, self.act_palette_size,
             self.min_active_act, self.max_active_act

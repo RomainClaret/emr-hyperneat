@@ -41,42 +41,42 @@ class SymbiosisSoftL1Strategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === SYMBIOSIS PARAMETERS (CORE) ===
+        # SYMBIOSIS PARAMETERS (CORE)
         symbiosis_pairs: List[Tuple[int, int]] = None,
         symbiosis_protection: float = 0.8,
         orphan_vulnerability: float = 2.0,
         symbiosis_formation_rate: float = 0.15,
         symbiosis_break_threshold: float = 0.2,
-        # === INITIAL SEEDING (KEPT) ===
+        # INITIAL SEEDING (KEPT)
         sin_always_initial: bool = True,
         extreme_always_initial: bool = True,
-        # === AFFINITY PARAMETERS (KEPT) ===
+        # AFFINITY PARAMETERS (KEPT)
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_affinity_lr: float = 0.12,
-        # === PRUNING PARAMETERS ===
+        # PRUNING PARAMETERS
         prune_threshold_act: float = 0.2,
         prune_threshold_agg: float = 0.25,
         stagnation_prune_boost: float = 0.15,
-        # === EXPLORATION PARAMETERS ===
+        # EXPLORATION PARAMETERS
         exploration_rate_act: float = 0.08,
         exploration_rate_agg: float = 0.12,
         symbiotic_exploration_boost: float = 0.5,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
-        # === DYNAMIC SYMBIOSIS ===
+        # DYNAMIC SYMBIOSIS
         enable_dynamic_symbiosis: bool = True,
         dynamic_symbiosis_cooccurrence_threshold: int = 3,  # Gens co-active before pair forms
         dynamic_symbiosis_fitness_threshold: float = 0.6,   # Min cross-affinity for pair formation
         max_symbiosis_pairs: int = 12,                       # Limit total pairs
-        # === UNIVERSAL CROSS-AFFINITY ===
+        # UNIVERSAL CROSS-AFFINITY
         enable_universal_cross_affinity: bool = True,
         universal_cross_lr: float = 0.08,                    # Base LR for all pairs
         category_lr_multipliers: Dict[str, float] = None,    # Category-specific multipliers
@@ -492,7 +492,7 @@ class SymbiosisSoftL1Strategy(PaletteEvolutionStrategy):
             act_mask, agg_mask, symbiosis_strength, fitness_delta
         )
 
-        # === Dynamic symbiosis and universal cross-affinity ===
+        # Dynamic symbiosis and universal cross-affinity
         cooccurrence_counts = state.get('cooccurrence_counts', jnp.zeros((NUM_ACTIVATIONS, NUM_AGGREGATIONS)))
 
         # Update co-occurrence tracking
@@ -557,7 +557,7 @@ class SymbiosisSoftL1Strategy(PaletteEvolutionStrategy):
         if stagnation_count > 5:
             for i in range(NUM_ACTIVATIONS):
                 if new_act_mask[i] > 0.5:
-                    # L1 CHANGE: Sin CAN be pruned now (no hard mask forcing)
+                    # L1: Sin CAN be pruned (no hard mask forcing)
                     base_threshold = self.prune_threshold_act
                     if new_orphan_act[i] > 3:
                         base_threshold *= self.orphan_vulnerability
@@ -568,7 +568,7 @@ class SymbiosisSoftL1Strategy(PaletteEvolutionStrategy):
 
             for j in range(NUM_AGGREGATIONS):
                 if new_agg_mask[j] > 0.5:
-                    # L1 CHANGE: Extreme aggs CAN be pruned now
+                    # L1: Extreme aggs CAN be pruned
                     base_threshold = self.prune_threshold_agg
                     if new_orphan_agg[j] > 3:
                         base_threshold *= self.orphan_vulnerability
@@ -578,8 +578,8 @@ class SymbiosisSoftL1Strategy(PaletteEvolutionStrategy):
                         if prune_rand[idx] > agg_protection[j]:
                             new_agg_mask = new_agg_mask.at[j].set(0.0)
 
-        # L1 CRITICAL CHANGE: NO HARD MASK FORCING
-        # The following lines from original strategy_137 are REMOVED:
+        # L1: NO HARD MASK FORCING
+        # The original strategy_137 forces sin and the extreme aggs at this point:
         # new_act_mask = new_act_mask.at[4].set(1.0)
         # for agg in CORE_EXTREME_AGGS:
         #     new_agg_mask = new_agg_mask.at[agg].set(1.0)

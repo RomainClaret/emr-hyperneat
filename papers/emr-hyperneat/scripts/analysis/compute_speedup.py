@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Compute EMR-vs-ES-HN total-runtime speedup ratios from the real 30-generation runs.
+"""Compute EMR-vs-ES-HN total-runtime speedup ratios over 30 generations.
 
 Reads ``data/runs_eshn.json``, ``data/runs_emr_gpu.json`` and ``data/runs_emr_cpu.json``
 and computes, per depth, the IQR (25th/50th/75th percentile) of ``total_runtime_s`` over
-the in-figure-band runs. Speedup = ES-HN / EMR at the matching depth.
+the in-figure-band runs. Speedup = ES-HN / EMR at the matching depth. Each total is the
+construction time plus 30 times the steady per-generation time (see the paper README's
+timing provenance).
 
 Two medians are reported because the runtime figure describes an "IQR median ratio":
-  * the IQR midpoint, (Q1 + Q3) / 2 -- what the figure band's center reads as;
+  * the IQR midpoint, (Q1 + Q3) / 2: what the figure band's center reads as;
   * the true median (50th percentile).
 At depth 7 (the deepest with an ES-HN baseline) these bracket the GPU speedup at
-roughly 59x (midpoint) to 81x (true median); the CPU speedup is about 11x. ES-HN and
-EMR CPU are compared over depths 1-7; GPU extends further but ES-HN does not.
+roughly 59x (midpoint) to 81x (true median); the CPU speedup is about 11x. Both are XOR
+totals over populations 50-1000 with EMR's h->h connection cache on, and the depth-7 GPU
+totals include an interpolated cell (population 750) and an estimated one (population
+1000). ES-HN and EMR CPU are compared over depths 1-7; GPU extends further but ES-HN does
+not.
 """
 
 import json

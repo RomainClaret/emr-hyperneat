@@ -6,12 +6,12 @@ which only modify function selection.
 
 Biological Basis:
 - Neurons regulate their own firing threshold and gain based on activity
-- Too much activity → increase threshold, decrease gain (dampening)
-- Too little activity → decrease threshold, increase gain (amplifying)
+- Too much activity -> increase threshold, decrease gain (dampening)
+- Too little activity -> decrease threshold, increase gain (amplifying)
 - Maintains neurons in a homeostatic operating range
 - Complements synaptic plasticity with intrinsic changes
 
-Key Insight:
+Rationale:
 - All previous strategies (1-24) evolve WHICH functions to include
 - Intrinsic plasticity evolves HOW RESPONSIVE each function is
 - A function that's "too hot" (saturating) gets dampened
@@ -27,12 +27,12 @@ Learning Rules:
     error[i] = activity[i] - target_activity
 
     # Threshold adaptation (shift activation curve)
-    threshold[i] -= threshold_lr * error[i]  # High activity → higher threshold
+    threshold[i] -= threshold_lr * error[i]  # High activity -> higher threshold
 
     # Gain adaptation (scale response magnitude)
-    gain[i] *= (1 - gain_lr * error[i])  # High activity → lower gain
+    gain[i] *= (1 - gain_lr * error[i])  # High activity -> lower gain
 
-Expected improvements:
+Intended effects:
 - Better function utilization (no over/under-active functions)
 - Complementary to palette selection (tune what's selected)
 - Homeostatic stability during evolution
@@ -204,8 +204,8 @@ class IntrinsicPlasticityStrategy(PaletteEvolutionStrategy):
         """Update intrinsic plasticity parameters based on activity.
 
         Homeostatic adaptation:
-        - High activity → increase threshold, decrease gain (dampen)
-        - Low activity → decrease threshold, increase gain (amplify)
+        - High activity -> increase threshold, decrease gain (dampen)
+        - Low activity -> decrease threshold, increase gain (amplify)
         """
         # Update activity estimates (EMA)
         active = (mask > 0.5).astype(jnp.float32)
@@ -220,14 +220,14 @@ class IntrinsicPlasticityStrategy(PaletteEvolutionStrategy):
         error = new_estimates - self.target_activity
 
         # Update thresholds (only for active functions)
-        # High activity → positive error → increase threshold
+        # High activity -> positive error -> increase threshold
         new_thresholds = thresholds - self.threshold_lr * error * active
         new_thresholds = jnp.clip(
             new_thresholds, self.threshold_bounds[0], self.threshold_bounds[1]
         )
 
         # Update gains (only for active functions)
-        # High activity → positive error → decrease gain (multiply by < 1)
+        # High activity -> positive error -> decrease gain (multiply by < 1)
         gain_update = 1.0 - self.gain_lr * error
         new_gains = gains * jnp.where(active > 0.5, gain_update, 1.0)
         new_gains = jnp.clip(new_gains, self.gain_bounds[0], self.gain_bounds[1])
@@ -292,7 +292,7 @@ class IntrinsicPlasticityStrategy(PaletteEvolutionStrategy):
 
             if mask[i] < 0.5:
                 # Inactive: maybe activate
-                # Higher affinity and better tune quality → more likely
+                # Higher affinity and better tune quality -> more likely
                 rate = self.base_activate_rate * (0.5 + 0.5 * aff) * (0.7 + 0.3 * tune_quality)
                 if activate_probs[i] < rate:
                     new_mask = new_mask.at[i].set(1.0)
@@ -338,12 +338,12 @@ class IntrinsicPlasticityStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # Step 1: Estimate activity from fitness
+        # Estimate activity from fitness
         new_activity = self._estimate_activity(
             state['mask'], best_fitness, prev_best_fitness
         )
 
-        # Step 2: Update intrinsic plasticity parameters
+        # Update intrinsic plasticity parameters
         new_thresholds, new_gains, new_estimates = self._update_intrinsic_params(
             state['thresholds'],
             state['gains'],
@@ -352,7 +352,7 @@ class IntrinsicPlasticityStrategy(PaletteEvolutionStrategy):
             state['mask'],
         )
 
-        # Step 3: Update Hebbian affinity
+        # Update Hebbian affinity
         new_affinity = self._update_hebbian_affinity(
             state['function_affinity'],
             state['mask'],
@@ -360,7 +360,7 @@ class IntrinsicPlasticityStrategy(PaletteEvolutionStrategy):
             new_gains,
         )
 
-        # Step 4: Apply mutation
+        # Apply mutation
         new_mask, mutation_info = self._apply_mutation(
             subkey, state['mask'], new_affinity, new_gains
         )

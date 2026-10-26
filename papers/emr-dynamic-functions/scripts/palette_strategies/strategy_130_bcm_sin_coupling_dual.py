@@ -3,7 +3,7 @@
 Combines BCM Metaplasticity (#15) with Aggregation-led (#101) and sin-extreme coupling.
 Sin's BCM threshold is reduced when extreme aggs are active.
 
-Key Innovation:
+Mechanism:
 - Sin's BCM threshold is coupled to extreme agg presence
 - When extreme aggs (max/min) are active, sin threshold drops
 - Creates ecosystem-driven sin discovery
@@ -40,7 +40,7 @@ class BCMSinCouplingDualStrategy(PaletteEvolutionStrategy):
     Sin's BCM threshold is modulated by extreme agg
     presence, creating ecosystem-driven discovery dynamics.
 
-    Critical innovation: Cross-domain threshold coupling for sin-extreme synergy.
+    Cross-domain threshold coupling for sin-extreme pairings.
     """
 
     name = "bcm_sin_coupling_dual"
@@ -48,29 +48,29 @@ class BCMSinCouplingDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === BCM parameters ===
+        # BCM parameters
         bcm_threshold_lr: float = 0.1,
         bcm_min_threshold: float = 0.2,
         bcm_max_threshold: float = 0.9,
         bcm_initial_threshold: float = 0.5,
-        # === Sin-extreme coupling ===
+        # Sin-extreme coupling
         extreme_sin_coupling_discount: float = 0.25,
         averaging_sin_penalty: float = 0.1,
         sin_idx: int = 4,
-        # === General BCM ===
+        # General BCM
         extreme_base_discount: float = 0.2,
-        # === Mutation rates ===
+        # Mutation rates
         base_mutation_rate: float = 0.10,
         coupling_mutation_boost: float = 0.15,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -202,7 +202,7 @@ class BCMSinCouplingDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === UPDATE THRESHOLDS WITH COUPLING ===
+        # UPDATE THRESHOLDS WITH COUPLING
         act_thresholds = state['act_thresholds']
         agg_thresholds = state['agg_thresholds']
         act_activity = state['act_activity']
@@ -267,7 +267,7 @@ class BCMSinCouplingDualStrategy(PaletteEvolutionStrategy):
             new_thresh = max(self.bcm_min_threshold, min(self.bcm_max_threshold, new_thresh))
             agg_thresholds = agg_thresholds.at[i].set(new_thresh)
 
-        # === ACTIVATION MUTATION ===
+        # ACTIVATION MUTATION
         candidates = [i for i in range(NUM_ACTIVATIONS) if float(act_mask[i]) < 0.5]
         if candidates:
             # Calculate mutation probability
@@ -292,7 +292,7 @@ class BCMSinCouplingDualStrategy(PaletteEvolutionStrategy):
                 new_idx = int(jax.random.choice(k2, jnp.array(candidates), p=probs))
                 act_mask = act_mask.at[new_idx].set(1.0)
 
-        # === AGGREGATION MUTATION ===
+        # AGGREGATION MUTATION
         candidates = [i for i in range(NUM_AGGREGATIONS) if float(agg_mask[i]) < 0.5]
         if candidates and jax.random.uniform(k3) < self.base_mutation_rate:
             weights = []

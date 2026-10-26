@@ -17,9 +17,9 @@ Tests cover:
 """
 
 import pytest
-import jax.numpy as jnp
 
 from conftest import (
+    EMRHyperNEAT,
     create_config_with_geometry_seeding,
     run_quick_evolution,
     assert_no_errors,
@@ -29,12 +29,11 @@ from conftest import (
     STANDARD_GENERATIONS,
     DEFAULT_SEED,
     STANDARD_SEEDS,
+    create_config_with_leo_and_geometry_seeding,
 )
 
 
-# =============================================================================
 # Test Classes
-# =============================================================================
 
 
 class TestGeometrySeedingConfiguration:
@@ -114,30 +113,33 @@ class TestSeedWeight:
 
 
 class TestCPPNInputDimensions:
-    """Test 5D vs 7D CPPN input handling."""
+    """Geometry seeding queries the CPPN with 7-D rows (x1, y1, x2, y2, delta_x, delta_y, bias), and the rows are 5-D
+    without it, as these tests check on the input shape. geometry_seeding.use_7d_inputs is refused:
+    it has no effect, so a '5d_inputs' test that set it would run 7-D inputs."""
 
-    def test_7d_inputs_enabled(self, algorithm, xor_problem):
-        """7D inputs (with delta_x, delta_y) should work."""
-        config = create_config_with_geometry_seeding(
-            preset='default',
-            use_7d_inputs=True
-        )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr['geometry_seeding']['use_7d_inputs'] is True
-        result = run_quick_evolution(algorithm, config, xor_problem)
-        assert_no_errors(result)
+    @staticmethod
+    def _cppn_input_dim(algorithm, config, problem):
+        algorithm.initialize(algorithm.create_config(config), problem, seed=DEFAULT_SEED)
+        return algorithm._wrap_problem_for_pipeline(problem).input_shape[0]
 
-    def test_5d_inputs_fallback(self, algorithm, xor_problem):
-        """5D inputs (standard) should work."""
-        config = create_config_with_geometry_seeding(preset='5d_inputs')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr['geometry_seeding']['use_7d_inputs'] is False
-        result = run_quick_evolution(algorithm, config, xor_problem)
-        assert_no_errors(result)
+    def test_geometry_seeding_queries_7d_rows(self, xor_problem):
+        assert self._cppn_input_dim(EMRHyperNEAT(), create_config_with_geometry_seeding(preset='default'),
+                                    xor_problem) == 7
+
+    def test_without_geometry_seeding_the_rows_are_5d(self, xor_problem):
+        assert self._cppn_input_dim(EMRHyperNEAT(), create_config_with_geometry_seeding(preset='disabled'),
+                                    xor_problem) == 5
+
+    def test_use_7d_inputs_is_refused(self):
+        config = create_config_with_geometry_seeding(preset='default')
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['geometry_seeding']['use_7d_inputs'] = False
+        with pytest.raises(ValueError, match='geometry_seeding.use_7d_inputs is not a setting; geometry seeding '
+                                             'always queries 7-D rows'):
+            EMRHyperNEAT().create_config(config)
 
     def test_5d_vs_7d_both_work(self, algorithm, xor_problem):
-        """Both 5D and 7D input modes should achieve positive fitness."""
-        config_5d = create_config_with_geometry_seeding(preset='5d_inputs')
+        """Both input layouts (geometry seeding off and on) reach positive fitness."""
+        config_5d = create_config_with_geometry_seeding(preset='disabled')
         result_5d = run_quick_evolution(algorithm, config_5d, xor_problem)
 
         config_7d = create_config_with_geometry_seeding(preset='default')
@@ -202,6 +204,67 @@ class TestGeometrySeedingWithEvolution:
         assert_no_errors(result)
 
 
+class TestGeometrySeedingWithLEO:
+    """Test geometry seeding combined with LEO."""
+
+    def test_combined_default_presets(self, leo_algorithm, xor_problem):
+        """Combined geometry seeding and LEO with defaults."""
+        config = create_config_with_leo_and_geometry_seeding(
+            leo_preset='default',
+            gs_preset='default'
+        )
+        result = run_quick_evolution(leo_algorithm, config, xor_problem)
+        assert_no_errors(result)
+        assert_positive_fitness(result)
+
+    def test_combined_low_threshold_leo(self, leo_algorithm, xor_problem):
+        """LEO low threshold + geometry seeding."""
+        config = create_config_with_leo_and_geometry_seeding(
+            leo_preset='low_threshold',
+            gs_preset='default'
+        )
+        result = run_quick_evolution(leo_algorithm, config, xor_problem)
+        assert_no_errors(result)
+
+    def test_combined_high_threshold_leo(self, leo_algorithm, xor_problem):
+        """LEO high threshold + geometry seeding."""
+        config = create_config_with_leo_and_geometry_seeding(
+            leo_preset='high_threshold',
+            gs_preset='default'
+        )
+        result = run_quick_evolution(leo_algorithm, config, xor_problem)
+        assert_no_errors(result)
+
+    def test_combined_positive_seed_weight(self, leo_algorithm, xor_problem):
+        """LEO + positive geometry seed weight."""
+        config = create_config_with_leo_and_geometry_seeding(
+            leo_preset='default',
+            gs_preset='positive_weight'
+        )
+        result = run_quick_evolution(leo_algorithm, config, xor_problem)
+        assert_no_errors(result)
+
+    def test_combined_5d_inputs(self, leo_algorithm, xor_problem):
+        """LEO with 5-D CPPN rows (geometry seeding off; the old '5d_inputs' preset ran 7-D rows).
+        """
+        config = create_config_with_leo_and_geometry_seeding(
+            leo_preset='default',
+            gs_preset='disabled'
+        )
+        result = run_quick_evolution(leo_algorithm, config, xor_problem)
+        assert_no_errors(result)
+
+    def test_combined_with_recurrence(self, leo_algorithm, xor_problem):
+        """LEO + geometry seeding + hidden recurrence."""
+        config = create_config_with_leo_and_geometry_seeding(
+            leo_preset='default',
+            gs_preset='default',
+            recurrence_preset='hidden_only'
+        )
+        result = run_quick_evolution(leo_algorithm, config, xor_problem)
+        assert_no_errors(result)
+
+
 class TestGeometrySeedingWithOtherFeatures:
     """Test geometry seeding with other features."""
 
@@ -217,9 +280,9 @@ class TestGeometrySeedingWithOtherFeatures:
         """Geometry seeding on the depth-offload path.
 
         The offload query family (query_level_positions_chunked,
-        process_level_streaming) used to drop geometry_seeding_enabled on its
-        way to batch_query_population_positions, so a 7-input CPPN received
-        5-column inputs and generation 0 died with a (5,) vs (7,) broadcast
+        process_level_streaming) passes geometry_seeding_enabled on to
+        batch_query_population_positions; dropping it would give a 7-input CPPN
+        5-column inputs, and generation 0 would die with a (5,) vs (7,) broadcast
         error.
         """
         from emr_hyperneat.execution import (
@@ -256,7 +319,7 @@ class TestGeometrySeedingWithOtherFeatures:
         config = create_config_with_geometry_seeding(preset='default')
         config['algorithm_params']['emrhyperneat']['emr_hyperneat']['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum'
+            'global_function': 'sum'
         }
         result = run_quick_evolution(algorithm, config, xor_problem)
         assert_no_errors(result)

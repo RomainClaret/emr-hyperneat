@@ -2,10 +2,10 @@
 
 Hybrid combining Consolidation Window memory with Clonal Selection dynamics.
 
-Key synergies:
-1. Consolidation's working → LTM hierarchy stores validated knowledge
+How the two combine:
+1. Consolidation's working -> LTM hierarchy stores validated knowledge
 2. Clonal affinity learning identifies high-fitness functions
-3. NOVEL: High-affinity functions get PRIORITY for LTM consolidation
+3. High-affinity functions get PRIORITY for LTM consolidation
 4. Clonal expansion triggers faster working memory accumulation
 5. LTM serves as "memory B-cells" - long-term immune memory
 
@@ -59,7 +59,7 @@ class ConsolidationClonalDualStrategy(PaletteEvolutionStrategy):
         replay_strength: float = 1.5,
         transfer_rate: float = 0.12,
         ltm_decay_rate: float = 0.02,
-        # Affinity-guided consolidation (KEY SYNERGY)
+        # Affinity-guided consolidation
         affinity_threshold_for_ltm: float = 0.5,  # Min affinity for LTM transfer
         affinity_transfer_bonus: float = 0.5,  # Bonus transfer rate for high-affinity
         # Clonal parameters

@@ -3,7 +3,7 @@
 Combines STDP temporal credit (#16) with neurogenesis survival mechanics (#113).
 Young functions active BEFORE fitness improvement get survival credit boost.
 
-Key Innovation:
+Mechanism:
 - STDP LTP window tracks which functions PRECEDE improvement
 - Neurogenesis birth creates young aggs that must survive maturation
 - Young aggs that received LTP credit during maturation have lowered survival threshold
@@ -43,7 +43,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
     neurogenesis birth/maturation/survival. Functions active before improvement
     get LTP credit that boosts survival probability.
 
-    Critical innovation: Young aggregations track their LTP history during
+    Young aggregations track their LTP history during
     maturation. High LTP credit = lower survival threshold. Sin-extreme
     co-activation before improvement strengthens both survival chances.
     """
@@ -53,41 +53,41 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === STDP PARAMETERS (from #16) ===
+        # STDP PARAMETERS (from #16)
         ltp_window: int = 5,           # Gens before improvement to credit
         ltd_window: int = 3,           # Stagnation window for depression
         ltp_rate: float = 0.25,        # LTP credit accumulation rate
         ltd_rate: float = 0.10,        # LTD credit reduction rate
         stdp_history_length: int = 10, # History to track
         temporal_decay: float = 0.7,   # Decay per gen in window
-        # === NEUROGENESIS PARAMETERS (from #113) ===
+        # NEUROGENESIS PARAMETERS (from #113)
         agg_neurogenesis_rate: float = 0.10,       # Birth rate for new aggs
         agg_maturation_period: int = 8,            # Gens before survival decision
         young_agg_plasticity: float = 2.0,         # Learning multiplier for young
         base_survival_threshold: float = 0.15,     # Base contribution to survive
         max_young_aggs: int = 2,                   # Max concurrent young aggs
-        # === STDP-SURVIVAL INTEGRATION (NEW) ===
+        # STDP-SURVIVAL INTEGRATION
         stdp_survival_multiplier: float = 0.7,    # Threshold reduction for LTP aggs
         young_ltp_plasticity: float = 2.5,        # Young aggs get stronger LTP
         ltp_survival_threshold: float = 0.4,      # Min LTP credit for bonus
         sin_extreme_ltp_boost: float = 0.5,       # Extra LTP for sin+extreme co-activation
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_learning_rate: float = 0.12,
         sin_extreme_coupling: float = 0.5,
-        # === Tagging parameters ===
+        # Tagging parameters
         tag_threshold: float = 0.5,
         agg_tag_threshold: float = 0.40,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
         extreme_tag_boost: float = 1.5,
-        # === Contribution tracking ===
+        # Contribution tracking
         contribution_decay: float = 0.9,
         contribution_boost_on_improvement: float = 0.25,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
@@ -95,7 +95,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
         min_diversity_act: int = 3,
         min_diversity_agg: int = 2,
         max_stable_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -115,7 +115,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
         self.base_survival_threshold = base_survival_threshold
         self.max_young_aggs = max_young_aggs
 
-        # STDP-survival integration (NEW)
+        # STDP-survival integration
         self.stdp_survival_multiplier = stdp_survival_multiplier
         self.young_ltp_plasticity = young_ltp_plasticity
         self.ltp_survival_threshold = ltp_survival_threshold
@@ -185,7 +185,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
         # Cross-domain affinity
         cross_affinity = jnp.ones((NUM_ACTIVATIONS, NUM_AGGREGATIONS)) * 0.5
 
-        # STDP credit tracking (NEW)
+        # STDP credit tracking
         act_ltp_credit = jnp.zeros(NUM_ACTIVATIONS)
         agg_ltp_credit = jnp.zeros(NUM_AGGREGATIONS)
 
@@ -212,7 +212,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
             'tag_history': [],
             # Cross-domain
             'cross_affinity': cross_affinity,
-            # STDP state (NEW)
+            # STDP state
             'act_ltp_credit': act_ltp_credit,
             'agg_ltp_credit': agg_ltp_credit,
             'stdp_history': [],  # (gen, act_mask, agg_mask, fitness) tuples
@@ -262,7 +262,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray, Dict[int, Dict]]:
         """Update STDP LTP credit based on temporal causality.
 
-        KEY INNOVATION: Young aggs accumulate LTP credit during maturation.
+        Young aggs accumulate LTP credit during maturation.
         """
         new_act_ltp = act_ltp_credit * 0.95  # Slow decay
         new_agg_ltp = agg_ltp_credit * 0.95
@@ -362,7 +362,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[Set[int], Dict[int, Dict], List[int], List[int], int]:
         """Process aggregation maturation with STDP-guided survival.
 
-        KEY INNOVATION: LTP credit lowers survival threshold.
+        LTP credit lowers survival threshold.
         """
         new_stable = set(stable_aggs)
         new_young = {}
@@ -646,26 +646,26 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
         stable_aggs = set(state['stable_aggs'])
         young_aggs = dict(state['young_aggs'])
 
-        # === UPDATE STDP HISTORY ===
+        # UPDATE STDP HISTORY
         stdp_history = state['stdp_history'] + [
             (generation, state['act_mask'].copy(), state['agg_mask'].copy(), best_fitness)
         ]
         if len(stdp_history) > self.stdp_history_length:
             stdp_history = stdp_history[-self.stdp_history_length:]
 
-        # === UPDATE LTP CREDIT ===
+        # UPDATE LTP CREDIT
         new_act_ltp, new_agg_ltp, young_aggs = self._update_ltp_credit(
             state['act_ltp_credit'], state['agg_ltp_credit'],
             stdp_history, generation, improved,
             state['act_mask'], state['agg_mask'], young_aggs
         )
 
-        # === AGG CONTRIBUTION UPDATE ===
+        # AGG CONTRIBUTION UPDATE
         new_agg_contribution = self._update_agg_contribution(
             state['agg_contribution'], state['agg_mask'], young_aggs, improved
         )
 
-        # === MATURATION WITH STDP ===
+        # MATURATION WITH STDP
         stable_aggs, young_aggs, survived, pruned, ltp_survive_count = self._mature_aggs_with_stdp(
             stable_aggs, young_aggs,
             new_agg_contribution, new_agg_ltp,
@@ -673,15 +673,15 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
             generation
         )
 
-        # === MAYBE BIRTH NEW AGG ===
+        # MAYBE BIRTH NEW AGG
         stable_aggs, young_aggs, born = self._maybe_birth_agg(
             stable_aggs, young_aggs, k1, generation
         )
 
-        # === CREATE AGG MASK ===
+        # CREATE AGG MASK
         new_agg_mask = self._create_agg_mask(stable_aggs, young_aggs)
 
-        # === TAGGING ===
+        # TAGGING
         new_act_tags, new_agg_tags = self._update_tags(
             state['act_mask'], new_agg_mask,
             state['act_tags'], state['agg_tags'],
@@ -692,14 +692,14 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
         if len(new_tag_history) > self.capture_window + 2:
             new_tag_history = new_tag_history[-(self.capture_window + 2):]
 
-        # === CAPTURE ===
+        # CAPTURE
         new_act_captured, new_agg_captured, capture_count = self._attempt_capture(
             new_act_tags, new_agg_tags,
             state['act_captured'], state['agg_captured'],
             new_tag_history, generation, improved
         )
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff, new_agg_aff, new_cross_affinity = self._update_affinities(
             state['act_affinities'], state['agg_affinities'],
             state['act_mask'], new_agg_mask,
@@ -707,7 +707,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
             new_act_ltp, new_agg_ltp
         )
 
-        # === ACTIVATION PALETTE SELECTION ===
+        # ACTIVATION PALETTE SELECTION
         new_act_mask, act_diversity_rescue = self._select_act_palette(
             new_act_aff, new_act_captured, new_act_tags, new_act_ltp,
             new_cross_affinity, new_agg_mask, k2
@@ -797,7 +797,7 @@ class STDPNeurogenesisSurvivalDualStrategy(PaletteEvolutionStrategy):
             'total_agg_births': new_state['total_agg_births'],
             'total_agg_survivals': new_state['total_agg_survivals'],
             'agg_survival_rate': survival_rate,
-            # STDP metrics (NEW)
+            # STDP metrics
             'ltp_survival_events': new_state['ltp_survival_events'],
             'sin_ltp_credit': float(new_act_ltp[4]),
             'max_ltp_credit': float(new_agg_ltp[2]),

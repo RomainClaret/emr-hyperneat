@@ -5,12 +5,13 @@ triggers expression of related genes in the same pathway. Discovery of one
 component creates a "discovery window" where related components are more
 likely to be discovered.
 
-Key mechanisms for SYMMETRIC discovery:
-1. Discovery of sin triggers +40% exploration probability for extreme aggs
-2. Discovery of extreme agg triggers +40% exploration for sin
+Mechanisms for SYMMETRIC discovery:
+1. Discovery of sin multiplies the aggregation exploration rate by 1.4 (1 + codiscovery_boost)
+2. Discovery of max or min multiplies the activation exploration rate by 1.4
 3. Discovery window lasts for 10 generations after discovery
-4. Initial sin exploration bias ensures early discovery
-5. Protected indices (0.1% deactivation) for sin and extreme aggregations
+4. Early exploration bias: +0.15 on the activation exploration rate for 20 generations
+5. Sin, max and min are never pruned and are set active every generation, so no discovery
+   fires after the initial window: only generations 0 to 9 are boosted
 6. Memory cell crystallization for stable, high-affinity functions
 7. Affinity floors for guaranteed retention
 
@@ -46,11 +47,12 @@ class SinExtremeCodeiscoverySymmetricStrategy(PaletteEvolutionStrategy):
     for discovering the complementary domain, encouraging rapid
     establishment of sin-extreme pairs.
 
-    Key improvements over dual version:
-    - Protected indices for sin and extreme aggregations (0.1% deactivation)
-    - Affinity floors for guaranteed retention
+    Differences from the dual version:
     - Memory cell crystallization for proven functions
-    - Discovery tracking for research analysis
+    - Higher affinity floors (sin 0.7, max and min 0.6, against 0.6 and 0.5)
+
+    Like the dual version, it never prunes sin, max and min, sets them active every
+    generation and tracks discoveries.
     """
 
     name = "sin_extreme_codiscovery_symmetric"
@@ -420,7 +422,7 @@ class SinExtremeCodeiscoverySymmetricStrategy(PaletteEvolutionStrategy):
                             codiscovery_events += 1
                         break
 
-        # CRITICAL: Ensure sin and extreme aggs are NEVER removed
+        # Ensure sin and extreme aggs are NEVER removed
         new_act_mask = new_act_mask.at[SIN_IDX].set(1.0)
         for agg in [MAX_IDX, MIN_IDX]:
             new_agg_mask = new_agg_mask.at[agg].set(1.0)

@@ -3,7 +3,7 @@
 Extends AntColonyPheromoneStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using ant colony pheromone dynamics.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual pheromone trails - separate trails for act and agg domains
 2. Cross-domain pheromone - successful act-agg pairs boost each other
 3. Parallel evaporation and deposit - independent dynamics in both domains
@@ -275,11 +275,11 @@ class AntColonyPheromoneDualStrategy(PaletteEvolutionStrategy):
 
         is_elite = best_fitness >= self.elite_threshold
 
-        # Step 1: Evaporate pheromone in both domains
+        # Evaporate pheromone in both domains
         new_act_pher = self._evaporate_pheromone(state['act_pheromone'])
         new_agg_pher = self._evaporate_pheromone(state['agg_pheromone'])
 
-        # Step 2: Update cross-domain pheromone
+        # Update cross-domain pheromone
         new_cross = self._update_cross_pheromone(
             state['cross_pheromone'],
             state['act_mask'],
@@ -287,7 +287,7 @@ class AntColonyPheromoneDualStrategy(PaletteEvolutionStrategy):
             improvement,
         )
 
-        # Step 3: Compute cross-domain boosts
+        # Compute cross-domain boosts
         act_cross_boost = self._compute_cross_boost(new_cross, state['agg_mask'], True)
         agg_cross_boost = self._compute_cross_boost(new_cross, state['act_mask'], False)
 
@@ -295,7 +295,7 @@ class AntColonyPheromoneDualStrategy(PaletteEvolutionStrategy):
         new_act_pher = jnp.clip(new_act_pher + act_cross_boost, self.pheromone_min, self.pheromone_max)
         new_agg_pher = jnp.clip(new_agg_pher + agg_cross_boost, self.pheromone_min, self.pheromone_max)
 
-        # Step 4: Deposit pheromone on successful functions
+        # Deposit pheromone on successful functions
         new_act_pher, act_deposits = self._deposit_pheromone(
             new_act_pher, state['act_mask'], improvement, is_elite, NUM_ACTIVATIONS
         )
@@ -303,7 +303,7 @@ class AntColonyPheromoneDualStrategy(PaletteEvolutionStrategy):
             new_agg_pher, state['agg_mask'], improvement, is_elite, NUM_AGGREGATIONS
         )
 
-        # Step 5: Select new palettes based on pheromone
+        # Select new palettes based on pheromone
         new_act_mask = self._select_palette(new_act_pher, k_act, self.act_palette_size, NUM_ACTIVATIONS)
         new_agg_mask = self._select_palette(new_agg_pher, k_agg, self.agg_palette_size, NUM_AGGREGATIONS)
 

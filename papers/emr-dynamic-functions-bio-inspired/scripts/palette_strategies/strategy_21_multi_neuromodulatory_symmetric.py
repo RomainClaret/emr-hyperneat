@@ -1,6 +1,7 @@
 """Strategy 21 Symmetric: Multi-Neuromodulatory with Memory Cells and Affinity Floors.
 
-Extends MultiNeuromodulatoryDual with winning patterns from eligibility_trace_symmetric:
+Extends MultiNeuromodulatoryDual with memory cells and affinity floors, as in
+eligibility_trace_symmetric:
 - Four neuromodulators (ACh/DA/NE/5-HT) with biological interactions
 - Memory cells from sustained high affinity
 - Affinity floors for sin and extreme aggregations (CRITICAL for retention)
@@ -12,7 +13,7 @@ Biological Basis:
 - Norepinephrine (NE): Arousal, urgency, fight-or-flight, exploration
 - Serotonin (5-HT): Mood, patience, long-term stability, impulse control
 
-Key neuromodulator interactions:
+Neuromodulator interactions:
 - ACh-DA synergy: Attention amplifies reward learning
 - NE-5HT opposition: Urgency vs patience tradeoff
 - DA from fitness: Reward prediction error drives learning
@@ -48,10 +49,10 @@ CORE_EXTREME_AGGS = [2, 3]  # max, min
 class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
     """Four-neuromodulator system with memory cells for dual palette evolution.
 
-    Combines the biological richness of four neuromodulators with
-    the winning memory cell + affinity floor patterns from eligibility_trace.
+    Combines four neuromodulators with memory cells and affinity floors,
+    as in eligibility_trace_symmetric.
 
-    Key innovations:
+    Mechanisms:
     - Four interacting neuromodulators (not just dopamine)
     - Serotonin provides additional stability for memory cells
     - ACh-DA synergy boosts learning during focused attention
@@ -285,7 +286,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
         ne_delta += ne_5ht_effect * 0.5
         serotonin_delta -= ne_5ht_effect * 0.5
 
-        # ACh-DA synergy (attention × reward = enhanced learning)
+        # ACh-DA synergy (attention × reward = faster learning)
         ach_da_effect = self.ach_da_synergy * ach * da
         da_delta += ach_da_effect * 0.3
 
@@ -348,8 +349,8 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Update memory cells based on sustained high affinity.
 
-        Memory cell formation enhanced by serotonin (stability).
-        High serotonin → easier memory cell formation.
+        Serotonin (stability) promotes memory cell formation.
+        High serotonin -> easier memory cell formation.
         """
         active = mask > 0.5
         # Serotonin lowers threshold (stability promotes memory)
@@ -403,7 +404,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
     ) -> jnp.ndarray:
         """Update affinity using neuromodulator-gated learning.
 
-        ACh modulates precision: high ACh → focused updates to active functions.
+        ACh modulates precision: high ACh -> focused updates to active functions.
         Memory cells get protection from negative updates.
         """
         precision = 0.5 + 0.5 * ach
@@ -412,8 +413,8 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
         new_affinity = affinity.copy()
         for i in range(len(affinity)):
             if float(active[i]) > 0.5:
-                # Positive fitness → full learning rate
-                # Negative fitness → reduced learning rate
+                # Positive fitness -> full learning rate
+                # Negative fitness -> reduced learning rate
                 if fitness_signal >= 0:
                     delta = learning_rate * precision * fitness_signal
                 else:
@@ -619,7 +620,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update neuromodulators (shared across domains)
+        # Update neuromodulators (shared across domains)
         new_ach, new_da, new_ne, new_serotonin, neuromod_metrics = self._update_neuromodulators(
             state['acetylcholine'],
             state['dopamine'],
@@ -630,12 +631,12 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             improved,
         )
 
-        # Step 2: Compute behavioral modulation
+        # Compute behavioral modulation
         exploration_rate, learning_rate, retention_rate = self._compute_behavioral_modulation(
             new_ach, new_da, new_ne, new_serotonin
         )
 
-        # Step 3: Track discoveries
+        # Track discoveries
         new_sin_gen, new_extreme_gen, act_newly_disc, agg_newly_disc = self._track_discoveries(
             state['act_mask'],
             state['agg_mask'],
@@ -644,7 +645,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             state['extreme_agg_discovered_gen'],
         )
 
-        # Step 4: Update affinities (both domains)
+        # Update affinities (both domains)
         new_act_affinity = self._update_affinity_with_neuromodulators(
             state['act_affinity'],
             state['act_mask'],
@@ -664,12 +665,12 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             agg_newly_disc,
         )
 
-        # Step 5: Apply affinity floors (CRITICAL for retention)
+        # Apply affinity floors (CRITICAL for retention)
         new_act_affinity, new_agg_affinity = self._apply_affinity_floors(
             new_act_affinity, new_agg_affinity
         )
 
-        # Step 6: Update memory cells
+        # Update memory cells
         new_act_mem_counts, new_act_mem_cells = self._update_memory_cells(
             new_act_affinity,
             state['act_mask'],
@@ -685,7 +686,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             new_serotonin,
         )
 
-        # Step 7: Update cross-domain affinity
+        # Update cross-domain affinity
         act_active = (state['act_mask'] > 0.5).astype(jnp.float32)
         agg_active = (state['agg_mask'] > 0.5).astype(jnp.float32)
         cross_active = jnp.outer(act_active, agg_active)
@@ -695,7 +696,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             cross_delta = self.cross_learning_rate * 0.3 * fitness_signal * cross_active
         new_cross_affinity = jnp.clip(state['cross_affinity'] + cross_delta, 0.0, 1.0)
 
-        # Step 8: Update co-occurrence
+        # Update co-occurrence
         new_act_co = self._update_co_occurrence(
             state['act_co_occurrence'], state['act_mask'], fitness_signal, new_ach
         )
@@ -703,7 +704,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             state['agg_co_occurrence'], state['agg_mask'], fitness_signal, new_ach
         )
 
-        # Step 9: Compute protection
+        # Compute protection
         act_protection = self._compute_protection(
             new_act_affinity, new_act_co, state['act_mask'], new_act_mem_cells,
             new_cross_affinity, state['agg_mask'], new_serotonin
@@ -713,7 +714,7 @@ class MultiNeuromodulatorySymmetricStrategy(PaletteEvolutionStrategy):
             new_cross_affinity.T, state['act_mask'], new_serotonin
         )
 
-        # Step 10: Apply mutations (with protected indices for sin and extreme aggs)
+        # Apply mutations (with protected indices for sin and extreme aggs)
         new_act_mask, act_mutation = self._mutate_palette(
             key_act, state['act_mask'], act_protection, new_act_mem_cells,
             exploration_rate, retention_rate,

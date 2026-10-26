@@ -3,7 +3,7 @@
 Combines Morphogen Gradients (#31) with Critical Period phases (#9).
 Morphogen source strength varies by developmental phase.
 
-Key Innovation:
+Mechanism:
 - Exploration phase: Strong morphogen gradients encourage wide function discovery
 - Confirmation phase: Moderate gradients focus on promising areas
 - Consolidation phase: Weak gradients, rely on already-discovered functions
@@ -48,7 +48,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
     temporal development (critical periods). Source strength decreases
     as development progresses.
 
-    Critical innovation: Strong exploration gradients encourage early
+    Strong exploration gradients encourage early
     discovery. Gradients weaken during confirmation/consolidation to
     stabilize discovered functions.
     """
@@ -76,45 +76,45 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Critical period timing ===
+        # Critical period timing
         exploration_end: int = 30,
         confirmation_end: int = 60,
-        # === Phase-dependent strength multipliers (NEW) ===
+        # Phase-dependent strength multipliers
         exploration_strength_multiplier: float = 1.5,   # Strong gradients early
         confirmation_strength_multiplier: float = 0.8,  # Moderate gradients
         consolidation_strength_multiplier: float = 0.3, # Weak gradients late
-        # === Morphogen parameters ===
+        # Morphogen parameters
         n_sources: int = 3,
         act_gradient_decay: float = 3.0,
         agg_gradient_decay: float = 3.5,
         act_concentration_threshold: float = 0.35,
         agg_concentration_threshold: float = 0.30,
-        # === Source dynamics ===
+        # Source dynamics
         source_learning_rate: float = 0.08,
         source_momentum: float = 0.7,
         source_position_decay: float = 0.02,
-        # === Strengths ===
+        # Strengths
         initial_strength: float = 1.0,
         strength_learning_rate: float = 0.05,
         strength_decay: float = 0.98,
         strength_min: float = 0.3,
         strength_max: float = 2.0,
-        # === Cross-domain ===
+        # Cross-domain
         cross_source_influence: float = 0.8,
-        # === Phase-specific thresholds (NEW) ===
+        # Phase-specific thresholds
         exploration_threshold_mult: float = 0.7,   # Lower threshold = more discovery
         consolidation_threshold_mult: float = 1.3, # Higher threshold = more selective
-        # === Palette limits ===
+        # Palette limits
         max_act_palette: int = 8,
         min_act_palette: int = 3,
         max_agg_palette: int = 4,
         min_agg_palette: int = 2,
-        # === Capture mechanism ===
+        # Capture mechanism
         capture_threshold: float = 0.6,
         capture_protection: float = 0.85,
-        # === Early consolidation ===
+        # Early consolidation
         early_consolidation_threshold: float = 0.95,
-        # === General ===
+        # General
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -123,7 +123,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
         self.exploration_end = exploration_end
         self.confirmation_end = confirmation_end
 
-        # Phase strength multipliers (NEW)
+        # Phase strength multipliers
         self.exploration_strength_multiplier = exploration_strength_multiplier
         self.confirmation_strength_multiplier = confirmation_strength_multiplier
         self.consolidation_strength_multiplier = consolidation_strength_multiplier
@@ -150,7 +150,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
         # Cross-domain
         self.cross_source_influence = cross_source_influence
 
-        # Phase thresholds (NEW)
+        # Phase thresholds
         self.exploration_threshold_mult = exploration_threshold_mult
         self.consolidation_threshold_mult = consolidation_threshold_mult
 
@@ -202,7 +202,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
     def _get_phase_params(self, phase: str, generation: int) -> Dict[str, float]:
         """Get phase-specific parameters.
 
-        KEY INNOVATION: Strength and threshold vary by phase.
+        Strength and threshold vary by phase.
         """
         if phase == CriticalPeriodPhase.EXPLORATION:
             strength_mult = self.exploration_strength_multiplier
@@ -282,7 +282,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
             if 0 <= i < NUM_AGGREGATIONS:
                 agg_success = agg_success.at[i].set(0.3)
 
-        # Capture tracking (NEW)
+        # Capture tracking
         act_captured = jnp.zeros(NUM_ACTIVATIONS)
         agg_captured = jnp.zeros(NUM_AGGREGATIONS)
 
@@ -296,7 +296,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
             'agg_success': agg_success,
             'act_concentrations': jnp.zeros(NUM_ACTIVATIONS),
             'agg_concentrations': jnp.zeros(NUM_AGGREGATIONS),
-            # Capture state (NEW)
+            # Capture state
             'act_captured': act_captured,
             'agg_captured': agg_captured,
             # Phase tracking
@@ -609,7 +609,7 @@ class MorphogenCriticalPeriodDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Phase metrics (NEW)
+            # Phase metrics
             'phase': phase,
             'phase_changed': phase_changed,
             'strength_mult': phase_params['strength_mult'],

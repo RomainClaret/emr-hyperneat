@@ -1,17 +1,17 @@
 """Strategy 9 Symmetric: Critical Period with Full Symmetric Discovery.
 
-Extends CriticalPeriodDualStrategy with enhancements:
+Extends CriticalPeriodDualStrategy with:
 - Sin and extreme-agg affinity floors
 - Discovery-to-palette bridging
 - Separate phase parameters per dimension
-- Enhanced discovery metrics
+- Extra discovery metrics
 
 Three phases for EACH domain with independent timing:
 1. Exploration: Aggressive discovery with sin/extreme protection
 2. Confirmation: Prune unhelpful, confirm useful
 3. Consolidation: Lock confirmed, minimal changes
 
-Key innovation: Asymmetric phase timing - aggregations can have longer exploration.
+Asymmetric phase timing: aggregations can have longer exploration.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -42,11 +42,11 @@ class CriticalPeriodPhase:
 class CriticalPeriodSymmetricStrategy(PaletteEvolutionStrategy):
     """Critical period with symmetric activation-aggregation discovery.
 
-    Key enhancements:
+    Additions:
     1. Separate phase boundaries per dimension (aggs can explore longer)
     2. Sin and extreme-agg affinity floors
     3. Discovery-to-palette bridging
-    4. Enhanced discovery metrics
+    4. Extra discovery metrics
     """
 
     name = "critical_period_symmetric"
@@ -54,38 +54,38 @@ class CriticalPeriodSymmetricStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === ACTIVATION PHASE BOUNDARIES ===
+        # ACTIVATION PHASE BOUNDARIES
         act_exploration_end: int = 20,
         act_confirmation_end: int = 50,
-        # === AGGREGATION PHASE BOUNDARIES (longer exploration) ===
+        # AGGREGATION PHASE BOUNDARIES (longer exploration)
         agg_exploration_end: int = 30,
         agg_confirmation_end: int = 60,
-        # === PHASE-SPECIFIC RATES: ACTIVATIONS ===
+        # PHASE-SPECIFIC RATES: ACTIVATIONS
         act_exploration_activate: float = 0.35,
         act_exploration_deactivate: float = 0.02,
         act_confirmation_activate: float = 0.10,
         act_confirmation_deactivate: float = 0.15,
         act_consolidation_activate: float = 0.02,
         act_consolidation_deactivate: float = 0.01,
-        # === PHASE-SPECIFIC RATES: AGGREGATIONS ===
+        # PHASE-SPECIFIC RATES: AGGREGATIONS
         agg_exploration_activate: float = 0.40,  # Higher for agg exploration
         agg_exploration_deactivate: float = 0.02,
         agg_confirmation_activate: float = 0.08,
         agg_confirmation_deactivate: float = 0.12,
         agg_consolidation_activate: float = 0.02,
         agg_consolidation_deactivate: float = 0.01,
-        # === CONFIRMATION TRACKING ===
+        # CONFIRMATION TRACKING
         confirmation_persistence: int = 5,
-        # === CROSS-DOMAIN LEARNING ===
+        # CROSS-DOMAIN LEARNING
         cross_learning_rate: float = 0.12,
         cross_protection_boost: float = 0.35,
-        # === AFFINITY FLOORS ===
+        # AFFINITY FLOORS
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
-        # === DISCOVERY BOOST ===
+        # DISCOVERY BOOST
         discovery_boost: float = 0.4,
         enable_discovery_slot: bool = True,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 2,
         max_active_act: int = 8,
@@ -121,7 +121,7 @@ class CriticalPeriodSymmetricStrategy(PaletteEvolutionStrategy):
         self.cross_learning_rate = cross_learning_rate
         self.cross_protection_boost = cross_protection_boost
 
-        # enhancements
+        # Affinity floors and discovery settings
         self.sin_affinity_floor = sin_affinity_floor
         self.extreme_agg_affinity_floor = extreme_agg_affinity_floor
         self.discovery_boost = discovery_boost

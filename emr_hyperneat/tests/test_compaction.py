@@ -5,7 +5,7 @@ position to the union any genome actually reached. At depth 7 that is the differ
 between a 30.5 GB per-genome matrix and a negligible one.
 
 The risk it carries is specific: the index remap must be **exact**. A wrong index
-does not raise -- it folds h->h edges onto the wrong nodes and returns numbers that
+does not raise: it folds h->h edges onto the wrong nodes and returns numbers that
 look entirely reasonable. So these tests assert exactness against a dense reference
 rather than checking that results are merely close or merely finite.
 """
@@ -216,12 +216,12 @@ class TestDenseEquivalence:
 
 
 class TestEndToEndEquivalence:
-    """The harness that matters: a real recurrent generation, compacted vs not.
+    """The end-to-end test: a real recurrent generation, compacted vs not.
 
     The unit tests above prove the remap is exact on constructed inputs. This one
-    proves the wiring is exact too, by running the same seed twice -- once normally,
-    once with compaction neutralized so every position stays active -- and requiring
-    identical fitness. Neutralizing rather than deleting keeps every other step
+    checks the wiring end to end, by running the same seed twice (once normally,
+    once with compaction neutralized so every position stays active) and requiring
+    the same fitness to within 1e-6. Neutralizing rather than deleting keeps every other step
     (discovery, transfer, chunking, evaluation) on the same code path, so a
     difference can only come from compaction.
     """
@@ -272,7 +272,6 @@ class TestEndToEndEquivalence:
         active set must be a strict subset. If it were not, the test above would be
         comparing a path against itself.
         """
-        import numpy as np
         from conftest import XORProblem, create_config_with_recurrence
         from emr_hyperneat import EMRHyperNEAT
         from emr_hyperneat.execution import ExecutionMode

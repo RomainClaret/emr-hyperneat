@@ -3,7 +3,7 @@
 Extends PredictiveCoding to jointly evolve both activation and aggregation palettes
 with prediction-error-driven learning in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Separate prediction systems for activations and aggregations
 2. Surprise computed for each domain independently
 3. Cross-domain predictions track expected act-agg combinations
@@ -15,7 +15,7 @@ Biological rationale:
 - Different modalities have independent prediction systems
 - Global surprise integrates across domains
 
-Expected improvement:
+Intended effects:
 - Natural novelty detection in BOTH domains
 - Automatic difficulty adaptation in each domain
 - Cross-domain surprise-based exploration

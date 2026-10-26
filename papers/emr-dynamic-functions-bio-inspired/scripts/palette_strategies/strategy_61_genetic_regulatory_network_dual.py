@@ -3,7 +3,7 @@
 Extends GeneticRegulatoryNetworkStrategy to jointly evolve BOTH activation AND
 aggregation function palettes using gene regulatory network principles.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Dual regulation matrices - separate GRNs for act and agg domains
 2. Dual expression levels - independent expression dynamics per domain
 3. Cross-domain regulation - act functions can regulate agg and vice versa

@@ -46,9 +46,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-# ============================================================================
 # Constants
-# ============================================================================
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / 'results' / '4class_xor'
 
@@ -80,9 +78,7 @@ ALL_CONDITIONS = [
 ]
 
 
-# ============================================================================
 # Data generation
-# ============================================================================
 
 def generate_xor_4cluster(rng: np.random.Generator,
                           n_samples: int = 200,
@@ -142,9 +138,7 @@ def generate_all_data(seed: int) -> Dict[str, Tuple[jnp.ndarray, jnp.ndarray]]:
     return data
 
 
-# ============================================================================
 # Condition parsing
-# ============================================================================
 
 def _count_layers(condition: str) -> int:
     return int(condition[0])
@@ -159,9 +153,7 @@ def _get_activation_mode(condition: str) -> str:
         return 'uniform_tanh'
 
 
-# ============================================================================
 # Parameter initialization
-# ============================================================================
 
 def init_params(key: jax.Array, n_layers: int) -> Dict[str, jnp.ndarray]:
     params = {}
@@ -194,9 +186,7 @@ def init_population(key: jax.Array, pop_size: int, n_layers: int) -> Dict[str, j
     return jax.vmap(lambda k: init_params(k, n_layers))(keys)
 
 
-# ============================================================================
 # Forward pass
-# ============================================================================
 
 def _forward_neuromod(params: Dict, inputs: jnp.ndarray, nt: jnp.ndarray,
                       n_layers: int, activation_fn,
@@ -239,9 +229,7 @@ def get_forward_fn(n_layers: int, activation_name: str):
     return _FORWARD_CACHE[key]
 
 
-# ============================================================================
 # Evaluation
-# ============================================================================
 
 def eval_single_multitask(params: Dict, n_layers: int, activation_mode: str,
                           data: Dict[str, Tuple[jnp.ndarray, jnp.ndarray]]
@@ -273,9 +261,7 @@ def eval_single_multitask(params: Dict, n_layers: int, activation_mode: str,
     return product_fitness, per_task
 
 
-# ============================================================================
 # (mu+lambda)-ES Optimizer
-# ============================================================================
 
 def run_es(
     condition: str,
@@ -398,9 +384,7 @@ def run_es(
     }
 
 
-# ============================================================================
 # Utilities
-# ============================================================================
 
 def result_exists(filepath: Path) -> bool:
     return filepath.exists() and filepath.stat().st_size > 0
@@ -452,9 +436,7 @@ def summarize_condition(results_dir: Path, prefix: str):
             print(f"    {t}: avg={np.mean(accs):.4f} (solved @0.90: {solved}/{len(accs)})")
 
 
-# ============================================================================
 # Main
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(

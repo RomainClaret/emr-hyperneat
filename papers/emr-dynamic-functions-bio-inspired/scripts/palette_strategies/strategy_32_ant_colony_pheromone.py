@@ -10,7 +10,7 @@ Biological Basis:
 - Trails evaporate over time, requiring reinforcement
 - Population follows strongest trails with some exploration
 
-Key Insight:
+Rationale:
 - Current strategies are either individual (Hebbian) or direct voting (QuorumSensing)
 - Pheromone trails create persistent attraction fields
 - No direct communication - only environmental modification
@@ -31,7 +31,7 @@ Pheromone Mechanism:
     selection_probs = softmax(pheromone / temperature)
     palette = top_k(selection_probs) with exploration_noise
 
-Expected improvements:
+Intended effects:
 - Emergent consensus through accumulated history
 - Exploration via pheromone evaporation
 - Elite reinforcement stabilizes good discoveries
@@ -333,7 +333,7 @@ class AntColonyPheromoneStrategy(PaletteEvolutionStrategy):
                 lock_generation[func_idx] = generation
                 newly_locked.append(func_idx)
 
-        # Step 1: Evaporate pheromone
+        # Evaporate pheromone
         new_pheromone = self._evaporate_pheromone(state['pheromone'])
 
         # Ensure locked functions maintain minimum pheromone
@@ -343,7 +343,7 @@ class AntColonyPheromoneStrategy(PaletteEvolutionStrategy):
                 if current_pher < self.locked_pheromone_floor:
                     new_pheromone = new_pheromone.at[func_idx].set(self.locked_pheromone_floor)
 
-        # Step 2: Deposit pheromone on successful functions
+        # Deposit pheromone on successful functions
         new_pheromone, deposits = self._deposit_pheromone(
             new_pheromone,
             state['mask'],
@@ -351,7 +351,7 @@ class AntColonyPheromoneStrategy(PaletteEvolutionStrategy):
             is_elite,
         )
 
-        # Step 3: Select new palette based on pheromone (respecting locks)
+        # Select new palette based on pheromone (respecting locks)
         new_mask = self._select_palette(new_pheromone, k1, locked_functions)
 
         palette_changed = not jnp.allclose(state['mask'], new_mask)

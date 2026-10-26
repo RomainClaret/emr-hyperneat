@@ -3,16 +3,16 @@
 Extends Ecological Succession to jointly evolve activation AND aggregation
 function palettes with developmental phases for both domains.
 
-Key mechanisms:
+Mechanisms:
 1. Pioneer phase: High exploration, generalist functions for both domains
 2. Intermediate phase: Balanced exploration/exploitation
 3. Climax phase: Low exploration, specialist functions protected
-4. Cross-domain: Generalist act → generalist agg pairings in pioneer
+4. Cross-domain: Generalist act -> generalist agg pairings in pioneer
 
 Ecological basis:
 - Pioneer species are hardy generalists (simple activations, basic aggregations)
 - Climax species are specialists (sin, burst for activations; max, min for aggregations)
-- Succession is directional: generalist → specialist in both domains
+- Succession is directional: generalist -> specialist in both domains
 """
 
 from typing import Dict, Any, List, Optional, Tuple

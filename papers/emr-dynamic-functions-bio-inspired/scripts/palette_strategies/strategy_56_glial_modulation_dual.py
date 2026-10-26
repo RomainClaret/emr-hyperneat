@@ -3,7 +3,7 @@
 Extends GlialModulationStrategy to jointly evolve BOTH activation AND aggregation
 function palettes using astrocyte-inspired metabolic constraints.
 
-Key dual mechanisms:
+Dual mechanisms:
 1. Shared energy pool - both domains compete for limited energy
 2. Dual glial support - separate support tracking for act and agg
 3. Cross-domain support transfer - success in one boosts support in other

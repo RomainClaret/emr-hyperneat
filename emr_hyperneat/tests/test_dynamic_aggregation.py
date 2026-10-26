@@ -4,7 +4,7 @@ Tests cover:
 - 6 aggregation functions (sum, mean, max, min, product, maxabs)
 - Global aggregation mode
 - Weight interpretation aggregation mode
-- H→H aggregation modes (sum, dynamic)
+- H->H aggregation modes (sum, dynamic)
 - Joint activation + aggregation evolution
 """
 
@@ -39,7 +39,7 @@ class TestAggregationModes:
         config_obj = algorithm.create_config(config)
 
         # Should not raise
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
     @pytest.mark.parametrize("mode", list(AGGREGATION_PRESETS.keys()))
     def test_mode_runs_generation(self, algorithm, xor_problem, mode):
@@ -66,7 +66,7 @@ class TestDisabledAggregation:
         """Verify disabled aggregation uses default sum."""
         config = create_config_with_aggregation('disabled')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.agg_mode == 'disabled'
 
@@ -89,7 +89,7 @@ class TestGlobalAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': func,
+            'global_function': func,
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
@@ -101,7 +101,7 @@ class TestGlobalAggregation:
         """Verify global sum aggregation is configured correctly."""
         config = create_config_with_aggregation('global_sum')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.agg_mode == 'global'
         assert algorithm.agg_global_function == 'sum'
@@ -112,7 +112,7 @@ class TestGlobalAggregation:
         algorithm = EMRHyperNEAT()
         config = create_config_with_aggregation('global_mean')
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         # Mode should be global (function may default to sum if not parsed)
         assert algorithm.agg_mode == 'global'
@@ -163,11 +163,11 @@ class TestWeightInterpretationAggregation:
 
 
 class TestHHAggregationModes:
-    """Tests for H→H aggregation modes."""
+    """Tests for H->H aggregation modes."""
 
     @pytest.mark.parametrize("hh_mode", ['sum', 'dynamic'])
     def test_hh_aggregation_modes(self, algorithm, xor_problem, hh_mode):
-        """Verify both H→H aggregation modes work."""
+        """Verify both H->H aggregation modes work."""
         config = create_config_with_aggregation(
             'weight_interp',
             recurrence_preset='hidden_only',
@@ -175,30 +175,30 @@ class TestHHAggregationModes:
         )
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
-        assert_no_errors(result, f"H→H aggregation mode {hh_mode} failed")
+        assert_no_errors(result, f"H->H aggregation mode {hh_mode} failed")
         assert_positive_fitness(result)
 
     def test_hh_sum_mode_config(self, algorithm, xor_problem):
-        """Verify H→H sum mode is properly configured."""
+        """Verify H->H sum mode is properly configured."""
         config = create_config_with_aggregation(
             'weight_interp',
             recurrence_preset='hidden_only',
             hh_aggregation_mode='sum'
         )
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.hh_aggregation_mode == 'sum'
 
     def test_hh_dynamic_mode_config(self, algorithm, xor_problem):
-        """Verify H→H dynamic mode is properly configured."""
+        """Verify H->H dynamic mode is properly configured."""
         config = create_config_with_aggregation(
             'weight_interp',
             recurrence_preset='hidden_only',
             hh_aggregation_mode='dynamic'
         )
         config_obj = algorithm.create_config(config)
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
         assert algorithm.hh_aggregation_mode == 'dynamic'
 
@@ -240,7 +240,7 @@ class TestJointActivationAggregation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
         }
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
@@ -276,7 +276,7 @@ class TestAggregationFunctionBehavior:
             hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
             hmr['aggregation'] = {
                 'mode': 'global',
-                'global_aggregation': func,
+                'global_function': func,
             }
             result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
             results[func] = result.best_fitness
@@ -287,7 +287,7 @@ class TestAggregationFunctionBehavior:
 
 
 class TestComprehensiveAggregation:
-    """Comprehensive tests (marked slow)."""
+    """Slow runs: every aggregation preset and every global aggregation function on XOR."""
 
     @pytest.mark.slow
     @pytest.mark.parametrize("mode", list(AGGREGATION_PRESETS.keys()))
@@ -302,13 +302,13 @@ class TestComprehensiveAggregation:
 
     @pytest.mark.slow
     def test_all_global_aggregations(self, algorithm, xor_problem):
-        """Test all global aggregation functions comprehensively."""
+        """Every global aggregation function evolves on XOR without errors."""
         for func in AGGREGATION_FUNCTIONS:
             config = create_base_config()
             hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
             hmr['aggregation'] = {
                 'mode': 'global',
-                'global_aggregation': func,
+                'global_function': func,
             }
             result = run_quick_evolution(algorithm, config, xor_problem, generations=STANDARD_GENERATIONS)
 
@@ -332,7 +332,7 @@ class TestCppnOutputAggregation:
         config_obj = algorithm.create_config(config)
 
         # Should not raise
-        state = algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
+        algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 
     def test_cppn_output_aggregation_runs_generation(self, algorithm, xor_problem):
         """Verify CPPN output aggregation mode can run generations."""
@@ -409,7 +409,7 @@ class TestMaxabsAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'maxabs',
+            'global_function': 'maxabs',
         }
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -428,7 +428,7 @@ class TestMaxabsAggregation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'maxabs',
+            'global_function': 'maxabs',
         }
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -533,7 +533,7 @@ class TestTrueAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
             'use_true_aggregation': True,
         }
 
@@ -548,7 +548,7 @@ class TestTrueAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
             'use_true_aggregation': False,
         }
 
@@ -583,7 +583,7 @@ class TestTrueAggregation:
         }
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'sum',
+            'global_function': 'sum',
             'use_true_aggregation': True,
         }
 
@@ -598,7 +598,7 @@ class TestTrueAggregation:
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['aggregation'] = {
             'mode': 'global',
-            'global_aggregation': 'mean',
+            'global_function': 'mean',
             'use_true_aggregation': use_true,
         }
 
@@ -608,14 +608,14 @@ class TestTrueAggregation:
 
 
 class TestDynamicHHAggregation:
-    """Tests for dynamic H→H aggregation mode.
+    """Tests for dynamic H->H aggregation mode.
 
     Dynamic mode uses segment operations (sum, mean, max, min) per node
     instead of global scatter_add.
     """
 
     def test_dynamic_hh_aggregation_mode(self, algorithm, xor_problem):
-        """Verify dynamic H→H aggregation mode works."""
+        """Verify dynamic H->H aggregation mode works."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -635,7 +635,7 @@ class TestDynamicHHAggregation:
         assert_no_errors(result)
 
     def test_hh_aggregation_mode_sum_default(self, algorithm, xor_problem):
-        """Verify sum (default) H→H aggregation mode works."""
+        """Verify sum (default) H->H aggregation mode works."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -656,7 +656,7 @@ class TestDynamicHHAggregation:
         assert_positive_fitness(result)
 
     def test_dynamic_hh_with_interpretation(self, algorithm, xor_problem):
-        """Verify dynamic H→H works with interpretation methods."""
+        """Verify dynamic H->H works with interpretation methods."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -678,7 +678,7 @@ class TestDynamicHHAggregation:
 
     @pytest.mark.parametrize("hh_mode", ['sum', 'dynamic'])
     def test_hh_aggregation_mode_variants(self, algorithm, xor_problem, hh_mode):
-        """Verify both H→H aggregation modes work with parametrization."""
+        """Verify both H->H aggregation modes work with parametrization."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -695,10 +695,10 @@ class TestDynamicHHAggregation:
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
-        assert_no_errors(result, f"H→H aggregation mode {hh_mode} failed")
+        assert_no_errors(result, f"H->H aggregation mode {hh_mode} failed")
 
     def test_dynamic_hh_with_full_recurrence(self, algorithm, xor_problem):
-        """Verify dynamic H→H works with full recurrence."""
+        """Verify dynamic H->H works with full recurrence."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -722,7 +722,7 @@ class TestDynamicHHAggregation:
 
     @pytest.mark.parametrize("num_aggs", [2, 4, 6])
     def test_dynamic_hh_num_aggregations(self, algorithm, xor_problem, num_aggs):
-        """Verify dynamic H→H works with different numbers of aggregations."""
+        """Verify dynamic H->H works with different numbers of aggregations."""
         config = create_base_config()
         hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         hmr['recurrence'] = {
@@ -739,7 +739,7 @@ class TestDynamicHHAggregation:
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
-        assert_no_errors(result, f"Dynamic H→H with {num_aggs} aggregations failed")
+        assert_no_errors(result, f"Dynamic H->H with {num_aggs} aggregations failed")
 
 
 class TestAggregationEdgeCases:
@@ -787,3 +787,137 @@ class TestAggregationEdgeCases:
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
         assert_no_errors(result)
+
+
+def _aggregation_run(aggregation, generations=2, palette_attribute=None, recurrence=None):
+    """Fitness per generation, the last generation's input-to-hidden aggregation indices and the
+    champion record."""
+    import jax.numpy as jnp
+    import numpy as np
+    config = create_base_config(max_depth=3, population_size=20)
+    emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr['aggregation'] = aggregation
+    if recurrence is not None:
+        emr['recurrence'] = recurrence
+    algorithm = EMRHyperNEAT()
+    state = algorithm.initialize(algorithm.create_config(config), XORProblem(), seed=DEFAULT_SEED)
+    if palette_attribute is not None:
+        algorithm.agg_palette = jnp.array(palette_attribute)
+    fitness = []
+    for _ in range(generations):
+        state, _metrics = algorithm.run_generation(state, XORProblem())
+        fitness.append(np.asarray(algorithm._cached_fitnesses))
+    indices = algorithm._cached_ih_agg_indices
+    return (np.stack(fitness), None if indices is None else np.asarray(indices),
+            algorithm.get_best_activation_indices())
+
+
+class TestAggregationPalette:
+    """aggregation.palette and the agg_palette attribute. HMR's palette strategies computed an
+    aggregation palette that was recorded and never applied, and 0.1.0 read no algo.agg_palette a
+    runner set. The per-node modes pick a palette position and map it to the function's
+    AGGREGATION_LIST index, and evaluation covers the whole list."""
+
+    @pytest.mark.parametrize('aggregation', [
+        {'mode': 'cppn_output', 'num_aggregations': 6},
+        {'mode': 'weight_interpretation', 'interpretation': 'variance'},
+        {'mode': 'random_fixed'},
+        {'mode': 'random_generation'},
+    ])
+    def test_only_palette_members_are_assigned(self, aggregation):
+        import numpy as np
+        _fitness, indices, record = _aggregation_run(dict(aggregation, palette=['max', 'maxabs']))
+        assert set(np.unique(indices)) <= {2, 5}
+        assert set(record['aggregation_histogram']) <= {'max', 'maxabs'}
+
+    def test_modular_aggregation_method_uses_the_palette(self):
+        import numpy as np
+        config = create_base_config(max_depth=3, population_size=20)
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['dynamic_functions'] = {'mode': 'disabled', 'modular': {'aggregation_method': 'fan_in'}}
+        emr['aggregation'] = {'mode': 'modular', 'palette': [3, 4]}
+        algorithm = EMRHyperNEAT()
+        state = algorithm.initialize(
+            algorithm.create_config(config), XORProblem(), seed=DEFAULT_SEED
+        )
+        algorithm.run_generation(state, XORProblem())
+        assert set(np.unique(np.asarray(algorithm._cached_ih_agg_indices))) <= {3, 4}
+
+    @pytest.mark.parametrize('function', ['max', 'maxabs'])
+    def test_a_one_function_palette_equals_global_mode(self, function):
+        """Every node gets the one palette function, so the run equals global mode with it, although
+        the function lies past num_aggregations (an evaluation covering
+        AGGREGATION_LIST[:num_aggregations] only would compute 0 at a node with a later index).
+        weight_interpretation, because cppn_output adds a CPPN
+        output and so starts from another population."""
+        import numpy as np
+        per_node, _, _ = _aggregation_run({'mode': 'weight_interpretation', 'num_aggregations': 2,
+                                           'palette': [function]})
+        global_mode, _, _ = _aggregation_run({'mode': 'global', 'global_function': function})
+        np.testing.assert_array_equal(per_node, global_mode)
+
+    def test_the_attribute_equals_the_setting(self):
+        """Runners set algo.agg_palette between generations, as they set df_palette."""
+        import numpy as np
+        attribute, _, _ = _aggregation_run(
+            {'mode': 'cppn_output', 'num_aggregations': 6}, palette_attribute=[2, 5]
+        )
+        setting, _, _ = _aggregation_run(
+            {'mode': 'cppn_output', 'num_aggregations': 6, 'palette': [2, 5]}
+        )
+        np.testing.assert_array_equal(attribute, setting)
+
+    def test_recurrent_dynamic_aggregation_uses_the_palette(self):
+        import numpy as np
+        _fitness, indices, _ = _aggregation_run(
+            {
+                'mode': 'cppn_output',
+                'num_aggregations': 6,
+                'palette': [1, 4],
+                'hh_aggregation_mode': 'dynamic',
+            },
+            recurrence={'preset': 'hidden_only'},
+        )
+        assert set(np.unique(indices)) <= {1, 4}
+
+    @pytest.mark.parametrize('palette', [[6], [-1], [], ['median'], [True]])
+    def test_invalid_palettes(self, palette):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['aggregation'] = {
+            'mode': 'cppn_output', 'palette': palette}
+        with pytest.raises(ValueError, match='aggregation.palette'):
+            EMRHyperNEAT().create_config(config)
+
+    @pytest.mark.parametrize('mode', ['disabled', 'global'])
+    def test_a_palette_nothing_decodes_raises(self, mode):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['aggregation'] = {
+            'mode': mode, 'palette': [2, 5]}
+        with pytest.raises(ValueError, match='decodes no per-node aggregation'):
+            EMRHyperNEAT().create_config(config)
+
+    def test_a_palette_attribute_out_of_range_raises_at_the_next_generation(self):
+        import jax.numpy as jnp
+        config = create_base_config(max_depth=3, population_size=20)
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['aggregation'] = {
+            'mode': 'cppn_output', 'num_aggregations': 6}
+        algorithm = EMRHyperNEAT()
+        state = algorithm.initialize(
+            algorithm.create_config(config), XORProblem(), seed=DEFAULT_SEED
+        )
+        algorithm.agg_palette = jnp.array([2, 9])
+        with pytest.raises(ValueError, match='agg_palette must hold indices 0 to 5'):
+            algorithm.run_generation(state, XORProblem())
+        algorithm.agg_palette = None
+        algorithm.df_palette = jnp.array([0, 18])
+        with pytest.raises(ValueError, match='df_palette must hold indices 0 to 17'):
+            algorithm.run_generation(state, XORProblem())
+
+    def test_the_substrate_api_refuses_an_aggregation_palette(self):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['aggregation'] = {
+            'mode': 'cppn_output', 'palette': [0, 2]}
+        algorithm = EMRHyperNEAT()
+        algorithm.create_config(config)
+        with pytest.raises(ValueError, match='an aggregation palette'):
+            algorithm.substrate_config()

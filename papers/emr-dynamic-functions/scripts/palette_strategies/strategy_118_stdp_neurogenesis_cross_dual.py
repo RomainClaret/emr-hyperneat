@@ -4,7 +4,7 @@ Combines STDP cross-domain (#16) with Neurogenesis (#113).
 (sin+max) pairs that co-activate before improvement both get survival bonus.
 Cross-domain temporal correlation guides mutual survival.
 
-Key Innovation:
+Mechanism:
 - Cross-domain LTP tracks act-agg pairs that co-activate before improvement
 - Pairs with high cross-LTP get mutual survival bonuses
 - Sin+extreme pairs receive extra cross-LTP credit
@@ -43,7 +43,7 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
     neurogenesis birth/maturation/survival. Act-agg pairs that co-activate
     before improvement get mutual survival bonuses.
 
-    Critical innovation: Cross-domain LTP matrix tracks co-activation patterns.
+    Cross-domain LTP matrix tracks co-activation patterns.
     High cross-LTP pairs both receive reduced survival thresholds.
     """
 
@@ -52,34 +52,34 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === Cross-domain STDP parameters ===
+        # Cross-domain STDP parameters
         cross_ltp_rate: float = 0.15,        # Cross-LTP accumulation rate
         mutual_survival_bonus: float = 0.4,   # Threshold reduction for pairs
         cross_ltp_survival_mult: float = 0.6, # How much cross-LTP affects survival
         ltp_window: int = 5,                  # Gens before improvement to credit
         ltd_window: int = 3,                  # Gens for LTD
         temporal_decay: float = 0.7,
-        # === Neurogenesis parameters ===
+        # Neurogenesis parameters
         neurogenesis_rate: float = 0.10,
         maturation_period: int = 10,
         base_survival_threshold: float = 0.15,
         max_young: int = 2,
-        # === Sin-extreme boost ===
+        # Sin-extreme boost
         sin_extreme_cross_boost: float = 0.5,
         sin_idx: int = 4,
-        # === General parameters ===
+        # General parameters
         affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
         tag_threshold: float = 0.5,
         tag_decay: float = 0.9,
         capture_window: int = 5,
         captured_protection: float = 0.85,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
@@ -149,7 +149,7 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
         act_captured = jnp.zeros(NUM_ACTIVATIONS)
         agg_captured = jnp.zeros(NUM_AGGREGATIONS)
 
-        # Cross-domain LTP matrix (NEW)
+        # Cross-domain LTP matrix
         cross_ltp_matrix = jnp.zeros((NUM_ACTIVATIONS, NUM_AGGREGATIONS))
 
         # Neurogenesis state
@@ -177,7 +177,7 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
             'agg_tags': agg_tags,
             'act_captured': act_captured,
             'agg_captured': agg_captured,
-            # Cross-domain LTP (NEW)
+            # Cross-domain LTP
             'cross_ltp_matrix': cross_ltp_matrix,
             'stdp_history': [],  # (gen, act_mask, agg_mask, fitness) tuples
             # Neurogenesis
@@ -309,7 +309,7 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
         # Decay cross-LTP
         cross_ltp_matrix = cross_ltp_matrix * self.affinity_decay
 
-        # === ACTIVATION UPDATE ===
+        # ACTIVATION UPDATE
         act_mask = state['act_mask']
         act_affinities = state['act_affinities']
         act_tags = state['act_tags'] * self.tag_decay
@@ -349,7 +349,7 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
                     act_mask = act_mask.at[idx].set(0.0)
                 del young_acts[idx]
 
-        # === AGGREGATION UPDATE ===
+        # AGGREGATION UPDATE
         agg_mask = state['agg_mask']
         agg_affinities = state['agg_affinities']
         agg_tags = state['agg_tags'] * self.tag_decay
@@ -397,7 +397,7 @@ class STDPNeurogenesisCrossDualStrategy(PaletteEvolutionStrategy):
                     agg_mask = agg_mask.at[idx].set(0.0)
                 del young_aggs[idx]
 
-        # === Update affinities on improvement ===
+        # Update affinities on improvement
         if improved:
             active_acts = jnp.where(act_mask > 0.5)[0]
             active_aggs = jnp.where(agg_mask > 0.5)[0]

@@ -8,12 +8,9 @@ This module provides:
 - Test result dataclass
 """
 
-import sys
 import time
-import hashlib
-from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List
 
 import pytest
 import numpy as np
@@ -36,15 +33,9 @@ from emr_hyperneat.emrhyperneat import (
 # Import multi-GPU components
 from emr_hyperneat.emrhyperneat_base import (
     MultiGPUStrategy,
-    PositionShardingConfig,
-    IslandModelConfig,
-    HybridShardingConfig,
-    PopulationPmapConfig,
 )
 
-# =============================================================================
 # Constants
-# =============================================================================
 
 DEFAULT_SEED = 42
 STANDARD_SEEDS = [42, 123, 456]
@@ -66,9 +57,7 @@ LOGIC_GATE_TARGETS = {
 }
 
 
-# =============================================================================
 # Problem Classes
-# =============================================================================
 
 class XORProblem:
     """XOR logic gate problem."""
@@ -202,8 +191,7 @@ class ParityProblem:
 class MultiTaskProblem:
     """Problem wrapper for multi-task evaluation.
 
-    Unlike XORProblem etc., this uses 2D input (no bias) to match the benchmark
-    at experiments/neuromodulation/true_zero_forgetting_recurrence_benchmark.py.
+    Unlike XORProblem and the other problems here, it uses 2-D inputs without a bias.
     """
     input_shape = (2,)
     output_shape = (1,)
@@ -225,9 +213,7 @@ class MultiTaskProblem:
         ))
 
 
-# =============================================================================
 # Test Result Dataclass
-# =============================================================================
 
 @dataclass
 class TestResult:
@@ -254,13 +240,15 @@ class TestResult:
     num_hidden_positions: int = 0
     num_hh_connections: int = 0
 
+    # The route run_until_threshold took and the devices it used (run_quick_evolution_multi_gpu)
+    route: Optional[str] = None
+    devices: Optional[int] = None
+
     # Error tracking
     error: Optional[str] = None
 
 
-# =============================================================================
 # Configuration Factories
-# =============================================================================
 
 def create_base_config(
     max_depth: int = DEFAULT_MAX_DEPTH,
@@ -277,12 +265,11 @@ def create_base_config(
             'emrhyperneat': {
                 'population_size': population_size,
                 'emr_hyperneat': {
-                    # 0, not 1: initial_depth was inert when every expectation in
-                    # this suite was recorded, and it is now live on the
-                    # depth-offload discovery path (only). 1 would force level 1
-                    # full there and nowhere else, splitting the modes for every
-                    # test built on this fixture. Tests that exercise forcing set
-                    # it explicitly (test_depth_lookahead.py).
+                    # 0, not 1: the suite's recorded expectations come from the
+                    # variance-only substrate, which initial_depth 0 gives on every
+                    # execution mode; 1 would force level 1 full and change them.
+                    # Tests that exercise forcing set it explicitly
+                    # (test_depth_lookahead.py).
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': variance_threshold,
@@ -375,7 +362,10 @@ DYNAMIC_FUNCTION_PRESETS = {
     'cppn_output_4': {'mode': 'cppn_output', 'num_activations': 4},
     'cppn_output_6': {'mode': 'cppn_output', 'num_activations': 6},
     'weight_interp_sign': {'mode': 'weight_interpretation', 'num_activations': 4, 'interpretation': 'sign'},
-    'weight_interp_magnitude': {'mode': 'weight_interpretation', 'num_activations': 6, 'interpretation': 'magnitude'},
+    # Named after the interpretation it runs: magnitude_bio (HMR's 'magnitude', a separate
+    # interpretation, is its inverse)
+    'weight_interp_magnitude_bio': {'mode': 'weight_interpretation', 'num_activations': 6,
+                                    'interpretation': 'magnitude_bio'},
     'weight_interp_variance': {'mode': 'weight_interpretation', 'num_activations': 6, 'interpretation': 'variance'},
     'random_fixed': {'mode': 'random_fixed', 'num_activations': 6},
     'random_generation': {'mode': 'random_generation', 'num_activations': 6},
@@ -385,11 +375,11 @@ DYNAMIC_FUNCTION_PRESETS = {
 # Aggregation presets
 AGGREGATION_PRESETS = {
     'disabled': {'mode': 'disabled'},
-    'global_sum': {'mode': 'global', 'global_aggregation': 'sum'},
-    'global_mean': {'mode': 'global', 'global_aggregation': 'mean'},
-    'global_max': {'mode': 'global', 'global_aggregation': 'max'},
-    'global_min': {'mode': 'global', 'global_aggregation': 'min'},
-    'global_product': {'mode': 'global', 'global_aggregation': 'product'},
+    'global_sum': {'mode': 'global', 'global_function': 'sum'},
+    'global_mean': {'mode': 'global', 'global_function': 'mean'},
+    'global_max': {'mode': 'global', 'global_function': 'max'},
+    'global_min': {'mode': 'global', 'global_function': 'min'},
+    'global_product': {'mode': 'global', 'global_function': 'product'},
     'weight_interp': {'mode': 'weight_interpretation', 'num_aggregations': 4},
 }
 
@@ -400,13 +390,11 @@ NEUROMODULATION_PRESETS = {
     'static_gating': {
         'enabled': True,
         'mode': 'static_gating',
-        'gate_from_cppn': True,
         'gate_scaling': 'sigmoid',
     },
     'context_gating': {
         'enabled': True,
         'mode': 'context_gating',
-        'gate_from_cppn': True,
         'context_dim': 4,
         'context_influence': 0.5,
     },
@@ -429,14 +417,26 @@ NEUROMODULATION_PRESETS = {
 }
 
 
+# LEO (Link Expression Output) presets
+LEO_PRESETS = {
+    'disabled': {'enabled': False},
+    'default': {'enabled': True, 'threshold': 0.2, 'output_index': 1},
+    'low_threshold': {'enabled': True, 'threshold': 0.1, 'output_index': 1},
+    'high_threshold': {'enabled': True, 'threshold': 0.5, 'output_index': 1},
+    'very_high_threshold': {'enabled': True, 'threshold': 0.7, 'output_index': 1},
+}
+
+
 # Geometry seeding presets
 GEOMETRY_SEEDING_PRESETS = {
     'disabled': {'enabled': False},
-    'default': {'enabled': True, 'seed_weight': -1.0, 'use_7d_inputs': True},
-    'positive_weight': {'enabled': True, 'seed_weight': 1.0, 'use_7d_inputs': True},
-    'zero_weight': {'enabled': True, 'seed_weight': 0.0, 'use_7d_inputs': True},
-    '5d_inputs': {'enabled': True, 'seed_weight': -1.0, 'use_7d_inputs': False},
+    'default': {'enabled': True, 'seed_weight': -1.0},
+    'positive_weight': {'enabled': True, 'seed_weight': 1.0},
+    'zero_weight': {'enabled': True, 'seed_weight': 0.0},
 }
+# The presets do not set use_7d_inputs, which EMR refuses: it has no effect, so a '5d_inputs'
+# preset that set it False would still run 7-D inputs. Geometry seeding means 7-D CPPN rows;
+# 'disabled' gives the 5-D rows.
 
 
 def create_config_with_recurrence(
@@ -470,7 +470,7 @@ def create_config_with_dynamic_functions(
     recurrence_preset: str = 'feedforward',
     max_depth: int = DEFAULT_MAX_DEPTH,
     population_size: int = DEFAULT_POPULATION,
-    hh_activation_mode: str = 'initial_only',
+    hh_activation_mode: Optional[str] = None,
     **overrides,
 ) -> Dict[str, Any]:
     """Create configuration for specific dynamic functions mode."""
@@ -486,7 +486,8 @@ def create_config_with_dynamic_functions(
         hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     df_config = DYNAMIC_FUNCTION_PRESETS[mode].copy()
-    df_config['hh_activation_mode'] = hh_activation_mode
+    if hh_activation_mode is not None:
+        df_config['hh_activation_mode'] = hh_activation_mode
     df_config.update(overrides)
     hmr['dynamic_functions'] = df_config
 
@@ -593,6 +594,7 @@ def create_config_with_multi_task(
     fitness_aggregation: str = 'min',
     max_depth: int = DEFAULT_MAX_DEPTH,
     population_size: int = DEFAULT_POPULATION,
+    recurrence_preset: str = 'hidden_only',
 ) -> Dict[str, Any]:
     """Create configuration for multi-task learning.
 
@@ -600,13 +602,12 @@ def create_config_with_multi_task(
     """
     config = create_config_with_neuromodulation(
         mode=neuromod_mode,
-        recurrence_preset='hidden_only',
+        recurrence_preset=recurrence_preset,
         max_depth=max_depth,
         population_size=population_size,
     )
 
     # Override substrate to use 2 inputs (matching MultiTaskProblem/logic gates)
-    # Based on working benchmark: experiments/neuromodulation/true_zero_forgetting_recurrence_benchmark.py
     config['algorithm_params']['emrhyperneat']['substrate'] = {
         'input_coords': [[-1.0, 0.0], [1.0, 0.0]],  # 2 inputs for logic gates
         'output_coords': [[0.0, 1.0]],
@@ -621,6 +622,61 @@ def create_config_with_multi_task(
         'task_names': task_names,
         'fitness_aggregation': fitness_aggregation,
     }
+
+    return config
+
+
+def create_config_with_leo(
+    preset: str = 'default',
+    recurrence_preset: str = 'feedforward',
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    population_size: int = DEFAULT_POPULATION,
+    **overrides,
+) -> Dict[str, Any]:
+    """Create configuration for LEO (Link Expression Output).
+
+    LEO uses dual-output CPPN: output 0 = weight, output 1 = LEO gate.
+    Connections are created only if |weight| > threshold AND LEO > leo_threshold.
+
+    Args:
+        preset: One of LEO_PRESETS keys (disabled, default, low_threshold, etc.)
+        recurrence_preset: Recurrence configuration preset
+        max_depth: Maximum EMR depth
+        population_size: Population size for evolution
+        **overrides: Override specific LEO config values
+
+    Returns:
+        Configuration dictionary for LEO variant.
+    """
+    if preset not in LEO_PRESETS:
+        raise ValueError(f"Unknown LEO preset: {preset}")
+
+    config = create_base_config(max_depth=max_depth, population_size=population_size)
+    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+
+    if recurrence_preset in RECURRENCE_PRESETS:
+        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+    else:
+        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+
+    leo_config = LEO_PRESETS[preset].copy()
+    leo_config.update(overrides)
+    hmr['leo'] = leo_config
+
+    # LEO requires CPPN with 2 outputs when enabled. EMR counts LEO's output itself, so this
+    # helper sets the CPPN genome's output count only (emr_hyperneat.num_cppn_outputs is not a
+    # key EMR reads, and it is refused).
+    if leo_config.get('enabled', False):
+        # Set in cppn.genome for actual CPPN construction in base class
+        if 'cppn' not in config['algorithm_params']['emrhyperneat']:
+            config['algorithm_params']['emrhyperneat']['cppn'] = {}
+        if 'genome' not in config['algorithm_params']['emrhyperneat']['cppn']:
+            config['algorithm_params']['emrhyperneat']['cppn']['genome'] = {}
+        config['algorithm_params']['emrhyperneat']['cppn']['genome']['num_outputs'] = 2
+
+    hmr['dynamic_functions'] = {'mode': 'disabled'}
+    hmr['aggregation'] = {'mode': 'disabled'}
+    hmr['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -680,7 +736,7 @@ def create_config_with_combined_recurrence(
     """Create config combining dynamic functions + aggregation (multi-output CPPN) + recurrence.
 
     This tests the combination where num_cppn_outputs > 1
-    and recurrence is enabled, which requires the multi-output query path for H→H discovery.
+    and recurrence is enabled, which requires the multi-output query path for H->H discovery.
 
     Args:
         recurrence_preset: Recurrence configuration preset
@@ -710,6 +766,67 @@ def create_config_with_combined_recurrence(
         'num_aggregations': num_aggregations,
         'use_true_aggregation': True,
     }
+    hmr['neuromodulation'] = {'enabled': False}
+
+    return config
+
+
+def create_config_with_leo_and_geometry_seeding(
+    leo_preset: str = 'default',
+    gs_preset: str = 'default',
+    recurrence_preset: str = 'feedforward',
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    population_size: int = DEFAULT_POPULATION,
+    **overrides,
+) -> Dict[str, Any]:
+    """Create configuration with both LEO and geometry seeding.
+
+    Args:
+        leo_preset: LEO preset name
+        gs_preset: Geometry seeding preset name
+        recurrence_preset: Recurrence configuration preset
+        max_depth: Maximum EMR depth
+        population_size: Population size
+        **overrides: Override specific config values
+
+    Returns:
+        Configuration dictionary with both features enabled.
+    """
+    if leo_preset not in LEO_PRESETS:
+        raise ValueError(f"Unknown LEO preset: {leo_preset}")
+    if gs_preset not in GEOMETRY_SEEDING_PRESETS:
+        raise ValueError(f"Unknown geometry seeding preset: {gs_preset}")
+
+    config = create_base_config(max_depth=max_depth, population_size=population_size)
+    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+
+    if recurrence_preset in RECURRENCE_PRESETS:
+        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+    else:
+        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+
+    # Apply LEO config
+    leo_config = LEO_PRESETS[leo_preset].copy()
+    if 'leo' in overrides:
+        leo_config.update(overrides.pop('leo'))
+    hmr['leo'] = leo_config
+
+    # LEO requires CPPN with 2 outputs when enabled
+    if leo_config.get('enabled', False):
+        if 'cppn' not in config['algorithm_params']['emrhyperneat']:
+            config['algorithm_params']['emrhyperneat']['cppn'] = {}
+        if 'genome' not in config['algorithm_params']['emrhyperneat']['cppn']:
+            config['algorithm_params']['emrhyperneat']['cppn']['genome'] = {}
+        config['algorithm_params']['emrhyperneat']['cppn']['genome']['num_outputs'] = 2
+
+    # Apply geometry seeding config
+    gs_config = GEOMETRY_SEEDING_PRESETS[gs_preset].copy()
+    if 'geometry_seeding' in overrides:
+        gs_config.update(overrides.pop('geometry_seeding'))
+    hmr['geometry_seeding'] = gs_config
+
+    hmr['dynamic_functions'] = {'mode': 'disabled'}
+    hmr['aggregation'] = {'mode': 'disabled'}
     hmr['neuromodulation'] = {'enabled': False}
 
     return config
@@ -826,6 +943,8 @@ def run_quick_evolution_multi_gpu(
         result.final_fitness = evolution_result.get('best_fitness', 0.0)
         result.best_fitness = evolution_result.get('best_fitness', 0.0)
         result.fitness_history = evolution_result.get('history', [])
+        result.route = evolution_result.get('route')
+        result.devices = evolution_result.get('devices')
         result.solved = result.best_fitness >= target_fitness
         result.generations_to_solve = evolution_result.get('generations', generations)
         result.total_time = elapsed
@@ -848,8 +967,6 @@ def run_multitask_evolution(
     verbose: bool = False,
 ) -> TestResult:
     """Run multi-task evolution with multiple problems and NT vectors.
-
-    Based on: experiments/neuromodulation/true_zero_forgetting_recurrence_benchmark.py
 
     Args:
         algorithm: The EMR-HyperNEAT algorithm instance.
@@ -922,9 +1039,7 @@ def run_multitask_evolution(
     return result
 
 
-# =============================================================================
 # Assertion Helpers
-# =============================================================================
 
 def assert_no_errors(result: TestResult, message: str = ""):
     """Assert that the result has no errors."""
@@ -953,9 +1068,7 @@ def assert_positive_fitness(result: TestResult, message: str = ""):
         pytest.fail(f"{message}: {msg}" if message else msg)
 
 
-# =============================================================================
 # Pytest Fixtures
-# =============================================================================
 
 @pytest.fixture
 def xor_problem() -> XORProblem:
@@ -1006,6 +1119,17 @@ def algorithm() -> EMRHyperNEAT:
 
 
 @pytest.fixture
+def leo_algorithm() -> EMRHyperNEAT:
+    """Provide LEO algorithm instance.
+
+    LEO (Link Expression Output) uses dual-output CPPN:
+    - Output 0: Connection weight
+    - Output 1: LEO gate (connection expressed if > threshold)
+    """
+    return EMRHyperNEAT()
+
+
+@pytest.fixture
 def base_config() -> Dict[str, Any]:
     """Provide base configuration."""
     return create_base_config()
@@ -1015,18 +1139,6 @@ def base_config() -> Dict[str, Any]:
 def feedforward_config() -> Dict[str, Any]:
     """Provide feedforward-only configuration."""
     return create_config_with_recurrence('feedforward')
-
-
-@pytest.fixture
-def hidden_only_config() -> Dict[str, Any]:
-    """Provide hidden-only recurrence configuration."""
-    return create_config_with_recurrence('hidden_only')
-
-
-@pytest.fixture
-def full_recurrent_config() -> Dict[str, Any]:
-    """Provide full recurrent configuration."""
-    return create_config_with_recurrence('full_recurrent')
 
 
 @pytest.fixture
@@ -1062,9 +1174,7 @@ def five_task_problems() -> Dict[str, Any]:
     }
 
 
-# =============================================================================
 # Skip Markers
-# =============================================================================
 
 def requires_multi_gpu():
     """Skip test if multiple GPUs not available."""
@@ -1084,14 +1194,12 @@ def requires_cuda():
     )
 
 
-# =============================================================================
 # Backend Numerics
-# =============================================================================
 
 # Pin float32 matmuls to true float32 before anything is compiled. XLA may lower
 # float32 dot products to TF32 (~10 mantissa bits, ~1e-3 relative) on hardware that
-# has it -- Ampere and later; the RTX 2080 Ti the tolerance below was measured on is
-# Turing and has none -- which would put layout differences a hundred times above
+# has it (Ampere and later; the RTX 2080 Ti the tolerance below was measured on is
+# Turing and has none), which would put layout differences a hundred times above
 # GPU_TRAJECTORY_RTOL. On CPU this setting has no effect, so no CPU value moves.
 # Module level rather than a fixture so it precedes every compilation.
 jax.config.update('jax_default_matmul_precision', 'highest')
@@ -1109,9 +1217,13 @@ def exact_backend() -> bool:
     choices: they hand the same per-genome arithmetic to XLA in different array layouts
     and reduction extents. XLA:CPU emits the same instruction sequence for that arithmetic
     whatever the layout, so on CPU the variants agree bitwise and the tests assert
-    equality. GPU kernels are selected by shape (tiling, fusion, the tree order of a
-    reduction), so on a GPU the same arithmetic differs in the last float32 bits between
-    variants, and the tests assert agreement to float32 rounding instead.
+    equality. One exception, on x86: a sum over a padded length can group its terms
+    differently, so bucketed compaction (`compaction_bucket: auto`) can move a fitness by a
+    float32 ulp or two against `exact` there; the comparisons with depth offload, which
+    evaluates exact shapes, run both modes exact. GPU kernels are selected by shape
+    (tiling, fusion, the tree order of a reduction), so on a GPU the same arithmetic
+    differs in the last float32 bits between variants, and the tests assert agreement to
+    float32 rounding instead.
     """
     return jax.default_backend() == 'cpu'
 
@@ -1126,11 +1238,11 @@ def assert_trajectories_agree(variants: Dict[str, List[float]], what: str) -> No
     Where the tolerance comes from. Noise: on an RTX 2080 Ti (jax 0.6.1, CUDA 12.4) the
     largest cross-layout difference in this suite was 3.4e-6 relative
     (test_compaction_preserves_results[neuromod_context], 0.55583787 vs 0.555835962);
-    the rest were one to four float32 ulps. Signal: the divergences these tests guard --
-    an execution mode repeating its generation-0 fitness, a subdivision rule that
-    differs by level, a per-position array left on the full axis after compaction --
+    the rest were one to four float32 ulps. Signal: the divergences these tests guard
+    (an execution mode repeating its generation-0 fitness, a subdivision rule that
+    differs by level, a per-position array left on the full axis after compaction)
     move a fitness by 1e-2 or more; the recorded cross-mode divergence at depth 4 was
-    6.1e-2 (papers/emr-complexity-equivalence, mode_probe_hh). 1e-4 sits 29x above the
+    6.1e-2 (measured with the mode_probe_hh probe). 1e-4 sits 29x above the
     noise and 100x below the signal; 1e-5 was only 2.9x above one card's noise figure.
 
     NaN is never equal to NaN here: a trajectory that collapsed to NaN must fail on
@@ -1154,9 +1266,7 @@ def assert_trajectories_agree(variants: Dict[str, List[float]], what: str) -> No
         )
 
 
-# =============================================================================
 # Module Exports
-# =============================================================================
 
 __all__ = [
     # Constants
@@ -1191,6 +1301,7 @@ __all__ = [
     'DYNAMIC_FUNCTION_PRESETS',
     'AGGREGATION_PRESETS',
     'NEUROMODULATION_PRESETS',
+    'LEO_PRESETS',
     'GEOMETRY_SEEDING_PRESETS',
 
     # Config factories
@@ -1201,7 +1312,9 @@ __all__ = [
     'create_config_with_neuromodulation',
     'create_config_with_streaming',
     'create_config_with_multi_task',
+    'create_config_with_leo',
     'create_config_with_geometry_seeding',
+    'create_config_with_leo_and_geometry_seeding',
 
     # Evolution runner
     'run_quick_evolution',
@@ -1232,8 +1345,4 @@ __all__ = [
     'ForwardPassMode',
     'HHCacheManager',
     'MultiGPUStrategy',
-    'PositionShardingConfig',
-    'IslandModelConfig',
-    'HybridShardingConfig',
-    'PopulationPmapConfig',
 ]

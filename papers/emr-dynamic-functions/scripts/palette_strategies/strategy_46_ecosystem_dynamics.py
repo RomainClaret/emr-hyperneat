@@ -12,7 +12,7 @@ Biological Basis:
 - Competition and facilitation shape community composition
 - Niche partitioning allows species coexistence
 
-Key Insight:
+Rationale:
 - Palettes can be viewed as ecosystems of functions
 - Some functions are pioneers (good for exploration)
 - Some are climax species (stable, optimized)
@@ -49,7 +49,7 @@ Ecosystem Mechanism:
     else:
         favor_climax()  # Stable, specialized
 
-Expected improvements:
+Intended effects:
 - Self-organizing palette with stable attractors
 - Natural complexity limits through carrying capacity
 - Keystone function protection
@@ -72,10 +72,10 @@ from .base_strategy import (
 
 # Function roles in ecosystem
 # Pioneer: fast-acting, simple, good for exploration
-# Intermediate: balanced, versatile
+# Intermediate: balanced, general-purpose
 # Climax: stable, specialized, optimal for exploitation
 FUNCTION_ROLES = {
-    0: 'intermediate',   # tanh - versatile, bounded
+    0: 'intermediate',   # tanh - general-purpose, bounded
     1: 'climax',         # sigmoid - stable, specialized
     2: 'pioneer',        # relu - simple, fast
     3: 'pioneer',        # identity - simplest
@@ -524,7 +524,7 @@ class EcosystemDynamicsStrategy(PaletteEvolutionStrategy):
 
         current_palette = mask_to_indices(state['mask'])
 
-        # Step 1: Update contributions
+        # Update contributions
         new_contribution = self._update_contribution(
             state['contribution'],
             state['mask'],
@@ -532,11 +532,11 @@ class EcosystemDynamicsStrategy(PaletteEvolutionStrategy):
             fitness_delta,
         )
 
-        # Step 2: Identify keystones
+        # Identify keystones
         keystones = self._identify_keystones(new_contribution, current_palette)
         facilitated = self._compute_facilitation(keystones)
 
-        # Step 3: Check for disturbance
+        # Check for disturbance
         disturbance_events = list(state['disturbance_events'])
         community_age = state['community_age']
         in_recovery = state['in_recovery']
@@ -560,13 +560,13 @@ class EcosystemDynamicsStrategy(PaletteEvolutionStrategy):
             new_mask = state['mask']
             community_age += 1
 
-        # Step 4: Determine succession stage
+        # Determine succession stage
         stage = self._get_succession_stage(community_age)
 
-        # Step 5: Update resources
+        # Update resources
         new_resources = self._update_resources(state['resources'], len(current_palette))
 
-        # Step 6: Succession-based mutation
+        # Succession-based mutation
         new_mask = self._succession_mutate(
             new_mask,
             new_contribution,

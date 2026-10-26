@@ -1,12 +1,12 @@
 """Strategy 54S: Synaptic Fatigue Symmetric (Protected Fatigue Dynamics).
 
-Extends SynapticFatigueDualStrategy to symmetric mode with winning patterns:
+Extends SynapticFatigueDualStrategy to symmetric mode with:
 - Protected indices have fatigue floor preventing exhaustion
 - Affinity floors for sin and extreme aggregations
 - Memory cell crystallization for sustained performance
 - Cross-domain fatigue coupling
 
-Key symmetric mechanisms:
+Symmetric mechanisms:
 1. Protected fatigue floor - sin/max/min never fully fatigue
 2. Use-dependent rotation in non-protected functions
 3. Cross-domain fatigue coupling - high fatigue triggers rotation
@@ -71,7 +71,7 @@ class SynapticFatigueSymmetricState:
 class SynapticFatigueSymmetricStrategy(PaletteEvolutionStrategy):
     """Symmetric palette evolution with fatigue dynamics and protection.
 
-    Applies winning patterns:
+    Mechanisms:
     - Protected indices have fatigue floor (never fully exhausted)
     - Affinity floors (sin=0.6, extreme_agg=0.5)
     - Memory cell crystallization (8 gens sustained)
@@ -95,7 +95,7 @@ class SynapticFatigueSymmetricStrategy(PaletteEvolutionStrategy):
         base_weight_learning_rate: float = 0.1,
         base_weight_decay: float = 0.99,
         initial_base_weight: float = 1.0,
-        # Protection parameters (winning patterns)
+        # Protection parameters
         sin_affinity_floor: float = 0.6,
         extreme_agg_affinity_floor: float = 0.5,
         protected_deactivation_prob: float = 0.001,  # 0.1%
@@ -147,7 +147,7 @@ class SynapticFatigueSymmetricStrategy(PaletteEvolutionStrategy):
         self.min_active_act = min_active_act
         self.min_active_agg = min_active_agg
 
-        # CRITICAL: Include sin and extreme aggregations in initial palettes
+        # Include sin and extreme aggregations in initial palettes
         self.initial_act_palette = initial_act_palette or [0, 1, 2, 3, SIN_IDX]
         self.initial_agg_palette = initial_agg_palette or [0, 1, MAX_IDX, MIN_IDX]
 

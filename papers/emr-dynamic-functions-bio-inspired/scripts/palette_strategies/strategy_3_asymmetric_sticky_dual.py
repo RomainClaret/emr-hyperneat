@@ -9,7 +9,7 @@ Cross-Domain Learning:
 - Shared discovery history with domain-specific tracking
 - Asymmetric rates tuned for each domain's characteristics
 
-Key Dual Mechanisms:
+Dual Mechanisms:
 1. Dual asymmetric rates - higher activate, lower deactivate for both domains
 2. Domain-specific sticky functions - protect oscillatory acts, optimal aggs
 3. Cross-domain sticky protection - successful combinations protected

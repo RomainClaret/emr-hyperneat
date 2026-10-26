@@ -3,7 +3,7 @@
 Combines adult neurogenesis (strategy 41) with immune memory cross-reactivity
 (strategy 114) for evolutionary momentum through birth + memory.
 
-Key Innovation:
+Mechanism:
 - New functions BORN near memory cells survive better
 - Birth near sin-memory creates sin-associated newcomers
 - Cross-reactivity creates evolutionary momentum toward sin-extreme
@@ -43,35 +43,35 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === NEUROGENESIS PARAMETERS (KEY) ===
+        # NEUROGENESIS PARAMETERS
         neurogenesis_rate: float = 0.08,         # Rate of new function birth
         young_cross_protection_boost: float = 1.5,  # Boost for young + cross-protected
         maturation_memory_integration: bool = True,
         maturation_period: int = 8,              # Generations until mature
         young_plasticity: float = 2.0,           # Young functions are more plastic
-        # === MEMORY PARAMETERS ===
+        # MEMORY PARAMETERS
         memory_formation_threshold: float = 0.7,
         cross_protection_strength: float = 0.5,
         memory_cell_lifespan: int = 35,
-        # === Affinity parameters ===
+        # Affinity parameters
         act_affinity_lr: float = 0.12,
         agg_affinity_lr: float = 0.10,
         affinity_decay: float = 0.98,
-        # === Exploration ===
+        # Exploration
         exploration_rate: float = 0.22,
-        # === Constraints ===
+        # Constraints
         min_active_act: int = 2,
         min_active_agg: int = 1,
         max_active_act: int = 8,
         max_active_agg: int = 4,
         min_diversity_act: int = 4,
         min_diversity_agg: int = 2,
-        # === Initial palettes ===
+        # Initial palettes
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
     ):
         """Initialize Neurogenesis Cross-Reactive Dual strategy."""
-        # Neurogenesis (KEY)
+        # Neurogenesis
         self.neurogenesis_rate = neurogenesis_rate
         self.young_cross_protection_boost = young_cross_protection_boost
         self.maturation_memory_integration = maturation_memory_integration
@@ -295,7 +295,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
         # Cross-protection boost
         score += cross_protection * 0.3
 
-        # Young + cross-protection boost (KEY INNOVATION)
+        # Young + cross-protection boost
         is_young = self._is_young(birth_gen, generation)
         if is_young:
             # Young functions with cross-protection survive better
@@ -397,7 +397,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
             new_stagnation = state['stagnation_count'] + 1
             new_best = state['best_fitness_seen']
 
-        # === AFFINITY UPDATE ===
+        # AFFINITY UPDATE
         new_act_aff = state['act_affinities'] * self.affinity_decay
         new_agg_aff = state['agg_affinities'] * self.affinity_decay
         if fitness_delta > 0:
@@ -419,7 +419,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
                         min(1.0, new_agg_aff[j] + lr * fitness_delta)
                     )
 
-        # === MEMORY UPDATE ===
+        # MEMORY UPDATE
         new_act_memory, act_formations = self._update_memory(
             state['act_memory'], state['act_mask'], new_act_aff,
             best_fitness, generation, NUM_ACTIVATIONS
@@ -429,7 +429,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
             best_fitness, generation, NUM_AGGREGATIONS
         )
 
-        # === CROSS-PROTECTION UPDATE ===
+        # CROSS-PROTECTION UPDATE
         new_act_cross = state['act_cross_protection'] * 0.95
         new_agg_cross = state['agg_cross_protection'] * 0.95
         cross_boosts = 0
@@ -452,7 +452,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
                 )
                 cross_boosts += 1
 
-        # === NEUROGENESIS ===
+        # NEUROGENESIS
         new_act_mask, new_act_birth, act_births = self._attempt_neurogenesis(
             state['act_mask'], state['act_birth_gen'], new_act_memory,
             generation, new_stagnation, k1, prefer_indices=[4]
@@ -462,7 +462,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
             generation, new_stagnation, k2, prefer_indices=list(CORE_EXTREME_AGGS)
         )
 
-        # === PALETTE SELECTION ===
+        # PALETTE SELECTION
         new_act_mask, act_young_survivals = self._select_palette(
             new_act_aff, new_act_cross, new_act_birth, new_act_memory,
             NUM_ACTIVATIONS, self.min_active_act, self.max_active_act,
@@ -513,7 +513,7 @@ class NeurogenesisCrossReactiveDualStrategy(PaletteEvolutionStrategy):
             'current_agg_palette': agg_palette,
             'stagnation_count': new_stagnation,
             'fitness_improved': improved,
-            # Neurogenesis metrics (KEY)
+            # Neurogenesis metrics
             'neurogenesis_events': new_state['neurogenesis_events'],
             'young_survivals': new_state['young_survivals'],
             'sin_is_young': self._is_young(float(new_act_birth[4]), generation),

@@ -11,7 +11,7 @@ Biological Basis:
 - Only neurons that form useful connections persist
 - Plays role in learning and memory consolidation
 
-Key Insight:
+Rationale:
 - Current strategies only mutate existing palette, never truly "birth" new functions
 - Adult neurogenesis allows controlled introduction of new capabilities
 - Young functions have higher learning rates (more plastic)
@@ -43,7 +43,7 @@ Neurogenesis Mechanism:
     # Young neurons have higher learning rates
     learning_rate[func] = base_lr * young_neurons[func]['plasticity']
 
-Expected improvements:
+Intended effects:
 - Controlled exploration of new functions
 - Young functions don't destabilize existing palette
 - Survival-based pruning prevents bloat
@@ -351,7 +351,7 @@ class AdultNeurogenesisStrategy(PaletteEvolutionStrategy):
         stable = set(state['stable_palette'])
         young = dict(state['young_neurons'])
 
-        # Step 1: Update contributions
+        # Update contributions
         new_contribution, young = self._update_contributions(
             state['contribution'],
             state['mask'],
@@ -360,15 +360,15 @@ class AdultNeurogenesisStrategy(PaletteEvolutionStrategy):
             generation,
         )
 
-        # Step 2: Process maturation (survive or prune)
+        # Process maturation (survive or prune)
         stable, young, survived, pruned = self._mature_neurons(
             stable, young, new_contribution, generation
         )
 
-        # Step 3: Maybe birth new neuron
+        # Maybe birth new neuron
         stable, young, born = self._maybe_birth_neuron(stable, young, k1, generation)
 
-        # Step 4: Maybe mutate stable palette on stagnation
+        # Maybe mutate stable palette on stagnation
         stable = self._maybe_mutate_stable(stable, new_contribution, new_stagnation, k2)
 
         # Create new mask

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Per-population breakdown of EMR GPU total runtime (real 30-generation runs).
+"""Per-population breakdown of EMR GPU total runtime over 30 generations.
 
 The runtime figure's GPU band is an IQR across population sizes. This script reads
 ``data/runs_emr_gpu.json`` and shows, per depth, the median ``total_runtime_s`` at each
 population (50-1000 for depths 1-7; 300/1000 for depths 8-13), so it is clear which
 populations drive the spread. ``extract_gpu_iqr.py`` reports the collapsed per-depth IQR.
+Each total is the construction time plus 30 times the steady per-generation time. At
+depth 7, population 750 is interpolated and population 1000's steady time is an estimate;
+the depth 8-13 runs lasted 10 generations (6 for population 300, seed 123, which solved XOR
+at depths 8 to 12), and depth 13's population-1000 seed 456 is projected from depth 12.
 
 Output: a depth x population table of median total runtimes + the per-depth IQR.
 """

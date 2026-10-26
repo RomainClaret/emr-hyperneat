@@ -3,7 +3,7 @@
 Extends HomeostaticHebbian to jointly evolve both activation and aggregation palettes
 with homeostatic regulation to prevent affinity saturation in both domains.
 
-Key mechanisms extended to dual:
+Mechanisms extended to dual:
 1. Synaptic scaling for both activation and aggregation affinities
 2. Soft bounds prevent saturation in both domains
 3. Cross-domain affinity matrix tracks act-agg combinations
@@ -14,7 +14,7 @@ Biological rationale:
 - The brain maintains activity within functional ranges for all circuits
 - Different modalities (like visual and motor) have separate but coordinated scaling
 
-Expected improvement:
+Intended effects:
 - Fewer false protections in BOTH domains
 - Better adaptation when conditions change
 - More robust to early luck in either domain
@@ -307,7 +307,7 @@ class HomeostaticHebbianDualStrategy(PaletteEvolutionStrategy):
         act_active = (act_mask > 0.5).astype(jnp.float32)
         agg_active = (agg_mask > 0.5).astype(jnp.float32)
 
-        # --- Activation domain update ---
+        # Activation domain update
         act_co_active = jnp.outer(act_active, act_active)
         if fitness_signal >= 0:
             act_weight_delta = lr * fitness_signal * act_co_active
@@ -320,7 +320,7 @@ class HomeostaticHebbianDualStrategy(PaletteEvolutionStrategy):
         new_act_affinity = self._apply_soft_bounds(act_affinity, act_affinity_delta)
         new_act_affinity, act_scaled = self._apply_synaptic_scaling(new_act_affinity, act_mask)
 
-        # --- Aggregation domain update ---
+        # Aggregation domain update
         agg_co_active = jnp.outer(agg_active, agg_active)
         if fitness_signal >= 0:
             agg_weight_delta = lr * fitness_signal * agg_co_active
@@ -333,7 +333,7 @@ class HomeostaticHebbianDualStrategy(PaletteEvolutionStrategy):
         new_agg_affinity = self._apply_soft_bounds(agg_affinity, agg_affinity_delta)
         new_agg_affinity, agg_scaled = self._apply_synaptic_scaling(new_agg_affinity, agg_mask)
 
-        # --- Cross-domain update ---
+        # Cross-domain update
         cross_active = jnp.outer(act_active, agg_active)
         if fitness_signal >= 0:
             cross_delta = cross_lr * fitness_signal * cross_active

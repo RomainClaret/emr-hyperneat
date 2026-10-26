@@ -9,8 +9,8 @@ Design notes
 ------------
 * **Real paper code, not duplicated config.** The paper runners under
   ``papers/<paper>/scripts/`` expose single-seed functions that *return* a result and do
-  NOT write to disk, so the tests import and call them directly. No dependence on the
-  gitignored result JSON (the Zenodo data release) -- everything is recomputed fresh.
+  not write to disk, so the tests import and call them directly. No dependence on the
+  gitignored result JSON (the Zenodo data release): everything is recomputed fresh.
 
 * **One batch subprocess per paper.** Different papers ship same-named helper modules with
   *different* contents (e.g. ``classification_problems.py`` differs between
@@ -22,14 +22,15 @@ Design notes
   ``conftest`` helpers and runs in-process.
 
 * **Findings vs goldens.** The *finding* asserts (solved / converged / threshold) are the
-  portable contract -- they survive tiny cross-platform float differences and ARE the paper
+  portable contract: they survive tiny cross-platform float differences and are the paper
   claim. Exact goldens are asserted where the underlying value is a continuous deterministic
   fitness (dyn-func, base EMR); the ES accuracies (neuromod) are counts/200 that can shift a
   point across backends, so those use the finding + a band. Validated under act on emulated
-  linux/amd64 -- the arm64-recorded goldens hold. Bit-identity itself is covered by
+  linux/amd64: the arm64-recorded goldens hold. Bit-identity itself is covered by
   ``test_golden.py``.
 
-Markers: every test here is ``paper``; the bio tests are additionally ``slow``.
+Markers: every test here is ``paper``; the bio-inspired, gradient-baseline, monotonic-class,
+aggregation-oracle and single-task-control classes are also ``slow``.
 """
 
 import json
@@ -56,7 +57,7 @@ def _paper_base_config():
 
     The package default is ``variance_rule: canonical``; every published
     EMR number predates it and was produced under ``legacy``. The paper runners carry
-    the pin themselves, so the tests that drive them inherit it -- but the tests below
+    the pin themselves, so the tests that drive them inherit it, but the tests below
     build their own config, so they must pin it explicitly or they silently assert
     canonical-rule behavior under a paper-validation label.
     """
@@ -88,6 +89,10 @@ def _run_paper(scripts_dir: Path, body: str, timeout: int = 900) -> dict:
     )
     env = {**os.environ, "JAX_PLATFORMS": "cpu", "TF_CPP_MIN_LOG_LEVEL": "3"}
     env.pop("PYTHONPATH", None)  # prove no reliance on the geenns env
+    # A GPU machine's profile can set these to gpu. Inherited, they ask JAX for a gpu
+    # default backend that JAX_PLATFORMS=cpu never loads, and the paper never starts.
+    env.pop("JAX_PLATFORM_NAME", None)
+    env.pop("JAX_BACKEND_TARGET", None)
     proc = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True, text=True, env=env, timeout=timeout,
@@ -104,12 +109,10 @@ def _run_paper(scripts_dir: Path, body: str, timeout: int = 900) -> dict:
     )
 
 
-# ===========================================================================
-# Dynamic functions (ALIFE): per-node activation evolution -- the oscillatory /
+# Dynamic functions (ALIFE): per-node activation evolution, the oscillatory /
 # monotonic divide on XOR. Oscillatory activations solve within a few generations;
-# monotonic ones do not (an evolvability barrier, not strict impossibility -- tanh would
+# monotonic ones do not (an evolvability barrier, not strict impossibility: tanh would
 # eventually solve near gen 48); pure-linear identity is pinned at 3/4.
-# ===========================================================================
 _OSCILLATORY = ["sin", "osc_adapt", "resonator", "burst"]
 _MONOTONIC = ["tanh", "sigmoid", "relu", "identity"]
 
@@ -158,12 +161,10 @@ class TestDynamicFunctionsPaper:
         assert abs(r["best"] - 0.8749328851699829) < GOLD_TOL
 
 
-# ===========================================================================
-# Parity scaling (ALIFE): a monotonic activation does not merely struggle on XOR -- it
-# COLLAPSES as task arity grows. The same tanh that eventually solves Parity-2 (XOR) around
-# gen 48 cannot solve Parity-4 at all within 100 generations. (E1 measures the monotonic
-# side; the paper's sin stays at 100% across all parities.)
-# ===========================================================================
+# Parity scaling (ALIFE): a monotonic activation that struggles on XOR collapses as task
+# arity grows. The same tanh that eventually solves Parity-2 (XOR) around gen 48 cannot
+# solve Parity-4 at all within 100 generations. (E1 measures the monotonic side; the
+# paper's sin stays at 100% across all parities.)
 @pytest.fixture(scope="class")
 def parity_scaling_results():
     body = (
@@ -179,7 +180,7 @@ def parity_scaling_results():
 
 class TestParityScalingPaper:
     def test_tanh_solves_parity2_but_slowly(self, parity_scaling_results):
-        # tanh CAN solve XOR (Parity-2) -- but only after a long search (~48 gens), versus
+        # tanh can solve XOR (Parity-2), but only after a long search (~48 gens), versus
         # the oscillatory activations that solve it in 1-6 generations
         r = parity_scaling_results["2"]
         assert r["solved"] is True
@@ -187,20 +188,58 @@ class TestParityScalingPaper:
         assert abs(r["best"] - 0.9823189377784729) < GOLD_TOL
 
     def test_tanh_collapses_at_parity4(self, parity_scaling_results):
-        # ... and the same activation collapses entirely at Parity-4 -- never solves in 100 gens
+        # ... and the same activation collapses entirely at Parity-4: it never solves in 100 gens
         r = parity_scaling_results["4"]
         assert r["solved"] is False
         assert r["best"] < 0.95
         assert abs(r["best"] - 0.8664138317108154) < GOLD_TOL
 
 
-# ===========================================================================
-# Neuromodulation (ALIFE): multi-task barrier. Three ways escape it -- per-task activation
-# selection, an oscillatory (sin) uniform activation, and added depth (2 layers) -- all
-# converge on both tasks; a single uniform monotonic (tanh) activation in one layer cannot:
-# the XOR-like task sticks near the 0.75 ceiling while the linear task still solves.
+# Depth and a second task (ALIFE, E8 and E7): the oscillatory advantage holds on a deeper
+# substrate (sin solves Parity-4 at max_depth 4 in its first generation, where tanh is still
+# unsolved after 10), and the Two Spirals runner keeps its recorded trajectory (a golden only:
+# 10 generations is far from that task's finding). Short budgets of the papers' own runners.
+@pytest.fixture(scope="class")
+def depth_and_spirals_results():
+    body = (
+        "import E8_depth_sensitivity as e8\n"
+        "import E7_two_spirals_per_function as e7\n"
+        "e8.MAX_GENERATIONS = 10\n"
+        "out = {}\n"
+        "for fn in ('sin', 'tanh'):\n"
+        "    r = e8.run_single_trial(fn, 4, 42)\n"
+        "    out['e8_' + fn] = {'solved': bool(r.solved), 'solved_gen': r.solved_gen, "
+        "'best': float(r.best_fitness)}\n"
+        "r = e7.run_single_trial('sin', e7.ACTIVATION_LIST.index('sin'), 42, max_generations=10, "
+        "pop_size=100)\n"
+        "out['e7_sin'] = {'solved': bool(r.solved), 'best': float(r.best_fitness)}\n"
+    )
+    return _run_paper(PAPERS / "emr-dynamic-functions" / "scripts", body)
+
+
+class TestDepthAndSpiralsPaper:
+    def test_sin_solves_parity4_at_depth4_immediately(self, depth_and_spirals_results):
+        r = depth_and_spirals_results["e8_sin"]
+        assert r["solved"] is True
+        assert r["solved_gen"] == 1
+        assert abs(r["best"] - 0.9988052248954773) < GOLD_TOL
+
+    def test_tanh_does_not_at_depth4(self, depth_and_spirals_results):
+        r = depth_and_spirals_results["e8_tanh"]
+        assert r["solved"] is False
+        assert abs(r["best"] - 0.8186081647872925) < GOLD_TOL
+
+    def test_two_spirals_golden(self, depth_and_spirals_results):
+        r = depth_and_spirals_results["e7_sin"]
+        assert r["solved"] is False
+        assert abs(r["best"] - 0.7501146197319031) < GOLD_TOL
+
+
+# Neuromodulation (ALIFE): multi-task barrier. Three ways escape it and converge on both
+# tasks: per-task activation selection, an oscillatory (sin) uniform activation, and added
+# depth (2 layers). A single uniform monotonic (tanh) activation in one layer cannot: the
+# XOR-like task sticks near the 0.75 ceiling while the linear task still solves.
 # ES accuracies are counts/200, so assert the finding + a band, not an exact golden.
-# ===========================================================================
 _CONVERGING_CONDITIONS = [
     "1layer_2task_pertask",
     "1layer_2task_uniform_sin",
@@ -227,14 +266,14 @@ def neuromod_results():
 class TestNeuromodulationPaper:
     @pytest.mark.parametrize("cond", _CONVERGING_CONDITIONS)
     def test_condition_escapes_barrier(self, neuromod_results, cond):
-        # finding: per-task selection / oscillatory activation / depth each solve BOTH tasks
+        # finding: per-task selection / oscillatory activation / depth each solve both tasks
         r = neuromod_results[cond]
         assert r["converged"] is True, f"{cond} should converge"
         assert r["min_acc"] >= 0.90
 
     def test_uniform_tanh_barrier(self, neuromod_results):
-        # finding: a single monotonic activation in one layer cannot serve both tasks --
-        # the XOR-like task is stuck near the 0.75 ceiling, the linear task solves
+        # finding: a single monotonic activation in one layer cannot serve both tasks (the
+        # XOR-like task is stuck near the 0.75 ceiling, the linear task solves)
         r = neuromod_results["1layer_2task_uniform_tanh"]
         assert r["converged"] is False
         assert r["per_task"]["xor_4cluster"] < 0.80
@@ -242,12 +281,10 @@ class TestNeuromodulationPaper:
         assert 0.70 <= r["per_task"]["xor_4cluster"] <= 0.78  # band golden (~0.74)
 
 
-# ===========================================================================
 # Base EMR (GECCO): the GPU-speedup result is measured from committed data and cannot be
 # re-run fresh in CI, so the representative checks are that the base EMR algorithm the
 # paper measured (a) produces a known XOR trajectory and (b) is deterministic. In-process
 # via conftest (no paper-script import -> no collision).
-# ===========================================================================
 class TestBaseEMRPaper:
     def test_base_emr_xor_golden(self):
         from conftest import EMRHyperNEAT, run_quick_evolution, XORProblem
@@ -271,12 +308,14 @@ class TestBaseEMRPaper:
         assert r1.fitness_history == r2.fitness_history
 
 
-# ===========================================================================
 # Bio-inspired palette evolution (PPSN): a timescale-compatible strategy (circadian)
-# discovers AND retains an oscillatory activation even when seeded from a purely
-# non-oscillatory palette [band_pass(16), integrate(17)] on Parity-4. Slow (HMR on
-# Parity-4); excluded from the fast gate, run on demand. All three checks share one run.
-# ===========================================================================
+# discovers and retains an oscillatory activation, starting from a palette without one, on
+# Parity-4. Slow; excluded from the fast gate, run on demand. All three checks share one run.
+# The runner is the EMR version of release 0.2.0: population 150 whatever pop_size says, and HMR's
+# level-0 rule and key split, which its paper folder's emr_settings.py pins, as the published runs
+# on the HMR engine had them. Its golden was recorded on it, the same value on arm64 and x86_64
+# with XLA_FLAGS unset and under --xla_cpu_multi_thread_eigen=false. Release 0.1.0 ran
+# this runner on the HMR engine, whose golden was 0.7666119933128357 (within 1e-3).
 @pytest.mark.slow
 class TestBioInspiredPaper:
     @pytest.fixture(scope="class")
@@ -289,16 +328,19 @@ class TestBioInspiredPaper:
             "'osc_discovered_gen': r['osc_discovered_gen'], "
             "'n_osc': len(r['oscillatory_functions']), "
             "'best': float(r['best_fitness']), "
-            "'initial_palette': r['initial_act_palette']}\n"
+            "'start_palette': r['palette_history'][0]['palette']}\n"
         )
         return _run_paper(
             PAPERS / "emr-dynamic-functions-bio-inspired" / "scripts", body, timeout=600,
         )
 
     def test_starts_from_non_oscillatory_palette(self, bio_result):
-        # the experiment's premise: seeded from a palette with NO oscillatory function
-        assert bio_result["initial_palette"] == [16, 17]
-        assert all(i not in OSCILLATORY_INDICES for i in bio_result["initial_palette"])
+        # the experiment's premise: no oscillatory function in the palette circadian starts from.
+        # The runner passes [16, 17] as initial_act_palette, which only the Hebbian strategy
+        # reads; circadian reads initial_palette, so it starts from its standard [0, 1, 2, 3]
+        # (tanh, sigmoid, relu, identity), which has none either.
+        assert bio_result["start_palette"] == [0, 1, 2, 3]
+        assert all(i not in OSCILLATORY_INDICES for i in bio_result["start_palette"])
 
     def test_circadian_discovers_oscillatory(self, bio_result):
         # finding: ... yet it discovers and retains an oscillatory activation
@@ -308,15 +350,13 @@ class TestBioInspiredPaper:
 
     def test_best_fitness_golden(self, bio_result):
         assert math.isfinite(bio_result["best"]) and 0.0 <= bio_result["best"] <= 1.0
-        assert abs(bio_result["best"] - 0.7666119933128357) < 1e-3  # band (HMR + palette)
+        assert abs(bio_result["best"] - 0.775484561920166) < GOLD_TOL
 
 
-# ===========================================================================
-# EMR substrate structure (GECCO): the eager multi-resolution substrate -- the mechanism
-# behind the GPU speedup -- is a FIXED hierarchical lattice (4^(l+1) cells at level l) that
-# post-hoc variance masking prunes to a SPARSE active set. In-process (public emr_hyperneat
-# API, no paper-script import). FAST.
-# ===========================================================================
+# EMR substrate structure (GECCO): the eager multi-resolution substrate, the mechanism
+# behind the GPU speedup, is a fixed hierarchical lattice (4^(l+1) cells at level l) that
+# post-hoc variance masking prunes to a sparse active set. In-process (public emr_hyperneat
+# API, no paper-script import). Fast.
 class TestEMRSubstrateStructure:
     def test_grid_size_scales_geometrically_with_depth(self):
         # total candidate positions = sum_{l=0..D} 4^(l+1)
@@ -343,10 +383,8 @@ class TestEMRSubstrateStructure:
                    - cm["avg_hidden_nodes"] / cm["total_positions"]) < 1e-6
 
 
-# ===========================================================================
-# Oscillatory CLASS escapes the multi-task barrier (ALIFE): the barrier escape generalizes
-# beyond sin -- cos and GCU (x*cos x) also solve the 5-task neuromodulation problem. FAST.
-# ===========================================================================
+# Oscillatory class escapes the multi-task barrier (ALIFE): the barrier escape generalizes
+# beyond sin, as cos and GCU (x*cos x) also solve the 5-task neuromodulation problem. Fast.
 _OSC_CLASS = ["uniform_cos", "uniform_gcu"]
 
 
@@ -370,12 +408,10 @@ class TestOscillatoryClassPaper:
         assert r["conv_gen"] is not None and r["conv_gen"] <= 10
 
 
-# ===========================================================================
-# Gradient-baseline reversal (ALIFE), SLOW. Under direct gradient descent (Adam MLP) the
-# neuroevolution oscillatory advantage REVERSES: tanh solves Parity-8 while sin fails. So the
+# Gradient-baseline reversal (ALIFE), slow. Under direct gradient descent (Adam MLP) the
+# neuroevolution oscillatory advantage reverses: tanh solves Parity-8 while sin fails. So the
 # advantage is specific to indirect-encoding neuroevolution, not a universal "sin is good for
-# parity" effect. (train_mlp is pure optax, no module-name collision -- but unjitted/slow.)
-# ===========================================================================
+# parity" effect. (train_mlp is pure optax, no module-name collision, but unjitted/slow.)
 @pytest.mark.slow
 class TestGradientBaselinePaper:
     @pytest.fixture(scope="class")
@@ -399,19 +435,17 @@ class TestGradientBaselinePaper:
         assert gradient_results["sin_p4"]["solved"] is True
 
     def test_parity8_gradient_reversal(self, gradient_results):
-        # tanh SOLVES Parity-8 under gradient descent ...
+        # tanh solves Parity-8 under gradient descent ...
         assert gradient_results["tanh_p8"]["solved"] is True
         assert gradient_results["tanh_p8"]["acc"] >= 0.95
-        # ... while sin FAILS -- the opposite of the neuroevolution result
+        # ... while sin fails, the opposite of the neuroevolution result
         assert gradient_results["sin_p8"]["solved"] is False
         assert gradient_results["sin_p8"]["acc"] < 0.60
 
 
-# ===========================================================================
-# Monotonic-CLASS multi-task barrier (ALIFE), SLOW. A pure-linear (identity) activation solves
+# Monotonic-class multi-task barrier (ALIFE), slow. A pure-linear (identity) activation solves
 # the linearly-separable tasks (AND/OR/NAND/NOR) but leaves XOR pinned at the 0.75 ceiling, so
-# it never converges on the 5-task set -- the barrier is the monotonic class, not just tanh.
-# ===========================================================================
+# it never converges on the 5-task set: the barrier is the monotonic class, not just tanh.
 @pytest.mark.slow
 class TestMonotonicClassBarrierPaper:
     @pytest.fixture(scope="class")
@@ -433,10 +467,10 @@ class TestMonotonicClassBarrierPaper:
             assert r["per_task"][t] >= 0.95
 
 
-# ===========================================================================
-# Aggregation oracle (PPSN), SLOW. A fixed global 'min' aggregation cannot substitute for
-# palette evolution: monotonic activations + min-aggregation still fail Parity-4.
-# ===========================================================================
+# Aggregation oracle (PPSN), slow. A fixed global 'min' aggregation cannot substitute for
+# palette evolution: monotonic activations + min-aggregation still fail Parity-4. The runner is
+# the EMR version of release 0.2.0 (best fitness 0.7659 at the 15th generation); release 0.1.0
+# ran it on the HMR engine (0.7678). The finding holds on both.
 @pytest.mark.slow
 class TestAggregationOraclePaper:
     @pytest.fixture(scope="class")
@@ -455,12 +489,10 @@ class TestAggregationOraclePaper:
         assert agg_result["best"] < 0.95
 
 
-# ===========================================================================
-# Single-task control (ALIFE), SLOW -- the heaviest test (~6 min CPU). The multi-task barrier is
-# INTERFERENCE, not an inability of monotonic activations to represent XOR: the same uniform-tanh
-# substrate that FAILS the 2-task problem (TestNeuromodulationPaper.test_uniform_tanh_barrier)
-# SOLVES a single XOR on its own through the indirect EMR pipeline.
-# ===========================================================================
+# Single-task control (ALIFE), slow: the heaviest test (~6 min CPU). The multi-task barrier is
+# interference, not an inability of monotonic activations to represent XOR: the same uniform-tanh
+# substrate that fails the 2-task problem (TestNeuromodulationPaper.test_uniform_tanh_barrier)
+# solves a single XOR on its own through the indirect EMR pipeline.
 @pytest.mark.slow
 class TestSingleTaskControlPaper:
     @pytest.fixture(scope="class")
@@ -477,5 +509,5 @@ class TestSingleTaskControlPaper:
         )
 
     def test_uniform_tanh_solves_single_xor(self, single_task_result):
-        # uniform tanh SOLVES a single XOR -> the 2-task collapse is interference, not inability
+        # uniform tanh solves a single XOR -> the 2-task collapse is interference, not inability
         assert single_task_result["converged"] is True

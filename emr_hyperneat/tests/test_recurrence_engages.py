@@ -1,11 +1,9 @@
 """Regression tests that EMR's recurrence actually engages and stays consistent.
 
-These exist because of a bug that survived for months without being noticed: the
-recurrent path kept its own `_recurrence_config`, which `create_config` never set,
-so a YAML-configured recurrent run silently degraded to feedforward. Every
-depth-offload run before the fix had hidden-to-hidden dead. Nothing in the suite
-would have caught it -- the only h->h assertions anywhere were `hasattr` checks,
-which pass just as happily on a value that is never populated.
+These tests guard against recurrence that is configured but never engages: a recurrent
+path that reads a `_recurrence_config` which `create_config` never set would silently
+degrade a YAML-configured recurrent run to feedforward, depth offload included, and
+`hasattr` checks pass just as happily on a value that is never populated.
 
 So the assertions here are deliberately about *effects*, not presence: that the
 forward mode resolves, that recurrent and feedforward produce different answers,
@@ -19,6 +17,8 @@ contribute per-position arrays to evaluation.
 """
 
 from __future__ import annotations
+
+import copy
 
 import numpy as np
 import pytest
@@ -41,26 +41,37 @@ from emr_hyperneat.emrhyperneat import (
 )
 from emr_hyperneat.execution import (
     compaction as compaction_module,
+    offload as offload_module,
 )
 
 MODES = [ExecutionMode.STANDARD, ExecutionMode.STREAMING, ExecutionMode.DEPTH_OFFLOAD]
 SEED = 7
 DEPTH = 3
 POPULATION = 8
+# At the default genome_elitism of 15 a population of 8 is copied unmutated, so every later
+# generation would repeat generation 0's genomes; with 2 elites, 6 genomes mutate.
+ELITISM = 2
+
+
+def evolving(config, elitism: int = ELITISM):
+    """``config`` with neat_selection.genome_elitism set, so that later generations mutate."""
+    config["algorithm_params"]["emrhyperneat"]["neat_selection"] = {"genome_elitism": elitism}
+    return config
 
 
 def feedforward_config(depth: int = DEPTH, population: int = POPULATION):
-    """Base config with recurrence explicitly off."""
-    config = create_base_config(max_depth=depth, population_size=population)
+    """Base config with recurrence explicitly off, and elitism 2 (ELITISM)."""
+    config = evolving(create_base_config(max_depth=depth, population_size=population))
     emr = config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
     emr["recurrence"] = {"preset": "feedforward", "iteration_level": 0}
     return config
 
 
 def recurrent_config(depth: int = DEPTH, population: int = POPULATION):
-    return create_config_with_recurrence(
+    """hidden_only recurrence at iteration level 2, and elitism 2 (ELITISM)."""
+    return evolving(create_config_with_recurrence(
         "hidden_only", max_depth=depth, population_size=population, iteration_level=2
-    )
+    ))
 
 
 def run_generations(config, mode, generations: int = 2, seed: int = SEED):
@@ -74,6 +85,33 @@ def run_generations(config, mode, generations: int = 2, seed: int = SEED):
         state, metrics = algorithm.run_generation(state, problem)
         fitness.append(round(float(metrics.best_fitness), 9))
     return algorithm, fitness
+
+
+def told_fitness(config, mode, generations: int = 2, seed: int = SEED):
+    """Every generation's whole fitness vector, as tell received it, in one list.
+
+    The runs use exact compaction shapes (execution.compaction_bucket 'exact'): on x86 a
+    bucket-padded sum can round a genome's fitness by a float32 ulp (test_depth_offload.py), and
+    on CPU this comparison is bitwise.
+    """
+    config = copy.deepcopy(config)
+    emr = config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
+    emr.setdefault("execution", {})["compaction_bucket"] = "exact"
+    algorithm = EMRHyperNEAT()
+    algorithm.execution_config.mode = mode
+    problem = XORProblem()
+    state = algorithm.initialize(algorithm.create_config(config), problem, seed=seed)
+    told, tell = [], algorithm._compiled_tell
+
+    def spy_tell(state_, fitnesses):
+        told.append(np.asarray(fitnesses))
+        return tell(state_, fitnesses)
+
+    algorithm._compiled_tell = spy_tell
+    for _ in range(generations):
+        state, _ = algorithm.run_generation(state, problem)
+    assert len(told) == generations, f"{mode.value}: tell ran {len(told)} times"
+    return [float(value) for fitnesses in told for value in fitnesses]
 
 
 class TestRecurrenceEngages:
@@ -91,7 +129,7 @@ class TestRecurrenceEngages:
 
     @pytest.mark.parametrize("mode", MODES, ids=lambda m: m.value)
     def test_recurrent_changes_the_answer(self, mode):
-        """The assertion the old `hasattr` checks could not make.
+        """The assertion a `hasattr` check cannot make.
 
         If recurrence silently degraded to feedforward, these would be equal.
         """
@@ -114,7 +152,7 @@ class TestRecurrenceEngages:
         assert recurrent.activate_time > feedforward.activate_time
 
     def test_discovered_connections_are_non_zero(self):
-        """Not `hasattr` -- the count itself.
+        """The count itself, not `hasattr`.
 
         Only the offload path records this counter, which is why the mode is pinned
         here rather than parametrized.
@@ -131,33 +169,33 @@ class TestRecurrenceEngages:
 class TestModesAgree:
     """Execution mode is a memory-residency choice and must not change results.
 
-    Bitwise on CPU; on a GPU, to float32 rounding (conftest.assert_trajectories_agree):
-    the standard path and the level-by-level paths reduce over different extents, and GPU
-    kernels round per shape. On an RTX 2080 Ti the depth-3 recurrent case differs by 2 ulp
-    at generation 1 while the feedforward and depth-2 cases happen to agree bitwise.
+    Each generation's whole fitness vector (told_fitness), with elitism 2 so that the modes must
+    also breed the same offspring: bitwise on CPU; on a GPU, to float32 rounding
+    (conftest.assert_trajectories_agree): the standard path and the level-by-level paths reduce
+    over different extents, and GPU kernels round per shape. On an RTX 2080 Ti the depth-3
+    recurrent case differed by 2 ulp at generation 1 (best fitness, elitism 15). In 0.1.0
+    depth_offload split the random key before every tell, which the standard path does
+    only under extra_randkey_split, and bred another population from generation 1 on.
     """
 
     def test_feedforward_identical_across_modes(self):
-        results = {m.value: run_generations(feedforward_config(), m)[1] for m in MODES}
-        assert_trajectories_agree(results, "feedforward across modes")
+        results = {m.value: told_fitness(feedforward_config(), m) for m in MODES}
+        assert_trajectories_agree(results, "feedforward across execution modes")
 
     def test_recurrent_identical_across_modes_at_depth_two(self):
-        results = {
-            m.value: run_generations(recurrent_config(depth=2), m)[1] for m in MODES
-        }
-        assert_trajectories_agree(results, "recurrent depth 2 across modes")
+        results = {m.value: told_fitness(recurrent_config(depth=2), m) for m in MODES}
+        assert_trajectories_agree(results, "recurrent depth 2 across execution modes")
 
     def test_streaming_and_offload_agree_at_depth_three(self):
-        """Streaming and depth_offload are one computation at d3 — a regression guard.
+        """Streaming and depth_offload are one computation at d3: a regression guard.
 
-        They used to split at generation 1 (offload repeated its generation-0
-        fitness) because the offload path never incremented _current_generation
-        and never consulted the h->h cache manager; the cache pass-through fix
-        restored both, and the two modes now produce identical trajectories:
-        both [0.630004346, 0.589477658] at depth 3, pop 8, seed 7.
+        The offload path increments _current_generation and consults the h->h cache
+        manager; with neither, offload repeats its generation-0 fitness and the modes
+        split at generation 1. The two modes produce one trajectory at depth 3, pop 8,
+        seed 7 (the assertion compares the modes, not recorded values).
         """
         results = {
-            m.value: run_generations(recurrent_config(depth=3), m)[1]
+            m.value: told_fitness(recurrent_config(depth=3), m)
             for m in (ExecutionMode.STREAMING, ExecutionMode.DEPTH_OFFLOAD)
         }
         assert_trajectories_agree(results, "streaming vs depth_offload at depth 3")
@@ -165,19 +203,73 @@ class TestModesAgree:
     def test_recurrent_identical_across_modes_at_depth_three(self):
         """All three modes are one computation under the default variance rule.
 
-        The standard family used to compute its level-0 subdivision variance from
-        level 0's OWN four weights as a single per-genome scalar (all-or-nothing
-        subdivision of the whole level) where streaming and depth_offload use the
-        canonical per-parent variance over the four level-1 children. With
-        variance_rule defaulting to 'canonical', standard reaches the same
-        substrate and fitness: [32, 40, 12, 0] and [0.630004346, 0.589477658] at
-        depth 3, pop 8, seed 7 on Apple Silicon. 'legacy' restores the old rule
-        for reproducing published standard-path runs (TestVarianceRule).
+        Under the default variance_rule 'canonical', the standard family computes its
+        level-0 subdivision variance per parent over the four level-1 children, as
+        streaming and depth_offload do, and reaches the same substrate ([32, 40, 12, 0])
+        and the same fitness trajectory at depth 3, pop 8, seed 7 on Apple Silicon.
+        'legacy', kept for reproducing published standard-path runs (TestVarianceRule),
+        computes it from level 0's own four weights as a single per-genome scalar
+        (all-or-nothing subdivision of the whole level).
         """
+        results = {m.value: told_fitness(recurrent_config(depth=3), m) for m in MODES}
+        assert_trajectories_agree(results, "recurrent depth 3 across execution modes")
+
+    @pytest.mark.parametrize("build", [feedforward_config, recurrent_config],
+                             ids=["feedforward", "recurrent"])
+    def test_population_chunked_offload_identical_to_standard(self, build, monkeypatch):
+        """depth_offload's population-chunked loop (execution.max_population_chunk below the
+        population) breeds what the standard path breeds; the spy shows the loop ran. The h->h
+        cache is off (EMR's default; conftest's recurrent preset turns it on): the chunked loop
+        never consults the population-level cache manager, so with the cache on it rediscovers
+        where the other routes reuse."""
+        config = build()
+        if build is recurrent_config:
+            config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]["recurrence"][
+                "hh_cache_enabled"] = False
+        chunked = copy.deepcopy(config)
+        chunked["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]["execution"] = {
+            "max_population_chunk": POPULATION // 2}
+        calls = []
+        original = offload_module._run_generation_population_chunked
+
+        def spy(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(offload_module, "_run_generation_population_chunked", spy)
         results = {
-            m.value: run_generations(recurrent_config(depth=3), m)[1] for m in MODES
+            "standard": told_fitness(config, ExecutionMode.STANDARD),
+            "population_chunked": told_fitness(chunked, ExecutionMode.DEPTH_OFFLOAD),
         }
-        assert_trajectories_agree(results, "recurrent depth 3 across modes")
+        assert len(calls) == 2, "the population-chunked loop did not run"
+        assert_trajectories_agree(results, "standard vs depth_offload's population-chunked loop")
+
+    def test_population_chunked_offload_refuses_the_hh_cache(self):
+        """With the h->h cache on (conftest's recurrent preset), depth_offload's population-chunked
+        loop raises at the route's entry, before generation 0 asks for its population: it never
+        consults the population-level cache manager, so it would rediscover every generation and
+        silently differ from the unchunked loop. The unchunked loop still runs with the cache on."""
+        config = recurrent_config()
+        emr = config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
+        assert emr["recurrence"]["hh_cache_enabled"] is True
+        chunked = copy.deepcopy(config)
+        chunked["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]["execution"] = {
+            "max_population_chunk": POPULATION // 2}
+        algorithm = EMRHyperNEAT()
+        algorithm.execution_config.mode = ExecutionMode.DEPTH_OFFLOAD
+        problem = XORProblem()
+        state = algorithm.initialize(algorithm.create_config(chunked), problem, seed=SEED)
+        asks, ask = [], algorithm._compiled_ask
+
+        def counted_ask(state_):
+            asks.append(1)
+            return ask(state_)
+
+        algorithm._compiled_ask = counted_ask
+        with pytest.raises(ValueError, match="population-level"):
+            algorithm.run_generation(state, problem)
+        assert not asks, "the refusal came after generation 0's ask"
+        assert len(told_fitness(config, ExecutionMode.DEPTH_OFFLOAD, generations=1)) == POPULATION
 
 
 class TestCompactionEquivalence:
@@ -227,7 +319,8 @@ class TestCompactionEquivalence:
 
     @pytest.mark.parametrize("label,build", FEATURES, ids=[f[0] for f in FEATURES])
     def test_compaction_preserves_results(self, label, build, monkeypatch):
-        config = build(DEPTH, POPULATION)
+        # Elitism 2 (ELITISM): mutated genomes move the active set, which compaction must follow.
+        config = evolving(build(DEPTH, POPULATION))
         compacted = run_generations(config, ExecutionMode.STANDARD)[1]
 
         monkeypatch.setattr(

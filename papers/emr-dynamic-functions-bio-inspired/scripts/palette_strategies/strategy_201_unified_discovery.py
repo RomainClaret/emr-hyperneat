@@ -1,11 +1,11 @@
 """Strategy 201: Unified Activation-Aggregation Discovery.
 
 Combines all bio-inspired mechanisms for symmetric act-agg discovery:
-- Dynamic symbiosis pair discovery (from strategy 137)
-- Independent aggregation STDP (from strategy 144)
-- Cross-domain STDP (from strategy 144)
-- Dynamic aggregation morphogen sources (from strategy 133)
-- Cross-morphogen influence (from strategy 133)
+- Dynamic symbiosis pair discovery (from strategy 137-L1)
+- Independent aggregation STDP (from strategy 144-L1)
+- Cross-domain STDP (from strategy 144-L1)
+- Dynamic aggregation morphogen sources (from strategy 133-L1)
+- Cross-morphogen influence (from strategy 133-L1)
 
 Supports multiple discovery modes:
 - balanced: Equal treatment of activations and aggregations
@@ -45,21 +45,21 @@ class UnifiedDiscoveryStrategy(PaletteEvolutionStrategy):
 
     def __init__(
         self,
-        # === DISCOVERY MODE ===
+        # DISCOVERY MODE
         discovery_mode: str = 'balanced',  # 'balanced', 'activation_first', 'aggregation_first'
-        # === MECHANISM TOGGLES ===
+        # MECHANISM TOGGLES
         enable_dynamic_symbiosis: bool = True,
         enable_independent_agg_stdp: bool = True,
         enable_cross_stdp: bool = True,
         enable_agg_morphogen_discovery: bool = True,
         enable_cross_morphogen: bool = True,
-        # === SYMBIOSIS PARAMETERS ===
+        # SYMBIOSIS PARAMETERS
         symbiosis_pairs: List[Tuple[int, int]] = None,
         symbiosis_protection: float = 0.8,
         dynamic_symbiosis_cooccurrence_threshold: int = 3,
         dynamic_symbiosis_affinity_threshold: float = 0.6,
         max_symbiosis_pairs: int = 12,
-        # === STDP PARAMETERS ===
+        # STDP PARAMETERS
         ltp_window: int = 5,
         ltd_window: int = 3,
         ltp_rate: float = 0.25,
@@ -68,29 +68,29 @@ class UnifiedDiscoveryStrategy(PaletteEvolutionStrategy):
         agg_ltp_window: int = 6,
         agg_ltp_rate: float = 0.30,
         cross_ltp_rate: float = 0.20,
-        # === MORPHOGEN PARAMETERS ===
+        # MORPHOGEN PARAMETERS
         sin_source_strength: float = 2.5,
         extreme_agg_source_strength: float = 2.0,
         morphogen_decay_rate: float = 0.05,
         dynamic_source_strength: float = 1.5,
-        max_agg_sources: int = 5,  # Increased from 4
-        agg_source_threshold: float = 0.45,  # Lowered from 0.65
-        agg_source_contribution_threshold: int = 2,  # Lowered from 3
+        max_agg_sources: int = 5,
+        agg_source_threshold: float = 0.45,
+        agg_source_contribution_threshold: int = 2,
         cross_morphogen_influence: float = 0.15,
-        # === AFFINITY PARAMETERS ===
+        # AFFINITY PARAMETERS
         act_affinity_lr: float = 0.10,
         agg_affinity_lr: float = 0.15,
         affinity_decay: float = 0.98,
         cross_affinity_lr: float = 0.12,
-        # === CONSTRAINTS ===
+        # CONSTRAINTS
         min_active_act: int = 2,
         min_active_agg: int = 2,  # Increased from 1 to ensure agg exploration
         max_active_act: int = 8,
         max_active_agg: int = 5,  # Increased from 4
-        # === INITIAL PALETTES ===
+        # INITIAL PALETTES
         initial_act_palette: List[int] = None,
         initial_agg_palette: List[int] = None,
-        # === CATEGORY MULTIPLIERS ===
+        # CATEGORY MULTIPLIERS
         category_lr_multipliers: Dict[str, float] = None,
     ):
         """Initialize Unified Discovery strategy."""
@@ -638,7 +638,7 @@ class UnifiedDiscoveryStrategy(PaletteEvolutionStrategy):
                             delta *= 1.5
                         new_cross_aff = new_cross_aff.at[i, j].set(min(1.0, new_cross_aff[i, j] + delta))
 
-        # === Discovery-to-Palette Bridge ===
+        # Discovery-to-Palette Bridge
         # Identify which aggregation sources are NEWLY discovered this generation
         newly_discovered_aggs = [j for j in new_agg_sources if j not in state['agg_sources']]
         discovery_to_palette = 0
@@ -664,7 +664,7 @@ class UnifiedDiscoveryStrategy(PaletteEvolutionStrategy):
                     new_agg_mask = new_agg_mask.at[best_new].set(1.0)
                     discovery_to_palette += 1
 
-            # Then select activations based on cross-affinity with selected aggs
+            # Select activations based on cross-affinity with selected aggs
             act_score = new_act_aff + new_act_morph * 0.4 + new_act_ltp * 0.3 + has_partner_act * 0.15
             for i in range(NUM_ACTIVATIONS):
                 cross_boost = 0.0

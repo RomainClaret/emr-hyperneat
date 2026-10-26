@@ -9,7 +9,7 @@ Biological Basis:
 - Norepinephrine (NE): Arousal, urgency, fight-or-flight, exploration
 - Serotonin (5-HT): Mood, patience, long-term stability, impulse control
 
-Key Extension:
+Extension:
 - Neuromodulators affect BOTH activation AND aggregation learning equally
 - Cross-domain affinity learns which act-agg combinations succeed together
 - Same neuromodulator state drives both domains (biologically realistic)
@@ -38,7 +38,7 @@ class MultiNeuromodulatoryDualStrategy(PaletteEvolutionStrategy):
     Extends MultiNeuromodulatory to jointly learn:
     1. Which activations are valuable
     2. Which aggregations are valuable
-    3. Which activation-aggregation combinations are synergistic
+    3. Which activation-aggregation combinations work well together
     """
 
     name = "multi_neuromodulatory_dual"
@@ -549,7 +549,7 @@ class MultiNeuromodulatoryDualStrategy(PaletteEvolutionStrategy):
         fitness_signal = (best_fitness - new_fitness_ema) / max(0.1, new_fitness_ema)
         fitness_signal = max(-1.0, min(1.0, fitness_signal))
 
-        # Step 1: Update neuromodulators (shared across domains)
+        # Update neuromodulators (shared across domains)
         new_ach, new_da, new_ne, new_serotonin, neuromod_metrics = self._update_neuromodulators(
             state['acetylcholine'],
             state['dopamine'],
@@ -560,12 +560,12 @@ class MultiNeuromodulatoryDualStrategy(PaletteEvolutionStrategy):
             improved,
         )
 
-        # Step 2: Compute behavioral modulation
+        # Compute behavioral modulation
         exploration_rate, learning_rate, retention_rate = self._compute_behavioral_modulation(
             new_ach, new_da, new_ne, new_serotonin
         )
 
-        # Step 3: Update affinities (both domains + cross)
+        # Update affinities (both domains + cross)
         new_act_affinity, new_agg_affinity, new_cross_affinity = self._update_affinity_dual(
             state['act_affinity'],
             state['act_mask'],
@@ -577,7 +577,7 @@ class MultiNeuromodulatoryDualStrategy(PaletteEvolutionStrategy):
             new_ach,
         )
 
-        # Step 4: Update co-occurrence
+        # Update co-occurrence
         new_act_co, new_agg_co = self._update_co_occurrence_dual(
             state['act_co_occurrence'],
             state['act_mask'],
@@ -587,7 +587,7 @@ class MultiNeuromodulatoryDualStrategy(PaletteEvolutionStrategy):
             new_ach,
         )
 
-        # Step 5: Compute protection (with cross-domain influence)
+        # Compute protection (with cross-domain influence)
         act_protection = self._compute_protection_act(
             new_act_affinity, new_act_co, state['act_mask'],
             new_cross_affinity, state['agg_mask'], new_serotonin
@@ -597,7 +597,7 @@ class MultiNeuromodulatoryDualStrategy(PaletteEvolutionStrategy):
             new_cross_affinity, state['act_mask'], new_serotonin
         )
 
-        # Step 6: Apply mutations to both palettes
+        # Apply mutations to both palettes
         new_act_mask, act_mutation = self._mutate_activation_palette(
             key_act, state['act_mask'], act_protection, exploration_rate, retention_rate
         )

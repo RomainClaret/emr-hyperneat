@@ -49,8 +49,8 @@ class TwoSpiralsProblem:
     """Two interleaved spirals classification.
 
     Primary test for Dynamic Functions: requires both:
-    - Periodic processing (angular component) → sin activation
-    - Non-periodic processing (radial component) → tanh/relu activation
+    - Periodic processing (angular component) -> sin activation
+    - Non-periodic processing (radial component) -> tanh/relu activation
 
     The CPPN should assign different activations based on spatial position.
 
@@ -153,7 +153,7 @@ class ContinuousTwoSpiralsProblem:
     decision boundaries between interleaved spirals. Continuous phase
     outputs match CPPN's ability to produce smooth functions.
 
-    NOTE: This reformulation changes what the network learns:
+    This reformulation changes what the network learns:
     - Binary: "which spiral class?"
     - Continuous: "where in the spiral pattern?"
     Both require understanding the spiral structure, but continuous
@@ -270,8 +270,8 @@ class ContinuousTwoSpiralsProblem:
             phase_diff += 2 * np.pi
 
         # Convert to [0, 1] using cosine mapping:
-        # phase_diff = 0 → spiral 0 → target = 0
-        # phase_diff = π → spiral 1 → target = 1
+        # phase_diff = 0 -> spiral 0 -> target = 0
+        # phase_diff = π -> spiral 1 -> target = 1
         # Smooth transition between
         continuous_target = 0.5 * (1 - np.cos(phase_diff))
 
@@ -494,8 +494,8 @@ class StepFunctionProblem:
     Tests: Can the network learn sharp decision boundaries?
 
     Decision boundary: y = 0
-    - Points above y=0 → class 1
-    - Points below y=0 → class 0
+    - Points above y=0 -> class 1
+    - Points below y=0 -> class 0
 
     This is trivial for linear classifiers but tests whether
     dynamic activations can learn sharp vs smooth boundaries.
@@ -552,8 +552,8 @@ class ConcentricCirclesProblem:
     Tests: Can the network recognize radial patterns?
 
     Decision boundary: r = 0.5 (circle)
-    - Points inside circle (r < 0.5) → class 0
-    - Points outside circle (r > 0.5) → class 1
+    - Points inside circle (r < 0.5) -> class 0
+    - Points outside circle (r > 0.5) -> class 1
 
     Requires: Computing r = sqrt(x² + y²) and comparing to threshold
 
@@ -850,8 +850,7 @@ class MultiTaskProblem:
     def get_task_context(self, task_id: int, method: str = 'one_hot') -> List[float]:
         """Generate external task context vector.
 
-        This is the KEY to true neuromodulation - context is EXTERNAL,
-        not derived from inputs.
+        The context is EXTERNAL, not derived from inputs.
 
         Args:
             task_id: Task index
@@ -884,9 +883,7 @@ class MultiTaskProblem:
         return self.num_tasks
 
 
-# =============================================================================
 # Augmented Coordinate Problems
-# =============================================================================
 # These variants add pre-computed polar coordinates (r, θ, sin(θ), cos(θ))
 # to help networks that struggle with the raw (x, y) representation.
 
@@ -1543,10 +1540,10 @@ class VisualDiscriminationProblem:
     """Visual Discrimination: large vs small square on a grid.
 
     Classic HyperNEAT benchmark exploiting geometric/spatial patterns.
-    A 3×3 or 5×5 grid with a small square vs large square placed at
+    A 3x3 or 5x5 grid with a small square vs large square placed at
     random positions. Binary classification: large (1) vs small (0).
 
-    Uses 5×5 grid = 25 binary pixel inputs + bias.
+    Uses 5x5 grid = 25 binary pixel inputs + bias.
     """
     jitable = True
     use_bias = True
@@ -1563,7 +1560,7 @@ class VisualDiscriminationProblem:
         g = self.grid_size
         data = []
 
-        # Generate all valid placements for small (1×1) and large (2×2) squares
+        # Generate all valid placements for small (1x1) and large (2x2) squares
         # Small square: any single pixel
         for r in range(g):
             for c in range(g):
@@ -1571,7 +1568,7 @@ class VisualDiscriminationProblem:
                 grid[r, c] = 1.0
                 data.append((grid.flatten().tolist() + [1.0], [0.0]))  # small = 0
 
-        # Large square (2×2): any valid top-left corner
+        # Large square (2x2): any valid top-left corner
         for r in range(g - 1):
             for c in range(g - 1):
                 grid = np.zeros((g, g), dtype=float)
@@ -1630,7 +1627,7 @@ PROBLEMS = {
     'two_moons': TwoMoonsProblem,
     'gaussian_xor': GaussianXORProblem,
     'stripe': StripeProblem,
-    # Gaussian XOR sample-count variants (for neutral→sensitive transition sweep)
+    # Gaussian XOR sample-count variants (for neutral->sensitive transition sweep)
     'gaussian_xor_4': lambda: GaussianXORProblem(n_samples=4),
     'gaussian_xor_8': lambda: GaussianXORProblem(n_samples=8),
     'gaussian_xor_16': lambda: GaussianXORProblem(n_samples=16),

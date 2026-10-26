@@ -1,6 +1,6 @@
 """Strategy 10 Symmetric: NeuroHebbian with Memory Cells and Affinity Floors.
 
-Extends NeuroHebbianDual with winning patterns from eligibility_trace_symmetric:
+Extends NeuroHebbianDual with memory cells and affinity floors, as in eligibility_trace_symmetric:
 - Neuromodulation (DA/ACh/NE) for exploration/exploitation control
 - Hebbian learning for pairwise co-occurrence associations
 - Memory cells from sustained high affinity
@@ -12,7 +12,7 @@ Biological Basis:
 - Norepinephrine (NE): Arousal, modulates learning rate
 - Hebbian: "Cells that fire together wire together" - pairwise associations
 
-Key additions:
+Additions:
 - Memory cells: Functions maintaining high affinity become permanent
 - Affinity floors: Sin and extreme aggs never drop below threshold
 - Discovery tracking: Track when critical functions are found
@@ -45,10 +45,10 @@ ACT_OSCILLATORY = [4, 11, 12, 13, 15]  # sin, burst, resonator, osc_adapt, recep
 class NeuroHebbianSymmetricStrategy(PaletteEvolutionStrategy):
     """Neuromodulation + Hebbian learning with memory cells for dual palette.
 
-    Combines the proven Hebbian pairwise learning with memory cells
-    and affinity floors from the winning eligibility_trace strategy.
+    Combines Hebbian pairwise learning with memory cells and affinity
+    floors, as in eligibility_trace_symmetric.
 
-    Key innovations:
+    Mechanisms:
     - Hebbian weights encode which pairs of functions work well together
     - Neuromodulators control exploration vs exploitation balance
     - Memory cells protect proven valuable functions
@@ -335,7 +335,7 @@ class NeuroHebbianSymmetricStrategy(PaletteEvolutionStrategy):
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """Update memory cells based on sustained high affinity.
 
-        Dopamine enhances memory formation.
+        Dopamine promotes memory formation.
         """
         active = mask > 0.5
         # High dopamine lowers the threshold (reward promotes memory)

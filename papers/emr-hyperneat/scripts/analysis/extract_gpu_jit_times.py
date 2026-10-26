@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Extract EMR-HyperNEAT GPU JIT / construction overhead per depth.
 
-Reads the real 30-generation measurements in ``data/runs_emr_gpu.json``. The one-time
-JIT-compilation / substrate-construction cost of each run is ``construction_overhead_s``
-(paid once, not per generation). Reports the per-depth IQR (the figure's dotted GPU JIT
-band) and the pop=1000 mean (the JIT column of the per-generation timing table).
+Reads ``data/runs_emr_gpu.json``. The one-time JIT-compilation / substrate-construction
+cost of each run is ``construction_overhead_s`` (paid once, not per generation). Reports
+the per-depth IQR (the figure's dotted GPU JIT band) and the pop=1000 mean (the JIT column
+of the per-generation timing table). These times are measured, except at depth 7,
+population 750 (interpolated) and at depth 13, population 1000, seed 456 (projected from
+depth 12); depths 1-7 hold one value per population, without a seed.
 
 Output: per-depth JIT IQR + pop=1000 JIT means + TikZ coordinates for the GPU JIT band.
 """
