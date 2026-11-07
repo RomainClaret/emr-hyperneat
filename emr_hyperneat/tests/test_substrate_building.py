@@ -89,8 +89,8 @@ class TestDepthConfiguration:
     def test_initial_depth_configuration(self, algorithm, xor_problem):
         """Verify initial depth is configured correctly."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['initial_depth'] = 0
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['initial_depth'] = 0
 
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
@@ -154,8 +154,8 @@ class TestWeightMatrixConstruction:
     def test_max_weight_constraint(self, algorithm, xor_problem):
         """Verify max weight constraint is applied."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['max_weight'] = 5.0
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['max_weight'] = 5.0
 
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
@@ -166,8 +166,8 @@ class TestWeightMatrixConstruction:
     def test_max_weight_values(self, algorithm, xor_problem, max_weight):
         """Verify different max weight values work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['max_weight'] = max_weight
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['max_weight'] = max_weight
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -229,8 +229,9 @@ class TestActivationConfiguration:
 
     @pytest.mark.parametrize("hidden_act", ['tanh', 'sigmoid', 'relu'])
     def test_hidden_activations(self, algorithm, xor_problem, hidden_act):
-        """substrate.hidden_activation is dynamic_functions mode 'global''s default, as in HMR's dynamic-functions
-        variant; with dynamic functions disabled EMR would not apply it, so that configuration raises."""
+        """substrate.hidden_activation is dynamic_functions mode 'global''s default, as in the
+        prototype's dynamic-functions variant; with dynamic functions disabled EMR would not apply
+        it, so that configuration raises."""
         config = create_base_config()
         config['algorithm_params']['emrhyperneat']['substrate']['hidden_activation'] = hidden_act
         config['algorithm_params']['emrhyperneat']['emr_hyperneat']['dynamic_functions'] = {'mode': 'global'}
@@ -263,8 +264,8 @@ class TestSubstrateWithFeatures:
     def test_substrate_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify substrate works with dynamic functions."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -274,14 +275,14 @@ class TestSubstrateWithFeatures:
     def test_substrate_with_neuromodulation(self, algorithm, xor_problem):
         """Verify substrate works with neuromodulation."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -354,8 +355,8 @@ class TestComprehensiveSubstrate:
 class TestMaxConnectionsConfig:
     """recurrence.max_connections has no effect: the per-genome h->h cap is max_sparse_conns.
 
-    HMR's unified model capped each genome's hidden-to-hidden connections with max_connections.
-    EMR parses the key, warns that it has no effect and runs as without it;
+    The prototype's unified model capped each genome's hidden-to-hidden connections with
+    max_connections. EMR parses the key, warns that it has no effect and runs as without it;
     TestMaxSparseConnsConfig covers the cap itself.
     """
 
@@ -386,10 +387,10 @@ class TestMaxSparseConnsConfig:
     def test_max_sparse_conns_values(self, algorithm, xor_problem, max_sparse):
         """Verify different max_sparse_conns values work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['max_sparse_conns'] = max_sparse
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        if 'recurrence' not in emr_block:
+            emr_block['recurrence'] = {}
+        emr_block['recurrence']['max_sparse_conns'] = max_sparse
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -399,8 +400,8 @@ class TestMaxSparseConnsConfig:
     def test_max_sparse_conns_with_hidden_only(self, algorithm, xor_problem):
         """Verify max_sparse_conns works with hidden_only preset."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'max_sparse_conns': 2000,
         }
@@ -412,10 +413,10 @@ class TestMaxSparseConnsConfig:
     def test_low_max_sparse_conns(self, algorithm, xor_problem):
         """Verify very low max_sparse_conns is handled."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['max_sparse_conns'] = 50
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        if 'recurrence' not in emr_block:
+            emr_block['recurrence'] = {}
+        emr_block['recurrence']['max_sparse_conns'] = 50
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -429,8 +430,8 @@ class TestLocalityRadius:
     def test_locality_radius_values(self, algorithm, xor_problem, radius):
         """Verify different locality_radius values work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = radius
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = radius
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -440,8 +441,8 @@ class TestLocalityRadius:
     def test_locality_radius_disabled(self, algorithm, xor_problem):
         """Verify locality_radius=None (disabled) works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = None  # Disabled
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = None  # Disabled
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -450,9 +451,9 @@ class TestLocalityRadius:
     def test_locality_radius_with_recurrence(self, algorithm, xor_problem):
         """Verify locality_radius works with recurrence enabled."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
-        hmr['recurrence'] = {'preset': 'hidden_only'}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
+        emr_block['recurrence'] = {'preset': 'hidden_only'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -461,8 +462,8 @@ class TestLocalityRadius:
     def test_small_locality_radius(self, algorithm, xor_problem):
         """Verify very small locality_radius is handled."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.01  # Very local
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.01  # Very local
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -475,11 +476,11 @@ class TestDiscoveryToggles:
     def test_use_vectorized_discovery_true(self, algorithm, xor_problem):
         """Verify use_vectorized_discovery=True works (default)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['use_vectorized_discovery'] = True
-        hmr['recurrence']['preset'] = 'hidden_only'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        if 'recurrence' not in emr_block:
+            emr_block['recurrence'] = {}
+        emr_block['recurrence']['use_vectorized_discovery'] = True
+        emr_block['recurrence']['preset'] = 'hidden_only'
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -488,11 +489,11 @@ class TestDiscoveryToggles:
     def test_use_vectorized_discovery_false(self, algorithm, xor_problem):
         """Verify use_vectorized_discovery=False works (iterative)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['use_vectorized_discovery'] = False
-        hmr['recurrence']['preset'] = 'hidden_only'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        if 'recurrence' not in emr_block:
+            emr_block['recurrence'] = {}
+        emr_block['recurrence']['use_vectorized_discovery'] = False
+        emr_block['recurrence']['preset'] = 'hidden_only'
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -501,11 +502,11 @@ class TestDiscoveryToggles:
     def test_use_dense_discovery_false(self, algorithm, xor_problem):
         """Verify use_dense_discovery=False works (default)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['use_dense_discovery'] = False
-        hmr['recurrence']['preset'] = 'hidden_only'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        if 'recurrence' not in emr_block:
+            emr_block['recurrence'] = {}
+        emr_block['recurrence']['use_dense_discovery'] = False
+        emr_block['recurrence']['preset'] = 'hidden_only'
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -514,11 +515,11 @@ class TestDiscoveryToggles:
     def test_use_dense_discovery_true(self, algorithm, xor_problem):
         """Verify use_dense_discovery=True works (vanilla-style)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        if 'recurrence' not in hmr:
-            hmr['recurrence'] = {}
-        hmr['recurrence']['use_dense_discovery'] = True
-        hmr['recurrence']['preset'] = 'hidden_only'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        if 'recurrence' not in emr_block:
+            emr_block['recurrence'] = {}
+        emr_block['recurrence']['use_dense_discovery'] = True
+        emr_block['recurrence']['preset'] = 'hidden_only'
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -531,9 +532,9 @@ class TestCombinedSubstrateConfig:
     def test_all_configs_combined(self, algorithm, xor_problem):
         """Verify all substrate configs can be combined."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'max_connections': 5000,
             'max_sparse_conns': 2000,
@@ -549,9 +550,9 @@ class TestCombinedSubstrateConfig:
     def test_sparse_config_with_locality(self, algorithm, xor_problem):
         """Verify sparse config works with locality penalty."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.3
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.3
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             # A cap that holds every genome's set: at 500 some genomes exceed it, which raises
             # (test_hh_discovery_per_genome.py)
@@ -565,9 +566,9 @@ class TestCombinedSubstrateConfig:
     def test_dense_discovery_with_locality(self, algorithm, xor_problem):
         """Verify dense discovery works with locality_radius."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.8
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.8
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'use_dense_discovery': True,
         }
@@ -583,8 +584,8 @@ class TestLocalityRadiusEdgeCases:
     def test_very_large_locality_radius(self, algorithm, xor_problem):
         """Verify very large locality_radius works (effectively no penalty)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 100.0  # Very large - nearly global
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 100.0  # Very large - nearly global
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -594,8 +595,8 @@ class TestLocalityRadiusEdgeCases:
     def test_zero_locality_radius(self, algorithm, xor_problem):
         """Verify zero locality_radius is handled (extreme locality)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.001  # Near-zero
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.001  # Near-zero
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -604,9 +605,9 @@ class TestLocalityRadiusEdgeCases:
     def test_locality_radius_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify locality_radius works with dynamic functions."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
@@ -618,9 +619,9 @@ class TestLocalityRadiusEdgeCases:
     def test_locality_radius_with_aggregation(self, algorithm, xor_problem):
         """Verify locality_radius works with aggregation mode."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
         }
@@ -632,10 +633,10 @@ class TestLocalityRadiusEdgeCases:
     def test_locality_with_streaming(self, algorithm, xor_problem):
         """Verify locality_radius works with streaming mode."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
-        hmr['enable_streaming'] = True
-        hmr['population_chunk_size'] = 25
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
+        emr_block['enable_streaming'] = True
+        emr_block['population_chunk_size'] = 25
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -645,8 +646,8 @@ class TestLocalityRadiusEdgeCases:
     def test_locality_radius_spectrum(self, algorithm, xor_problem, radius):
         """Verify a spectrum of locality_radius values work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = radius
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = radius
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -659,8 +660,8 @@ class TestGeometrySeeding:
     def test_geometry_seeding_with_locality(self, algorithm, xor_problem):
         """Verify geometry seeding via locality_radius is applied."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.3  # Enables geometry seeding
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.3  # Enables geometry seeding
 
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
@@ -675,8 +676,8 @@ class TestGeometrySeeding:
     def test_geometry_seeding_disabled(self, algorithm, xor_problem):
         """Verify geometry seeding is disabled when locality_radius is None."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = None
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = None
 
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
@@ -686,9 +687,9 @@ class TestGeometrySeeding:
     def test_geometry_seeding_with_full_recurrence(self, algorithm, xor_problem):
         """Verify geometry seeding works with full recurrence."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
+        emr_block['recurrence'] = {
             'preset': 'full_recurrent',
             'enabled': True,
             'allow_hidden_to_hidden': True,

@@ -97,7 +97,7 @@ def run_single_trial(
         'algorithm_params': {
             'emrhyperneat': {
                 'emr_hyperneat': {
-                    'extra_randkey_split': True,  # reproduce HMR (paper) per-seed results in EMR
+                    'extra_randkey_split': True,  # reproduce the prototype's (the paper's) per-seed results in EMR
                     'initial_depth': 0,
                     'variance_rule': 'legacy',  # published runs used the legacy level-0 own-weights rule
                     'max_depth': depth,
@@ -114,7 +114,7 @@ def run_single_trial(
                     'output_coords': [(0.0, 1.0)],
                 },
                 'neat': {
-                    'pop_size': 150,  # repro: HMR pop-bug ran the paper at 150 regardless of nominal; EMR honors config
+                    'pop_size': 150,  # repro: the prototype's pop-size bug ran the paper at 150 regardless of nominal; EMR honors config
                     'species_size': SPECIES_SIZE,
                 },
             }
@@ -199,7 +199,7 @@ def save_results(
         'config': {
             'problem': 'Parity-4',
             'n_inputs': 5,
-            'pop_size': 150,  # repro: HMR pop-bug ran the paper at 150 regardless of nominal; EMR honors config
+            'pop_size': 150,  # repro: the prototype's pop-size bug ran the paper at 150 regardless of nominal; EMR honors config
             'max_generations': MAX_GENERATIONS,
             'target_fitness': TARGET_FITNESS,
             'variance_threshold': VARIANCE_THRESHOLD,
@@ -357,7 +357,7 @@ def save_combined_results(activations: List[str], depths: List[int]) -> None:
             'activations': activations,
             'depths': depths,
             'seeds': SEEDS,
-            'pop_size': 150,  # repro: HMR pop-bug ran the paper at 150 regardless of nominal; EMR honors config
+            'pop_size': 150,  # repro: the prototype's pop-size bug ran the paper at 150 regardless of nominal; EMR honors config
             'max_generations': MAX_GENERATIONS,
             'target_fitness': TARGET_FITNESS,
         },

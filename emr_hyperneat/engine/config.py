@@ -16,19 +16,20 @@ FITNESS_MODES = ('mse', 'accuracy', 'hybrid', 'bce', 'soft_accuracy', 'ce', 'acc
 
 
 #: How a recurrent substrate settles (recurrence.settling_rule). 'emr', the default:
-#: :func:`settle_hidden`. 'hmr': :func:`settle_hidden_hmr`, the rule of HMR's dynamic-functions
-#: variants, which the cross-problem control (GECCO Table 3), the per-node paper's recurrent tables
-#: and the PPSN topology check ran; an opt-in for runs that reproduce them.
-SETTLING_RULES = ('emr', 'hmr')
+#: :func:`settle_hidden`. 'drive_once': :func:`settle_hidden_drive_once`, the rule of the
+#: prototype's dynamic-functions variants, which the cross-problem control (GECCO Table 3), the
+#: per-node paper's recurrent tables and the PPSN topology check ran; an opt-in for runs that
+#: reproduce them.
+SETTLING_RULES = ('emr', 'drive_once')
 
-#: recurrence.network_model. 'grid', the default: EMR's multi-resolution grid. 'node_list': HMR's
-#: node-list recurrent model (node_list.py), whose networks live on the leaves of a complete
-#: quadtree.
+#: recurrence.network_model. 'grid', the default: EMR's multi-resolution grid. 'node_list': the
+#: prototype's node-list recurrent model (node_list.py), whose networks live on the leaves of a
+#: complete quadtree.
 NETWORK_MODELS = ('grid', 'node_list')
 
 
 #: What refreshes the h->h cache (recurrence.hh_cache_trigger): the interval or a mask change, or
-#: the interval only (HMR's unified model).
+#: the interval only (the prototype's unified model).
 HH_CACHE_TRIGGERS = ('time_or_mask', 'time')
 
 
@@ -36,7 +37,7 @@ HH_CACHE_TRIGGERS = ('time_or_mask', 'time')
 #: gets the list of the block's settings.
 _UNKNOWN_KEY_HINTS: Dict[Tuple[str, str], str] = {
     ('dynamic_functions', 'aggregation'): (
-        "aggregation is its own block next to dynamic_functions in emr_hyperneat (HMR's "
+        "aggregation is its own block next to dynamic_functions in emr_hyperneat (the prototype's "
         "aggregation variant read it nested); nested, it was ignored and the run used sum "
         "aggregation with a one-output CPPN"
     ),
@@ -82,9 +83,6 @@ _UNKNOWN_KEY_HINTS: Dict[Tuple[str, str], str] = {
         "the CPPN's output count follows from leo, dynamic_functions, aggregation and "
         "neuromodulation's dedicated outputs; dynamic_functions.num_cppn_outputs forces it"
     ),
-    ('emr_hyperneat', 'hmr_hyperneat'): (
-        "this is HMR's block name; EMR reads algorithm_params.emrhyperneat.emr_hyperneat"
-    ),
     ('emr_hyperneat', 'activate_time'): (
         "the settling steps are recurrence.activate_time or substrate.activate_time"
     ),
@@ -94,7 +92,7 @@ _UNKNOWN_KEY_HINTS: Dict[Tuple[str, str], str] = {
     (
         'recurrence',
         'recurrence_preset',
-    ): "the preset is recurrence.preset (HMR's extended block named it so)",
+    ): "the preset is recurrence.preset (the prototype's extended block named it so)",
     (
         'neuromodulation',
         'static_gating',
@@ -117,26 +115,18 @@ _UNKNOWN_KEY_HINTS: Dict[Tuple[str, str], str] = {
     ('neuromodulation', 'num_nt'): "the setting is neuromodulation.num_nt_types",
     ('recurrence', 'cache_enabled'): "the setting is recurrence.hh_cache_enabled",
     ('recurrence', 'use_cache'): "the setting is recurrence.hh_cache_enabled",
-    # The node-list model takes no block of its own, so HMR's connection cap has no key
+    # The node-list model takes no block of its own, so the prototype's connection cap has no key
     ('recurrence', 'node_list'): (
         "the node-list model (recurrence.network_model: node_list) has no settings block: it "
-        "applies no connection cap (HMR's cap of 500 kept the first connections in Python set "
+        "applies no connection cap (the prototype's cap of 500 kept the first connections in Python set "
         "order)"
     ),
     # The levels outside emr_hyperneat (_refuse_unknown_outer_keys). The section '' is the top level
     # of the configuration.
-    ('algorithm_params', 'hmrhyperneat'): (
-        "this is the block of the HMR engine (release 0.1.0); EMR reads "
-        "algorithm_params.emrhyperneat"
-    ),
     ('algorithm_params', 'generations'): (
         "EMR reads no generation count from the configuration; it is run_until_threshold's "
         "max_generations"
     ),
-    ('algorithm_params.emrhyperneat', 'hmr_hyperneat'): (
-        "this is HMR's block name; EMR reads emr_hyperneat"
-    ),
-    ('', 'hmr_hyperneat'): "this is HMR's block name; EMR reads emr_hyperneat",
     ('algorithm_params.emrhyperneat', 'pop_size'): (
         "the population size is population_size here, or neat.pop_size"
     ),
@@ -318,8 +308,8 @@ class EMRConfig:
     hh_mask_change_threshold: float = 0.1
     # What refreshes the h->h cache: 'time_or_mask' (the default) refreshes after
     # hh_refresh_interval generations or when the variance mask changes by more than
-    # hh_mask_change_threshold; 'time' after hh_refresh_interval generations only, as HMR's unified
-    # model's cache did
+    # hh_mask_change_threshold; 'time' after hh_refresh_interval generations only, as the cache
+    # of the prototype's unified model did
     hh_cache_trigger: str = 'time_or_mask'
 
     # Discovery algorithm toggle
@@ -597,7 +587,7 @@ def resolve_recurrence(config: Any, max_depth: Optional[int],
     count (a preset's: ``full_recurrent`` carries 20), else ``2 (2**max_depth + 1)``. Without them nothing settles:
     any value is accepted, a count the configuration carries is kept as the attribute, and none is
     used. Only ``allow_hidden_to_hidden``, ``iteration_level`` and ``activate_time`` are read, so another dataclass
-    with these fields serves (a caller may pass HMR's UnifiedExtendedConfig).
+    with these fields serves (a caller may pass the prototype's UnifiedExtendedConfig).
 
     Args:
         config: The recurrence configuration, or None for feed-forward.

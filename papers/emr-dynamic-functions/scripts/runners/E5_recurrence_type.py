@@ -7,23 +7,22 @@ with_backward, with_lateral, with_self, and full_recurrent.
 
 Expected: Some subset is sufficient. Possibly hidden_only alone collapses the divide.
 
-From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's full
-variant, which release 0.1.0 ships: from the repository root,
-`python scripts/replicate.py run emr-dynamic-functions --release 0.1.0 --` followed by a command
-of Usage without its `papers/emr-dynamic-functions/` prefix runs the original on 0.1.0. The EMR
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the prototype engine's
+full variant, which release 0.1.0 ships: from the repository root, `python scripts/replicate.py run
+emr-dynamic-functions --release 0.1.0 --` followed by a command of Usage without its
+`papers/emr-dynamic-functions/` prefix runs the original on 0.1.0. The EMR
 version runs the experiment as it ran where EMR can, on EMR's defaults except where noted:
     - Population 500 (this variant honored pop_size), tanh everywhere (global mode), Parity-4,
       depth 2, up to 300 generations.
     - The recurrent presets at iteration level 2, the level the published runs used (the preset
-      default is 1 from 0.2.0). The published runs settled by HMR's rule (`h = f(x W1)` once,
-      then `h = tanh(h + recurrent input)` at the later steps), kept the hidden-to-hidden connection
-      cache on and composed the multi-hop expansion through the population's union of active
-      positions. EMR settles by its own rule (`h = f(input drive + recurrent input)` at every
-      step), with the cache off and each genome's own connections: its defaults. The
-      feed-forward preset takes the same setting and has no hidden-to-hidden connections to
-      expand.
-    - HMR's level-0 variance rule and random key stream, as the published runs had them:
-      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      default is 1 from 0.2.0). The published runs settled by the prototype's rule (`h = f(x W1)`
+      once, then `h = tanh(h + recurrent input)` at the later steps), kept the hidden-to-hidden
+      connection cache on and composed the multi-hop expansion through the population's union of
+      active positions. EMR settles by its own rule (`h = f(input drive + recurrent input)` at every
+      step), with the cache off and each genome's own connections: its defaults. The feed-forward
+      preset takes the same setting and has no hidden-to-hidden connections to expand.
+    - The prototype's level-0 variance rule and random key stream, as the published runs had them:
+      USE_PROTOTYPE_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
       extra_randkey_split (False gives EMR's defaults). The published configuration set
       extra_randkey_split itself; the pin keeps it.
     - Results go to results/recurrence_type_n30_emr/, apart from the published runs in
@@ -51,7 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from classification_problems import ParityProblem
 
 from emr_hyperneat.emrhyperneat import ACTIVATION_LIST, EMRHyperNEAT
-from emr_settings import hmr_rule_and_split
+from emr_settings import prototype_rule_and_split
 
 # Constants
 
@@ -67,8 +66,8 @@ PRESETS = [
 ]
 TANH_INDEX = ACTIVATION_LIST.index('tanh')
 
-# The iteration level of the published runs: HMR's presets ran level 2. From 0.2.0 the presets
-# default to level 1, so the EMR version sets it.
+# The iteration level of the published runs: the prototype's presets ran level 2. From 0.2.0 the
+# presets default to level 1, so the EMR version sets it.
 ITERATION_LEVEL = 2
 
 # Problem configuration
@@ -161,7 +160,7 @@ def run_single_seed(preset_name: str, seed: int) -> Dict[str, Any]:
                     'initial_depth': 0,
                     'max_depth': MAX_DEPTH,
                     'variance_threshold': 0.03,
-                    **hmr_rule_and_split(),
+                    **prototype_rule_and_split(),
                     'recurrence': {
                         'preset': preset_name,
                         'iteration_level': ITERATION_LEVEL,

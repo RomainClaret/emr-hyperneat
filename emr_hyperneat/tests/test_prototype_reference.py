@@ -1,11 +1,13 @@
-"""EMR against HMR's dynamic-functions variant, the engine of the published pre-migration results.
+"""EMR against the prototype's dynamic-functions variant, the engine of the published pre-migration
+results.
 
 On the shared feed-forward path, with extra_randkey_split and the legacy variance rule, EMR
 reproduces that variant bit for bit: the best fitness of every generation and the final randkey, for
 two activation functions and one seed (a compact form of the 18-cell check of
-papers/emr-dynamic-functions). HMR's side comes through hmr_reference.py: run live in the research
-repository and recorded there on the CPU for this package, whose tests do not run HMR. The recorded
-values are CPU values, so on another backend the comparison runs in a CPU subprocess.
+papers/emr-dynamic-functions). The prototype's side comes through prototype_reference.py: run live
+in the research repository and recorded there on the CPU for this package, whose tests do not run
+the prototype. The recorded values are CPU values, so on another backend the comparison runs in a
+CPU subprocess.
 """
 import os
 import subprocess
@@ -16,11 +18,17 @@ import numpy as np
 import pytest
 
 from conftest import EMRHyperNEAT  # type: ignore[import-not-found]
-from hmr_reference import decode, digest, encode, hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import (  # type: ignore[import-not-found]
+    decode,
+    digest,
+    encode,
+    live,
+    prototype_value,
+)
 
 
 class _Parity3:
-    """3-input parity, the problem family the published HMR results used."""
+    """3-input parity, the problem family of the prototype's published results."""
 
     input_shape = (3,)
     output_shape = (1,)
@@ -48,16 +56,16 @@ def _config(algo_key, section_key, activation):
                 },
                 section_key: {
                     'initial_depth': 0,
-                    # HMR's variance rule is the original level-0 one; EMR is pinned to it to stay
-                    # bit-equivalent
+                    # The prototype's variance rule is the original level-0 one; EMR is pinned to it
+                    # to stay bit-equivalent
                     'variance_rule': 'legacy',
                     'max_depth': 2,
                     'variance_threshold': 0.03,
                     'dynamic_functions': {'mode': 'global', 'hidden_activation': activation},
-                    # restores HMR's extra per-generation randkey split in EMR
+                    # restores the prototype's extra per-generation randkey split in EMR
                     'extra_randkey_split': True,
                 },
-                # No neat_species block: EMR reads it, while HMR keeps its own defaults
+                # No neat_species block: EMR reads it, while the prototype keeps its own defaults
                 # (compatibility 3.0), so passing one would make the engines differ
             },
         },
@@ -106,21 +114,21 @@ def _on_cpu(test_id):
 
 @pytest.mark.golden_cpu
 @pytest.mark.parametrize('activation', ['tanh', 'sin'])
-def test_emr_reproduces_hmrs_trajectory(activation):
-    """EMR with extra_randkey_split equals HMR's dynamic-functions variant: every generation's best
-    fitness and the final randkey."""
+def test_emr_reproduces_the_prototype_trajectory(activation):
+    """EMR with extra_randkey_split equals the prototype's dynamic-functions variant: every
+    generation's best fitness and the final randkey."""
     if jax.default_backend() != 'cpu':
-        _on_cpu(f'test_emr_reproduces_hmrs_trajectory[{activation}]')
+        _on_cpu(f'test_emr_reproduces_the_prototype_trajectory[{activation}]')
         return
     problem = _Parity3()
-    args = (_config('hmrhyperneat', 'hmr_hyperneat', activation), problem, 42, 3)
-    h_fits, h_key = hmr_value(
-        'hmr_reference.frozen_trajectory', lambda: live('frozen_trajectory', *args), inputs=args
+    args = (_config('emrhyperneat', 'emr_hyperneat', activation), problem, 42, 3)
+    h_fits, h_key = prototype_value(
+        'prototype_reference.frozen_trajectory', lambda: live('frozen_trajectory', *args), inputs=args
     )
     e_fits, e_key = _trajectory(
         _config('emrhyperneat', 'emr_hyperneat', activation), problem, seed=42
     )
-    assert h_fits == e_fits, f'{activation}: trajectories diverge\n  HMR: {h_fits}\n  EMR: {e_fits}'
+    assert h_fits == e_fits, f'{activation}: trajectories diverge\n  prototype: {h_fits}\n  EMR: {e_fits}'
     np.testing.assert_array_equal(e_key, h_key, err_msg=f'{activation}: final randkey differs')
 
 

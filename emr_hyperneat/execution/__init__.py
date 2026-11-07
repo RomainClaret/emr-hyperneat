@@ -39,9 +39,9 @@ __all__ = [
 
 
 #: execution.generation_loop: how run_until_threshold iterates its generations on one device.
-#: 'python': one generation call per generation, every feature. 'while_loop': the HMR engine's GPU
-#: loop, the plain feed-forward generation compiled inside jax.lax.while_loop; performance only, up
-#: to rounding.
+#: 'python': one generation call per generation, every feature. 'while_loop': the prototype engine's
+#: GPU loop, the plain feed-forward generation compiled inside jax.lax.while_loop; performance only,
+#: up to rounding.
 GENERATION_LOOPS = ("python", "while_loop")
 
 
@@ -145,7 +145,7 @@ class ExecutionConfig:
     generation_loop: str = "python"
     """How run_until_threshold iterates its generations on one device: `python` or `while_loop`.
 
-    `while_loop` (the HMR engine's GPU loop) compiles the plain feed-forward generation inside
+    `while_loop` (the prototype engine's GPU loop) compiles the plain feed-forward generation inside
     `jax.lax.while_loop` and reads the results back once. Performance only, up to rounding: the
     fitness can differ from `python`'s by a float32 ulp, the generation count, stop and key do not.
     It refuses every setting outside that generation (hidden-to-hidden connections, per-node

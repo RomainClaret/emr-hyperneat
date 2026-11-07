@@ -9,7 +9,11 @@ import numpy as np
 
 from emr_hyperneat import node_list
 from emr_hyperneat._compat.core.base_algorithm import AlgorithmMetrics
-from emr_hyperneat.emrhyperneat_base import HierarchicalGridStructure, MultiGPUStrategy
+from emr_hyperneat.emrhyperneat_base import (
+    HierarchicalGridStructure,
+    MultiGPUStrategy,
+    _subdivision_reach,
+)
 from emr_hyperneat.engine.evaluation import (
     _auto_eval_chunk_size,
     _eval_single_fitness,
@@ -107,8 +111,9 @@ class ModesMixin:
             max_lookahead_positions: Levels larger than this skip variance lookahead.
             verbose: Per-level statistics.
             use_cpu_grid: Keep the grid in host RAM, needed from depth 12.
-            skip_dead_levels: Skip the evaluation of levels no genome reaches (HMR's keyword; the
-                execution block's key of the same name). None keeps the configured value.
+            skip_dead_levels: Skip the evaluation of levels no genome reaches (the prototype's
+                keyword; the execution block's key of the same name). None keeps the configured
+                value.
         """
         if skip_dead_levels is not None:
             if not isinstance(skip_dead_levels, bool):
@@ -294,13 +299,13 @@ class ModesMixin:
         total_start: float,
         device_id: int = 0,
     ) -> Tuple[Any, AlgorithmMetrics]:
-        """One generation of HMR's node-list model.
+        """One generation of the prototype's node-list model.
 
         run_generation_verbose calls it after the ask, the transform and the optional pre-ask
         split. The population's networks come from one compiled call (node_list.NodeListModel),
         are scored by _node_list_forward with the configured fitness mode, and the tell, the
         champion record and the metrics follow as on the grid path. Nothing of the grid is built.
-        HMR looped over the genomes in Python, for discovery and again for evaluation.
+        The prototype looped over the genomes in Python, for discovery and again for evaluation.
 
         Args:
             state: Algorithm state.
@@ -365,9 +370,7 @@ class ModesMixin:
         else:
             fitnesses = jax.vmap(eval_one)(*genome_args)
         step_times['step5_evaluation'] = time.perf_counter() - start
-        if self._fitness_rescale_variance is not None:
-            mse_values = 1.0 - fitnesses
-            fitnesses = jnp.maximum(0.0, 1.0 - mse_values / self._fitness_rescale_variance)
+        fitnesses = self._rescale_fitness(fitnesses)
         fitnesses, nan_fitness_count = sanitize_fitness(fitnesses)
         self._cached_fitnesses = fitnesses
 
@@ -410,7 +413,8 @@ class ModesMixin:
             'position_utilization': utilization,
             'node_list_connections_mean': float(kept.mean()),
             'node_list_connections_max': int(kept.max()),
-            # Genomes HMR would have scored on its first 500 connections in Python set order
+            # Genomes the prototype would have scored on its first 500 connections in Python set
+            # order
             'node_list_over_rn_cap': int(np.sum(kept > node_list.RN_CONNECTION_CAP)),
             'node_list_cleaning_iterations_max': int(column['cleaning_iterations'].max()),
             **{f'node_list_{name}_mean': float(column[name].mean())
@@ -568,19 +572,15 @@ class ModesMixin:
                 current_reached_mask = level_reached[0]
             else:
                 # Compute reached from previous level's subdivision
-                prev_reached = level_reached[level - 1]
                 prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
                                  else level_variances[level - 1])
-                # Canonical ES-HyperNEAT subdivides on two clauses:
-                #   (level < initial_depth) or (variance > threshold)
-                # A parent at level-1 is forced when level <= initial_depth.
-                if level <= self.initial_depth:
-                    prev_subdivided = prev_reached
-                else:
-                    prev_subdivided = prev_reached & (prev_variance > self.variance_threshold)
-
-                parent_indices = h_grid.parent_indices[level]
-                current_reached_mask = prev_subdivided[:, parent_indices]
+                # Forced through initial_depth, else by variance; a forced level reads no threshold
+                forced = level <= self.initial_depth
+                current_reached_mask = _subdivision_reach(
+                    level_reached[level - 1], prev_variance,
+                    variance_threshold=None if forced else self.variance_threshold,
+                    forced=forced, parent_indices=h_grid.parent_indices[level],
+                )
                 level_reached.append(current_reached_mask)
 
             # Query CPPN for this level's positions

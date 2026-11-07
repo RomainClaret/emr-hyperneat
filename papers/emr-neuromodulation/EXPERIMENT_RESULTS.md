@@ -754,7 +754,7 @@ This creates a clean mechanistic hierarchy:
 records in `results/continuous_analogue/` (eight fields each, seeds 1 to 30 per condition) and
 its two summaries match the research runner
 `experiments/neuromodulation/run_continuous_analogue.py`, which evolves with NEAT the CPPNs of
-a neuromodulated 2-input substrate (maximum depth 4) on the HMR engine, at population 750 for
+a neuromodulated 2-input substrate (maximum depth 4) on the prototype engine, at population 750 for
 200 generations, with Schema B's XOR, AND and OR vectors for the periodic, monotonic and step
 tasks. The records do not store the population or the generation budget; both are the runner's
 settings.
@@ -1157,7 +1157,12 @@ With E22b and E18, this experiment places the activation barrier at three levels
 |-----------|--------|-----|-------------|
 | Indirect uniform tanh, 5-task, 1000 gens | **0/30 converged** | 0.750 (all seeds) | 0.750 (all seeds) |
 
-**Finding**: the 75% XOR ceiling is unchanged at 10x the generation budget. Every one of the 30 seeds plateaus at exactly XOR=0.750 (clean HMR backend; the barrier is backend-agnostic; EMR also gives 0/30 XOR=0.75; see the EMR migration N=30 re-validation). Confirms a genuine evolutionary convergence barrier (for the (μ+λ)-ES tested; correction: this run evolves with NEAT), not insufficient runtime. `population: 750` verified in each JSON (the `pop_size` wiring bug does not affect this pipeline).
+**Finding**: the 75% XOR ceiling is unchanged at 10x the generation budget. Every one of the 30
+seeds plateaus at exactly XOR=0.750 (a clean run on the prototype backend; the barrier is backend-agnostic;
+EMR also gives 0/30 XOR=0.75; see the EMR migration N=30 re-validation). Confirms a genuine
+evolutionary convergence barrier (for the (μ+λ)-ES tested; correction: this run evolves with NEAT),
+not insufficient runtime. `population: 750` verified in each JSON (the `pop_size` wiring bug does
+not affect this pipeline).
 
 **Caveat (encoding)**: the direct-encoded MLP control is a different, weaker regime: 2-task XOR+AND converges ~96.7% at 1000 gens (`scripts/runners/benchmark_extended_generations.py`). Only the indirect encoding exhibits the headline barrier; the extended-generation confirmation must use the indirect pipeline.
 
@@ -1166,18 +1171,25 @@ With E22b and E18, this experiment places the activation barrier at three levels
 
 ---
 
-## HMR -> EMR Migration Validation (2026-06-08)
+## Prototype -> EMR Migration Validation (2026-06-08)
 
-The neuromod runner (`multihead_palette_neuromodulation.py`) was migrated from the HMR backend to the EMR backend (EMR became the default; the HMR engine, which reproduces the exact published baseline, stays selectable in release 0.1.0, and 0.2.0 has EMR only). The neuromod forward (Eqs 1–3) is the runner's own and unchanged; only the genome->substrate decode differs. By default, EMR's decode uses a first-input-weight approximation; the `use_self_connection_query` flag (gated, default-off) makes it source receptors/base-gains from the CPPN self-connection query, the same source as HMR/the paper.
+The neuromod runner (`multihead_palette_neuromodulation.py`) was migrated from the prototype backend
+to the EMR backend (EMR became the default; the prototype engine, which reproduces the exact
+published baseline, stays selectable in release 0.1.0, and 0.2.0 has EMR only). The neuromod forward
+(Eqs 1–3) is the runner's own and unchanged; only the genome->substrate decode differs. By default,
+EMR's decode uses a first-input-weight approximation; the `use_self_connection_query` flag (gated,
+default-off) makes it source receptors/base-gains from the CPPN self-connection query, the same
+source as the prototype and the paper.
 
 **N=30 re-validation under EMR** (`validate_emr_migration.py --n30`, a research-repository script not shipped here; 30 paper seeds, 100 gens, Pop=750):
 
-| Condition | EMR result | Paper (HMR) |
+| Condition | EMR result | Paper (the prototype) |
 |-----------|-----------|-------------|
 | Per-task 5-task (per_head, product) | **30/30 = 100%** (median gen 10.5, all XOR=1.0) | 30/30, median 14 |
 | Uniform-tanh 5-task (barrier) | **0/30**, XOR=0.75 on all 30 seeds | 0/30, XOR=0.750 |
 
-EMR reproduces the headline conclusions and the exact 75% ceiling. Per-seed convergence gens differ from HMR (distinct code paths; not byte-identical), as expected.
+EMR reproduces the headline conclusions and the exact 75% ceiling. Per-seed convergence gens differ
+from the prototype (distinct code paths; not byte-identical), as expected.
 
 **Indirect smoke test under EMR** (`smoke_test_emr_indirect.py`, a research-repository script not shipped here; 1 seed, 60 gens), every distinct indirect config runs and reproduces the paper's direction (**7/7**): per-task -> 100%, uniform-tanh -> 0.75 barrier, uniform-sin -> converge, min-aggregation -> converge, flat-NT neuromod ablation -> fail (min=0.50; XOR solved but threshold tasks at chance without task-specific NT), 2-task per-task -> converge, 2-task uniform -> 0.75 barrier.
 

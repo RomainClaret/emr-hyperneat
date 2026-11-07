@@ -13,8 +13,8 @@ central result is the **oscillatory/monotonic divide**: oscillatory activations 
 relatives) solve feed-forward parity beyond XOR, which monotonic activations almost never do
 (Parity-4: sin 30 of 30 runs, nine of the ten monotonic functions 0 of 30).
 
-See [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) for which implementation each experiment's
-published runs used (EMR or the HMR engine) and how they reproduce. It is the authoritative guide.
+See [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) for which implementation each experiment's published
+runs used (EMR or the prototype engine) and how they reproduce. It is the authoritative guide.
 
 ## Experiments
 
@@ -26,30 +26,30 @@ published runs used (EMR or the HMR engine) and how they reproduce. It is the au
 | E7 | `scripts/runners/E7_two_spirals_per_function.py` | EMR |
 | E8 | `scripts/runners/E8_depth_sensitivity.py` | EMR |
 | E9 | `scripts/runners/E9_lts_low_extended.py` | EMR |
-| E3 | `scripts/runners/E3_population_sensitivity.py` | EMR from 0.2.0; published runs: **HMR** |
-| E4 / E5 | `scripts/runners/E4_recurrent_parity8.py`, `scripts/runners/E5_recurrence_type.py` | EMR from 0.2.0; published runs: **HMR** |
+| E3 | `scripts/runners/E3_population_sensitivity.py` | EMR from 0.2.0; published runs: **the prototype** |
+| E4 / E5 | `scripts/runners/E4_recurrent_parity8.py`, `scripts/runners/E5_recurrence_type.py` | EMR from 0.2.0; published runs: **the prototype** |
 
-The EMR runners (E1/E2/E7/E8/E9) bit-reproduce the published per-seed trajectories. E3/E4/E5
-were published on the HMR engine, whose `cppn_output` and recurrent evaluations EMR computes
+The EMR runners (E1/E2/E7/E8/E9) bit-reproduce the published per-seed trajectories. E3/E4/E5 were
+published on the prototype engine, whose `cppn_output` and recurrent evaluations EMR computes
 differently. From 0.2.0 they are EMR versions that run each experiment as it ran on EMR's defaults,
-with HMR's level-0 variance rule and random key split pinned (`scripts/runners/emr_settings.py`), as
-E1/E2/E7/E8/E9 pin them, and write to `results/<experiment>_emr/` (E3 to the bio-inspired paper's
-`results/population_sensitivity_emr/`, next to its published runs); the published runs reproduce
-on release 0.1.0 with
-`python scripts/replicate.py run emr-dynamic-functions --release 0.1.0 -- <command>` (see
+with the prototype's level-0 variance rule and random key split pinned
+(`scripts/runners/emr_settings.py`), as E1/E2/E7/E8/E9 pin them, and write to
+`results/<experiment>_emr/` (E3 to the bio-inspired paper's `results/population_sensitivity_emr/`,
+next to its published runs); the published runs reproduce on release 0.1.0 with `python
+scripts/replicate.py run emr-dynamic-functions --release 0.1.0 -- <command>` (see
 `REPRODUCIBILITY.md`).
 
 At the validation configuration, one seed per configuration (42 where the row names none) with full
 generation budgets, both engines on one x86 server (two Intel Xeon E5-2683 v4, one CPU per run,
 `XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`, jax 0.6.1), EMR in release 0.2.0 gives the
-right-hand column where the HMR engine of release 0.1.0 gave the left. A cell is the generation of
-the first solve, or not solved, with the best fitness; one seed shows where the two engines agree
-and differ, not a solve rate. E4 and E5 ran 100 generations here (their scripts allow 300). The
-recurrent runs differ most: in 100 generations EMR solves four of E5's five recurrent presets (HMR:
-hidden_only alone) and E4's tanh (HMR: not solved); E3's two population labels give one run on each
-engine.
+right-hand column where the prototype engine of release 0.1.0 gave the left. A cell is the
+generation of the first solve, or not solved, with the best fitness; one seed shows where the two
+engines agree and differ, not a solve rate. E4 and E5 ran 100 generations here (their scripts allow
+300). The recurrent runs differ most: in 100 generations EMR solves four of E5's five recurrent
+presets (the prototype: hidden_only alone) and E4's tanh (the prototype: not solved); E3's two
+population labels give one run on each engine.
 
-| Run | HMR engine (release 0.1.0) | EMR (release 0.2.0) |
+| Run | Prototype engine (release 0.1.0) | EMR (release 0.2.0) |
 |---|---|---|
 | `E3_population_sensitivity.py --strategy circadian_rhythm_dual --pop_size 200` | not solved (0.870575) | solved at 13 (1.000000) |
 | `E3_population_sensitivity.py --strategy circadian_rhythm_dual --pop_size 1000` | not solved (0.870575) | solved at 13 (1.000000) |

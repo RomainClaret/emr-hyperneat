@@ -1,18 +1,18 @@
-"""HMR's node-list recurrent model as recurrence.network_model 'node_list'.
+"""The prototype's node-list recurrent model as recurrence.network_model 'node_list'.
 
-HMR's recurrent-network variant (RN) discovered each genome's network on the leaves of a complete
-quadtree and settled it as a node list, per source and per genome in Python. node_list.py computes
-the same networks for a whole population in one compiled call. The tests here check the frontier
-against RN's phase-2 rule written out on index sets, the forward without hidden connections
+The prototype's recurrent-network variant (RN) discovered each genome's network on the leaves of a
+complete quadtree and settled it as a node list, per source and per genome in Python. node_list.py
+computes the same networks for a whole population in one compiled call. The tests here check the
+frontier against RN's phase-2 rule written out on index sets, the forward without hidden connections
 against the grid model's arithmetic, the engine's generation against its pieces (the networks,
 slicing, the champion record, the compiles), the switch itself (the grid model scores another
-population) and every refusal. The networks and the fitness are compared with RN's own
-populations, the cleaning and the forward with RN's own functions, and the recipe of GR, RN's
-GPU-resident variant, with GR, on HMR's values recorded in the research repository
-(hmr_reference.hmr_value, CPU only): this package does not include the HMR engine. The port runs
-on states it rebuilds itself (EMR's initialize of a configuration's twin is RN's generation-0
-state, EMR's tell with RN's fitness vector RN's next one), and each rebuilt population is checked
-against the digest RN recorded for it.
+population) and every refusal. The networks and the fitness are compared with RN's own populations,
+the cleaning and the forward with RN's own functions, and the recipe of GR, RN's GPU-resident
+variant, with GR, on the prototype's values recorded in the research repository
+(prototype_reference.prototype_value, CPU only): this package does not include the prototype engine.
+The port runs on states it rebuilds itself (EMR's initialize of a configuration's twin is RN's
+generation-0 state, EMR's tell with RN's fitness vector RN's next one), and each rebuilt population
+is checked against the digest RN recorded for it.
 """
 
 import copy
@@ -27,7 +27,7 @@ import emr_hyperneat.emrhyperneat as E
 from conftest import GPU_TRAJECTORY_RTOL, EMRHyperNEAT, XORProblem, exact_backend
 from emr_hyperneat import node_list
 from emr_hyperneat.emrhyperneat_base import MultiGPUStrategy
-from hmr_reference import digest, hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import digest, prototype_value, live  # type: ignore[import-not-found]
 
 INPUTS = [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0)]
 OUTPUTS = [(0.0, 1.0)]
@@ -54,15 +54,15 @@ def _classes(name):
 
 def _rn_config(depth, pop, preset='full_recurrent', level=2, steps=None, max_weight=8.0,
                band=0.3):
-    """An RN configuration (HMR-shaped); level 0 is RN's node list without phase 2."""
+    """An RN configuration (shaped for the prototype); level 0 is RN's node list without phase 2."""
     recurrence = {'enabled': True, 'allow_hidden_to_hidden': True, 'iteration_level': level,
                   **_classes(preset)}
     if steps is not None:
         recurrence['activate_time'] = steps
-    return {'algorithm_params': {'hmrhyperneat': {
+    return {'algorithm_params': {'emrhyperneat': {
         'population_size': pop,
         'substrate': {'input_coords': INPUTS, 'output_coords': OUTPUTS},
-        'hmr_hyperneat': {'max_depth': depth, 'band_threshold': band, 'max_weight': max_weight,
+        'emr_hyperneat': {'max_depth': depth, 'band_threshold': band, 'max_weight': max_weight,
                           'recurrence': recurrence},
     }}}
 
@@ -70,8 +70,8 @@ def _rn_config(depth, pop, preset='full_recurrent', level=2, steps=None, max_wei
 def node_list_twin(rn_config):
     """The node-list twin of an RN configuration (the recipe of emr-configuration-checks.md)."""
     params = copy.deepcopy(rn_config['algorithm_params'])
-    block = params.pop('hmrhyperneat')
-    emr = block.pop('hmr_hyperneat')
+    block = params.pop('emrhyperneat')
+    emr = block.pop('emr_hyperneat')
     recurrence = dict(emr['recurrence'], network_model='node_list')
     if recurrence['iteration_level'] == 0:
         recurrence = {'network_model': 'node_list'}
@@ -104,8 +104,8 @@ def _evolving(config, elitism=2):
 
 def connection_digest(connections):
     """The sha256 of a connection set as its canonical array: (x1, y1, x2, y2, weight) rows in
-    float32, -0.0 as 0.0, sorted by column. hmr_live.py hashes RN's sets with its twin of this
-    function."""
+    float32, -0.0 as 0.0, sorted by column. The research repository's live module hashes RN's sets
+    with its twin of this function."""
     rows = np.asarray(list(connections), dtype=np.float32).reshape(-1, 5) + np.float32(0.0)
     rows = rows[np.lexsort(rows.T[::-1])]
     return hashlib.sha256(rows.tobytes()).digest()
@@ -117,11 +117,11 @@ def _population(state):
 
 
 def rn_run(config, generations, neighbour_scale='rn'):
-    """RN's generations through the seam (hmr_live.rn_node_list_run), with the arguments they come
-    from. ``neighbour_scale`` 'configured' patches RN to sparsify the band's neighbours at the
+    """RN's generations through the seam (the research repository's live module), with the arguments they
+    come from. ``neighbour_scale`` 'configured' patches RN to sparsify the band's neighbours at the
     configured max_weight (R2's control)."""
     args = (config, XORProblem(), SEED, generations, neighbour_scale, ORDER_STABLE)
-    return args, hmr_value('node_list.rn_run', lambda: live('rn_node_list_run', *args), inputs=args)
+    return args, prototype_value('node_list.rn_run', lambda: live('rn_node_list_run', *args), inputs=args)
 
 
 def _port_generation(twin, problem):
@@ -292,10 +292,10 @@ class TestPieces:
 
     @staticmethod
     def _rn_cleaning(rows):
-        """The rows RN's cleaning keeps (hmr_live.rn_clean_connections), through the seam."""
+        """The rows RN's cleaning keeps (the research repository's live module), through the seam."""
         args = (rows, np.asarray(INPUTS, np.float32), np.asarray(OUTPUTS, np.float32))
-        return hmr_value('node_list.rn_cleaning', lambda: live('rn_clean_connections', *args),
-                         inputs=args)
+        return prototype_value('node_list.rn_cleaning', lambda: live('rn_clean_connections', *args),
+                               inputs=args)
 
     @pytest.mark.parametrize('seed', range(8))
     def test_cleaning_is_rns(self, seed):
@@ -367,8 +367,8 @@ class TestPieces:
         padded[:len(conns)] = conns
         args = (np.arange(8.0, dtype=np.float32)[:, None], padded, np.arange(20) < len(conns),
                 inputs, 3, 1, steps)
-        theirs = hmr_value('node_list.rn_forward', lambda: live('rn_forward_padded', *args),
-                           inputs=args)
+        theirs = prototype_value('node_list.rn_forward', lambda: live('rn_forward_padded', *args),
+                                 inputs=args)
         np.testing.assert_allclose(ours, theirs, atol=1e-6)
 
     def test_forward_without_hidden_connections_is_the_grids(self):
@@ -546,7 +546,7 @@ class TestChecks:
             ('multi_hop_second_factor', 'masked'), ('hh_refresh_interval', 3),
             ('use_dense_discovery', False), ('hh_discovery_mode', 'per_genome'))],
         ({'hh_cache_enabled': True}, 'hh_cache_enabled'),
-        ({'settling_rule': 'hmr'}, "settling_rule 'hmr'"),
+        ({'settling_rule': 'drive_once'}, "settling_rule 'drive_once'"),
         ({'iteration_level': 0}, 'iteration_level 0 with hidden-to-hidden'),
         ({'activate_time': 1}, 'activate_time'),
         ({'network_model': 'quadtree'}, 'network_model must be one of'),
@@ -621,8 +621,8 @@ class TestChecks:
         (the cleaned hidden nodes are keyed at 5 decimals, the connections at 6); the node list
         refuses depth 6."""
         args = (INPUTS, OUTPUTS, [5, 6])
-        kept = hmr_value('node_list.rn_chain_keys', lambda: live('rn_chain_after_keys', *args),
-                         inputs=args)
+        kept = prototype_value('node_list.rn_chain_keys', lambda: live('rn_chain_after_keys', *args),
+                               inputs=args)
         assert kept == [3, 0]
         with pytest.raises(ValueError, match='max_depth 6'):
             EMRHyperNEAT().create_config(_node_list_config(depth=6))
@@ -632,10 +632,10 @@ GR_THRESHOLD_BAND = float(np.float32(np.tanh(np.float32(0.1))) * np.float32(8.0)
 
 
 def _gr_config(depth, variance, pop, preset='full_recurrent'):
-    return {'algorithm_params': {'hmrhyperneat': {
+    return {'algorithm_params': {'emrhyperneat': {
         'population_size': pop,
         'substrate': {'input_coords': INPUTS, 'output_coords': OUTPUTS},
-        'hmr_hyperneat': {'initial_depth': 0, 'max_depth': depth, 'variance_threshold': variance,
+        'emr_hyperneat': {'initial_depth': 0, 'max_depth': depth, 'variance_threshold': variance,
                           'band_threshold': 0.3, 'max_weight': 8.0,
                           'recurrence': {'preset': preset}},
     }}}
@@ -645,10 +645,10 @@ def gr_recipe(gr_config, band_threshold=GR_THRESHOLD_BAND, max_sparse_conns=None
     """GR's dense model at depth <= 4 on EMR's default model (the recipe of
     emr-configuration-checks.md): per-genome discovery at level 1 with GR's threshold on the raw
     CPPN output (|raw| > 0.1, as band_threshold max_weight * tanh(0.1)), no h->h cap below P^2,
-    HMR's level-0 variance rule and GR's pre-ask split."""
+    the prototype's level-0 variance rule and GR's pre-ask split."""
     params = copy.deepcopy(gr_config['algorithm_params'])
-    block = params.pop('hmrhyperneat')
-    emr = block.pop('hmr_hyperneat')
+    block = params.pop('emrhyperneat')
+    emr = block.pop('emr_hyperneat')
     positions = (4 ** (emr['max_depth'] + 2) - 4) // 3
     cap = max_sparse_conns or max(10000, positions * positions)
     emr.update(band_threshold=band_threshold, variance_rule='legacy', extra_randkey_split=True,
@@ -665,10 +665,10 @@ def _gr_args(config, generations):
 
 
 def _gr_fitness(config, generations):
-    """GR's fitness vector of each generation as its tell received it (hmr_live.gr_dense_fitness),
-    through the seam; every generation ran GR's dense model."""
+    """GR's fitness vector of each generation as its tell received it
+    (the research repository's live module), through the seam; every generation ran GR's dense model."""
     args = _gr_args(config, generations)
-    gr = hmr_value('node_list.gr_dense', lambda: live('gr_dense_fitness', *args), inputs=args)
+    gr = prototype_value('node_list.gr_dense', lambda: live('gr_dense_fitness', *args), inputs=args)
     assert gr['methods'] == ['dense_recurrent'] * generations
     return gr['fitness']
 
@@ -734,6 +734,6 @@ class TestGRRecipe:
         but full_recurrent (its line 5193), and fails there: the recipe needs an explicit
         count."""
         args = _gr_args(_gr_config(2, 0.03, 8, preset='hidden_only'), 1)
-        failure = hmr_value('node_list.gr_failure', lambda: live('gr_failure', *args), inputs=args)
+        failure = prototype_value('node_list.gr_failure', lambda: live('gr_failure', *args), inputs=args)
         assert failure is not None and failure['error'] == 'ValueError', failure
         assert 'scan got no values' in failure['message']

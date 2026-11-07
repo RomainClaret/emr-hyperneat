@@ -17,10 +17,10 @@ Design:
 Post-hoc: compute OR-NOR Euclidean distance and direction angle for each set.
 
 Results saved to: papers/emr-neuromodulation/results/expanded_random_nt_emr/ (this script runs the
-shared runner, which runs EMR; the published sets 10-29, on the HMR engine, are the data release's
-results/expanded_random_nt/, which a run here never reads or overwrites). --summary still reads sets
-0-9 from the published results/strengthening/random_nt/ (HMR engine), so its table then lists sets
-of both engines.
+shared runner, which runs EMR; the published sets 10-29, on the prototype engine, are the data
+release's results/expanded_random_nt/, which a run here never reads or overwrites). --summary still
+reads sets 0-9 from the published results/strengthening/random_nt/ (the prototype engine), so its
+table then lists sets of both engines.
 
 Usage:
     python papers/emr-neuromodulation/scripts/runners/benchmark_expanded_random_nt.py

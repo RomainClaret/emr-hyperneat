@@ -86,8 +86,8 @@ class TestGlobalAggregation:
     def test_global_aggregation_functions(self, algorithm, xor_problem, func):
         """Verify all global aggregation functions work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': func,
         }
@@ -150,8 +150,8 @@ class TestWeightInterpretationAggregation:
     def test_num_aggregations_variants(self, algorithm, xor_problem, num_aggregations):
         """Verify different numbers of aggregation functions work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': num_aggregations,
         }
@@ -209,12 +209,12 @@ class TestJointActivationAggregation:
     def test_joint_evolution_basic(self, algorithm, xor_problem):
         """Verify joint activation and aggregation evolution works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
         }
@@ -227,18 +227,18 @@ class TestJointActivationAggregation:
     def test_joint_with_recurrence(self, algorithm, xor_problem):
         """Verify joint evolution works with recurrence."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['dynamic_functions'] = {
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'sum',
         }
@@ -273,8 +273,8 @@ class TestAggregationFunctionBehavior:
         results = {}
         for func in ['sum', 'mean', 'max']:
             config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['aggregation'] = {
+            emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+            emr_block['aggregation'] = {
                 'mode': 'global',
                 'global_function': func,
             }
@@ -305,8 +305,8 @@ class TestComprehensiveAggregation:
         """Every global aggregation function evolves on XOR without errors."""
         for func in AGGREGATION_FUNCTIONS:
             config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['aggregation'] = {
+            emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+            emr_block['aggregation'] = {
                 'mode': 'global',
                 'global_function': func,
             }
@@ -324,8 +324,8 @@ class TestCppnOutputAggregation:
     def test_cppn_output_aggregation_initializes(self, algorithm, xor_problem):
         """Verify CPPN output aggregation mode initializes without errors."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'cppn_output',
             'num_aggregations': 4,
         }
@@ -337,8 +337,8 @@ class TestCppnOutputAggregation:
     def test_cppn_output_aggregation_runs_generation(self, algorithm, xor_problem):
         """Verify CPPN output aggregation mode can run generations."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'cppn_output',
             'num_aggregations': 4,
         }
@@ -351,8 +351,8 @@ class TestCppnOutputAggregation:
     def test_cppn_output_num_aggregations(self, algorithm, xor_problem, num_aggregations):
         """Verify CPPN output aggregation with different counts works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'cppn_output',
             'num_aggregations': num_aggregations,
         }
@@ -363,14 +363,14 @@ class TestCppnOutputAggregation:
     def test_cppn_output_with_recurrence(self, algorithm, xor_problem):
         """Verify CPPN output aggregation mode works with recurrence."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'cppn_output',
             'num_aggregations': 4,
         }
@@ -382,12 +382,12 @@ class TestCppnOutputAggregation:
     def test_cppn_output_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify CPPN output aggregation works with dynamic functions."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'cppn_output',
             'num_aggregations': 4,
         }
@@ -406,8 +406,8 @@ class TestMaxabsAggregation:
     def test_maxabs_global_aggregation(self, algorithm, xor_problem):
         """Verify maxabs global aggregation works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'maxabs',
         }
@@ -419,14 +419,14 @@ class TestMaxabsAggregation:
     def test_maxabs_with_recurrence(self, algorithm, xor_problem):
         """Verify maxabs aggregation works with recurrence."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'maxabs',
         }
@@ -437,8 +437,8 @@ class TestMaxabsAggregation:
     def test_maxabs_in_weight_interpretation(self, algorithm, xor_problem):
         """Verify maxabs is available in weight interpretation mode."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 6,  # Should include maxabs
         }
@@ -458,8 +458,8 @@ class TestAggregationInterpretationMethods:
     def test_interpretation_methods(self, algorithm, xor_problem, interpretation):
         """Verify aggregation interpretation methods work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'interpretation': interpretation,
@@ -473,8 +473,8 @@ class TestAggregationInterpretationMethods:
     def test_magnitude_bio_interpretation(self, algorithm, xor_problem):
         """Verify magnitude_bio aggregation interpretation works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'interpretation': 'magnitude_bio',
@@ -488,8 +488,8 @@ class TestAggregationInterpretationMethods:
     def test_variance_interpretation(self, algorithm, xor_problem):
         """Verify variance aggregation interpretation works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'interpretation': 'variance',
@@ -503,14 +503,14 @@ class TestAggregationInterpretationMethods:
     def test_interpretation_with_recurrence(self, algorithm, xor_problem):
         """Verify interpretation works with recurrence enabled."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'interpretation': 'magnitude_bio',
@@ -530,8 +530,8 @@ class TestTrueAggregation:
     def test_true_aggregation_enabled(self, algorithm, xor_problem):
         """Verify use_true_aggregation=True works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'sum',
             'use_true_aggregation': True,
@@ -545,8 +545,8 @@ class TestTrueAggregation:
     def test_true_aggregation_disabled(self, algorithm, xor_problem):
         """Verify use_true_aggregation=False works (approximation)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'sum',
             'use_true_aggregation': False,
@@ -560,8 +560,8 @@ class TestTrueAggregation:
     def test_true_aggregation_with_weight_interpretation(self, algorithm, xor_problem):
         """Verify use_true_aggregation works with weight_interpretation mode."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'use_true_aggregation': True,
@@ -574,14 +574,14 @@ class TestTrueAggregation:
     def test_true_aggregation_with_recurrence(self, algorithm, xor_problem):
         """Verify use_true_aggregation works with recurrence."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'sum',
             'use_true_aggregation': True,
@@ -595,8 +595,8 @@ class TestTrueAggregation:
     def test_true_aggregation_toggle(self, algorithm, xor_problem, use_true):
         """Verify both values of use_true_aggregation work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'mean',
             'use_true_aggregation': use_true,
@@ -617,14 +617,14 @@ class TestDynamicHHAggregation:
     def test_dynamic_hh_aggregation_mode(self, algorithm, xor_problem):
         """Verify dynamic H->H aggregation mode works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'hh_aggregation_mode': 'dynamic',
@@ -637,14 +637,14 @@ class TestDynamicHHAggregation:
     def test_hh_aggregation_mode_sum_default(self, algorithm, xor_problem):
         """Verify sum (default) H->H aggregation mode works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'hh_aggregation_mode': 'sum',
@@ -658,14 +658,14 @@ class TestDynamicHHAggregation:
     def test_dynamic_hh_with_interpretation(self, algorithm, xor_problem):
         """Verify dynamic H->H works with interpretation methods."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'interpretation': 'magnitude_bio',
@@ -680,14 +680,14 @@ class TestDynamicHHAggregation:
     def test_hh_aggregation_mode_variants(self, algorithm, xor_problem, hh_mode):
         """Verify both H->H aggregation modes work with parametrization."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'hh_aggregation_mode': hh_mode,
@@ -700,8 +700,8 @@ class TestDynamicHHAggregation:
     def test_dynamic_hh_with_full_recurrence(self, algorithm, xor_problem):
         """Verify dynamic H->H works with full recurrence."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'full_recurrent',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -710,7 +710,7 @@ class TestDynamicHHAggregation:
             'allow_self_loops': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'hh_aggregation_mode': 'dynamic',
@@ -724,14 +724,14 @@ class TestDynamicHHAggregation:
     def test_dynamic_hh_num_aggregations(self, algorithm, xor_problem, num_aggs):
         """Verify dynamic H->H works with different numbers of aggregations."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': num_aggs,
             'hh_aggregation_mode': 'dynamic',
@@ -748,8 +748,8 @@ class TestAggregationEdgeCases:
     def test_empty_aggregation_config(self, algorithm, xor_problem):
         """Verify empty aggregation config works (uses defaults)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -758,8 +758,8 @@ class TestAggregationEdgeCases:
     def test_num_aggregations_2(self, algorithm, xor_problem):
         """Verify minimum number of aggregations works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 2,
         }
@@ -771,13 +771,13 @@ class TestAggregationEdgeCases:
     def test_combined_dynamic_functions_and_aggregation(self, algorithm, xor_problem):
         """Verify dynamic functions and aggregation work together."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 4,
             'interpretation': 'sign',
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'weight_interpretation',
             'num_aggregations': 4,
             'interpretation': 'magnitude_bio',
@@ -813,10 +813,10 @@ def _aggregation_run(aggregation, generations=2, palette_attribute=None, recurre
 
 
 class TestAggregationPalette:
-    """aggregation.palette and the agg_palette attribute. HMR's palette strategies computed an
-    aggregation palette that was recorded and never applied, and 0.1.0 read no algo.agg_palette a
-    runner set. The per-node modes pick a palette position and map it to the function's
-    AGGREGATION_LIST index, and evaluation covers the whole list."""
+    """aggregation.palette and the agg_palette attribute. The prototype's palette strategies
+    computed an aggregation palette that was recorded and never applied, and 0.1.0 read no
+    algo.agg_palette a runner set. The per-node modes pick a palette position and map it to the
+    function's AGGREGATION_LIST index, and evaluation covers the whole list."""
 
     @pytest.mark.parametrize('aggregation', [
         {'mode': 'cppn_output', 'num_aggregations': 6},
@@ -913,11 +913,12 @@ class TestAggregationPalette:
         with pytest.raises(ValueError, match='df_palette must hold indices 0 to 17'):
             algorithm.run_generation(state, XORProblem())
 
-    def test_the_substrate_api_refuses_an_aggregation_palette(self):
+    def test_the_substrate_api_carries_an_aggregation_palette(self):
+        """The substrate API decodes the palette as the loop does (test_substrate_api.py checks the
+        substrates and fitness bit for bit)."""
         config = create_base_config()
         config['algorithm_params']['emrhyperneat']['emr_hyperneat']['aggregation'] = {
             'mode': 'cppn_output', 'palette': [0, 2]}
         algorithm = EMRHyperNEAT()
         algorithm.create_config(config)
-        with pytest.raises(ValueError, match='an aggregation palette'):
-            algorithm.substrate_config()
+        assert algorithm.substrate_config().aggregation_palette == (0, 2)

@@ -44,8 +44,8 @@ def float32_threshold(target: float) -> np.float32:
 
     run_until_threshold's Python loop compares a generation's float32 best, as a Python float, with
     the target. A target rounded to the nearest float32 can lie below it (``np.float32(0.95) <
-    0.95``): HMR's GPU loop compared with that rounding and could stop a generation earlier than a
-    Python-float comparison.
+    0.95``): the prototype's GPU loop compared with that rounding and could stop a generation
+    earlier than a Python-float comparison.
 
     Returns:
         A float32 (NaN for a NaN target, which stops nothing: no fitness compares above it).

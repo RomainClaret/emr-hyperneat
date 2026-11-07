@@ -97,7 +97,7 @@ def run_single_seed(seed: int) -> dict:
         'algorithm_params': {
             'emrhyperneat': {
                 'emr_hyperneat': {
-                    'extra_randkey_split': True,  # reproduce HMR (paper) per-seed results in EMR
+                    'extra_randkey_split': True,  # reproduce the prototype's (the paper's) per-seed results in EMR
                     'initial_depth': 0,
                     'variance_rule': 'legacy',  # published runs used the legacy level-0 own-weights rule
                     'max_depth': 2,
@@ -114,7 +114,7 @@ def run_single_seed(seed: int) -> dict:
                     'output_coords': output_coords,
                 },
                 'neat': {
-                    'pop_size': 150,  # repro: HMR pop-bug ran the paper at 150 regardless of nominal; EMR honors config
+                    'pop_size': 150,  # repro: the prototype's pop-size bug ran the paper at 150 regardless of nominal; EMR honors config
                     'species_size': 10,
                 },
             }

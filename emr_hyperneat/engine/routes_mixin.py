@@ -1,7 +1,7 @@
 """Running until a threshold: the route dispatch of run_until_threshold, the one-device and split loops,
 the compiled generation loop, and the island model."""
 import copy
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -99,6 +99,25 @@ class RoutesMixin:
         if sparse_cap is not None:
             # The cap the run ended with, its champion's, and how it got there
             result['sparse_cap'] = sparse_cap
+        return result
+
+    def _route_result(
+        self, generation: int, best_so_far: float, state: Any, target_fitness: float,
+        last_best: float, history: Optional[List[float]], **extras: Any
+    ) -> Dict[str, Any]:
+        """A route's result: 'generations', 'best_fitness' and 'state', the prototype's keys
+        (converged, solved, final_fitness, sparse_hh_stats; last_best is the last generation's
+        best), the route's own keys (extras), then 'history' when the run collected it (history is
+        None otherwise)."""
+        result = {
+            'generations': generation,
+            'best_fitness': best_so_far,
+            'state': state,
+            **self._alias_result_keys(target_fitness, last_best, best_so_far),
+            **extras,
+        }
+        if history is not None:
+            result['history'] = history
         return result
 
     def _refuse_ignored_execution_mode(self, route: str, split_route: bool = False) -> None:
@@ -204,9 +223,9 @@ class RoutesMixin:
         h->h above iteration level 1, and POPULATION_PARALLEL_PROCESS evaluates the h->h
         connections it discovers on GPU 0 with the kernel EVAL_ONLY_PARALLEL uses.
 
-        execution.generation_loop 'while_loop' (HMR's GPU loop) runs the one-device route as one
-        compiled lax.while_loop over the plain feed-forward generation, performance only, up to
-        rounding; it refuses every other setting and the multi-device routes refuse it
+        execution.generation_loop 'while_loop' (the prototype's GPU loop) runs the one-device route
+        as one compiled lax.while_loop over the plain feed-forward generation, performance only, up
+        to rounding; it refuses every other setting and the multi-device routes refuse it
         (_run_until_threshold_while_loop).
 
         Args:
@@ -403,27 +422,6 @@ class RoutesMixin:
                     state, problem, target_fitness, max_generations, collect_history, split
                 ), route, len(split.device_ids))
 
-            elif self.strategy == MultiGPUStrategy.STREAMING:
-                # Streaming: Level-by-level CPPN queries for memory efficiency
-                # Only the CPPN queries are split by level; W1 and W2 stay at full size
-                h_grid = get_hierarchical_grid(self.max_depth)
-                print("[Strategy] STREAMING: Level-by-level CPPN queries for memory efficiency")
-                print("  - Purpose: Reduce CPPN-query memory from O(total_positions) to O(max_level_size)")
-                print("  - How it works: Queries CPPN one level at a time, accumulates W1/W2")
-                print("  - Best for: Depth too large for all CPPN queries to fit in memory")
-                print("  - Memory: CPPN queries level by level each generation; W1/W2 full size")
-                print(f"  - Depth {self.max_depth} ({h_grid.total_positions} positions)")
-
-                # Enable streaming mode for this run
-                original_streaming = self.enable_streaming
-                self.enable_streaming = True
-                try:
-                    return self._record_route(self._run_until_threshold_single_gpu(
-                        state, problem, target_fitness, max_generations, collect_history
-                    ), 'STREAMING', 1)
-                finally:
-                    self.enable_streaming = original_streaming
-
         # Fallback for single GPU or when multi-GPU strategies run on single device
         # Note: Legacy aliases (MULTI_GPU, DATA_PARALLEL, etc.) are mapped to the
         # primary strategies by the constructor and the configuration key alike
@@ -437,11 +435,14 @@ class RoutesMixin:
             print("  - Falling back to SINGLE_GPU mode")
             print("  - For multi-GPU: Ensure multiple GPUs are visible to JAX")
         elif self.strategy == MultiGPUStrategy.STREAMING:
-            # Streaming: Level-by-level CPPN queries for memory efficiency
+            # Streaming, on one device or several: level-by-level CPPN queries for memory
+            # efficiency; only the CPPN queries are split by level, W1 and W2 stay at full size
             h_grid = get_hierarchical_grid(self.max_depth)
             print("[Strategy] STREAMING: Level-by-level CPPN queries for memory efficiency")
             print("  - Purpose: Reduce CPPN-query memory from O(total_positions) "
                   "to O(max_level_size)")
+            if num_devices >= 2:  # on two or more devices the banner also says how it works
+                print("  - How it works: Queries CPPN one level at a time, accumulates W1/W2")
             print("  - Best for: Depth too large for all CPPN queries to fit in memory")
             print("  - Memory: CPPN queries level by level each generation; W1/W2 full size")
             print(f"  - Depth {self.max_depth} ({h_grid.total_positions} positions)")
@@ -567,15 +568,15 @@ class RoutesMixin:
     ) -> Dict[str, Any]:
         """The one-device route under execution.generation_loop 'while_loop'.
 
-        The HMR engine's GPU loop (release 0.1.0) with its defects fixed: the plain
+        The prototype engine's GPU loop (release 0.1.0) with its defects fixed: the plain
         feed-forward generation, _feedforward_generation, compiled once inside lax.while_loop and
         cached, so the generations run on the device and their results come back once. Performance
         only, up to rounding: each generation is the Python loop's arithmetic compiled as one
         program, so a fitness can differ by a float32 ulp; the generation count, the stop rule and
-        the key are the Python loop's. It refuses what it cannot apply, each setting named (HMR's
-        per-node variants evaluated plain tanh networks in their loops whatever they were configured
-        with). It keeps no per-generation record: evaluate_on_data raises after it, and the cached
-        arrays are cleared.
+        the key are the Python loop's. It refuses what it cannot apply, each setting named (the
+        prototype's per-node variants evaluated plain tanh networks in their loops whatever they
+        were configured with). It keeps no per-generation record: evaluate_on_data raises after it,
+        and the cached arrays are cleared.
 
         Args:
             state: Algorithm state.
@@ -596,7 +597,7 @@ class RoutesMixin:
         if refusals:
             raise ValueError(
                 "execution.generation_loop 'while_loop' runs the plain feed-forward generation "
-                "(HMR's GPU loop's scope) and cannot "
+                "(the scope of the prototype's GPU loop) and cannot "
                 "apply: " + "; ".join(refusals) + ". Use generation_loop 'python' (the default), "
                 "which runs every feature.")
         if self.verbose:
@@ -629,8 +630,9 @@ class RoutesMixin:
             'generations': generations,
             'best_fitness': best,
             'state': state,
-            # HMR's keys: converged, solved, final_fitness, sparse_hh_stats (None: no discovery ran)
-            **self._hmr_result_keys(
+            # The prototype's keys: converged, solved, final_fitness, sparse_hh_stats (None: no
+            # discovery ran)
+            **self._alias_result_keys(
                 target_fitness, float(last_best) if generations else best, best
             ),
             'execution_mode': 'standard',
@@ -888,7 +890,7 @@ class RoutesMixin:
             'generations': generation,
             'best_fitness': best_so_far,
             'state': best['state'],
-            **self._hmr_result_keys(
+            **self._alias_result_keys(
                 target_fitness, gen_best if generation else best_so_far, best_so_far
             ),
             'execution_mode': 'standard',
@@ -990,7 +992,7 @@ class RoutesMixin:
             Dict with results
         """
         if self.execution_config.generation_loop == 'while_loop':
-            # HMR's GPU loop: the plain feed-forward generation compiled in
+            # The prototype's GPU loop: the plain feed-forward generation compiled in
             # lax.while_loop
             return self._run_until_threshold_while_loop(
                 state, target_fitness, max_generations, collect_history
@@ -1013,8 +1015,8 @@ class RoutesMixin:
                 run_generation_offload,
             )
             if self.enable_streaming:
-                # Reachable through the MultiGPUStrategy.STREAMING arms above, which
-                # force enable_streaming before calling this helper. The two are
+                # Reachable through the MultiGPUStrategy.STREAMING arm above, which
+                # forces enable_streaming before calling this helper. The two are
                 # mutually exclusive memory strategies, and offload wins here for the
                 # same reason it wins in `run_generation`: it replaces the whole
                 # generation rather than one step inside it. Say so instead of letting
@@ -1046,22 +1048,13 @@ class RoutesMixin:
             if self.verbose and generation % 10 == 0:
                 print(f"  Gen {generation}: best={gen_best:.4f}, overall={best_so_far:.4f}")
 
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            # HMR's keys: converged, solved, final_fitness, sparse_hh_stats
-            **self._hmr_result_keys(
-                target_fitness, gen_best if generation else best_so_far, best_so_far
-            ),
+        return self._route_result(
+            generation, best_so_far, state, target_fitness, gen_best if generation else best_so_far,
+            history,
             # The mode this loop ran (offload replaces the generation, even under the STREAMING route)
-            'execution_mode': (
+            execution_mode=(
                 'depth_offload'
                 if _use_offload
                 else 'streaming' if self.enable_streaming else 'standard'
             ),
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
+        )

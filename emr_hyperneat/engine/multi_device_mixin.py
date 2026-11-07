@@ -22,6 +22,7 @@ from emr_hyperneat.engine.pmap import (
     _full_pipeline_masks_jit,
     _pmap_data_parallel_full_hh,
 )
+from emr_hyperneat.engine.substrate_build import WEIGHT_THRESHOLD, substrate_weight_matrices
 
 
 class MultiDeviceMixin:
@@ -186,11 +187,7 @@ class MultiDeviceMixin:
             while best_so_far < target_fitness and generation < max_generations:
                 gen_start = time.perf_counter()
 
-                # The opt-in pre-ask key split (extra_randkey_split, default off), as
-                # run_generation_verbose does it, so a run draws the same keys on every route
-                if getattr(self, '_repro_extra_randkey_split', False):
-                    _, randkey = jax.random.split(state.randkey)
-                    state = state.update(randkey=randkey)
+                state = self._pre_ask_key_split(state)
 
                 # CPPN queries and h->h discovery on GPU 0 (sequential)
                 cppn_population = self._compiled_ask(state)
@@ -253,20 +250,10 @@ class MultiDeviceMixin:
                         gen_hh_count = int(jnp.sum(sparse_hh.num_valid))
 
                 # Build W1, W2 matrices
-                weight_thresh = 0.1
-                max_weight_val = self.max_weight
-                active_mask_broadcast = masks_A[:, None, :]
-                W1_raw = jnp.tanh(input_all_weights) * max_weight_val
-                W1 = jnp.where(
-                    active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh),
-                    W1_raw, 0.0
+                W1, W2 = substrate_weight_matrices(
+                    input_all_weights, output_all_weights, masks_A, self.max_weight,
+                    weight_threshold=WEIGHT_THRESHOLD,
                 )
-                W2_raw = jnp.tanh(output_all_weights) * max_weight_val
-                W2 = jnp.where(
-                    active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh),
-                    W2_raw, 0.0
-                )
-                W2 = W2.transpose(0, 2, 1)
 
                 cppn_time = time.perf_counter() - gen_start
 
@@ -370,20 +357,10 @@ class MultiDeviceMixin:
                 cache_refresh_count=cache_refresh_count,
             )
 
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            # HMR's keys: converged, solved, final_fitness, sparse_hh_stats
-            **self._hmr_result_keys(
-                target_fitness, gen_best if generation else best_so_far, best_so_far
-            ),
-            'sparse_hh_count': total_hh_count,
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
+        return self._route_result(
+            generation, best_so_far, state, target_fitness, gen_best if generation else best_so_far,
+            history, sparse_hh_count=total_hh_count,
+        )
 
     def _run_until_threshold_pmap(
         self,
@@ -464,11 +441,7 @@ class MultiDeviceMixin:
             # CPPN queries (GPU 0)
             cppn_start = time.perf_counter()
 
-            # The opt-in pre-ask key split (extra_randkey_split, default off), as
-            # run_generation_verbose does it, so a run draws the same keys on every route
-            if getattr(self, '_repro_extra_randkey_split', False):
-                _, randkey = jax.random.split(state.randkey)
-                state = state.update(randkey=randkey)
+            state = self._pre_ask_key_split(state)
 
             # Get CPPN population and transform
             cppn_population = self._compiled_ask(state)
@@ -567,27 +540,10 @@ class MultiDeviceMixin:
 
             # Build W1, W2 matrices (GPU 0)
             # Apply masking and build final weight matrices (same as single-GPU)
-            weight_thresh = 0.1  # Same as parent
-            max_weight = self.max_weight
-
-            # Broadcast mask: (pop_size, 1, total_positions) for weight masking
-            active_mask_broadcast = masks_A[:, None, :]
-
-            # Apply tanh + max_weight scaling, then mask
-            W1_raw = jnp.tanh(input_all_weights) * max_weight
-            W1 = jnp.where(
-                active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh),
-                W1_raw,
-                0.0
-            )  # (pop_size, n_inputs, total_positions)
-
-            W2_raw = jnp.tanh(output_all_weights) * max_weight
-            W2_masked = jnp.where(
-                active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh),
-                W2_raw,
-                0.0
+            W1, W2 = substrate_weight_matrices(
+                input_all_weights, output_all_weights, masks_A, self.max_weight,
+                weight_threshold=WEIGHT_THRESHOLD,
             )
-            W2 = W2_masked.transpose(0, 2, 1)  # (pop, n_outputs, total_positions) -> (pop, total_positions, n_outputs)
 
             # pmap evaluation (true parallel)
             eval_start = time.perf_counter()
@@ -663,20 +619,10 @@ class MultiDeviceMixin:
                 cache_refresh_count=cache_refresh_count,
             )
 
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            # HMR's keys: converged, solved, final_fitness, sparse_hh_stats
-            **self._hmr_result_keys(
-                target_fitness, gen_best if generation else best_so_far, best_so_far
-            ),
-            'sparse_hh_count': total_hh_count,
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
+        return self._route_result(
+            generation, best_so_far, state, target_fitness, gen_best if generation else best_so_far,
+            history, sparse_hh_count=total_hh_count,
+        )
 
     def _pmap_pipeline_hh(self, state: Any, cppns_transformed: Tuple, h_grid: Any) -> Tuple:
         """The pmap pipeline's h->h connections, discovered outside the pmap.
@@ -842,12 +788,7 @@ class MultiDeviceMixin:
             gen_start = time.perf_counter()
 
             # CPPN ask + transform (on GPU 0), after the opt-in pre-ask key split
-            # (extra_randkey_split, default off) as run_generation_verbose does it. In 0.1.0
-            # this read the base class's attribute, which defaults on, so these routes drew other
-            # keys than SINGLE_GPU from generation 1
-            if getattr(self, '_repro_extra_randkey_split', False):
-                _, randkey = jax.random.split(state.randkey)
-                state = state.update(randkey=randkey)
+            state = self._pre_ask_key_split(state)
 
             cppn_population = self._compiled_ask(state)
             cppns_transformed = self._compiled_transform_batch(state, cppn_population)
@@ -986,16 +927,7 @@ class MultiDeviceMixin:
                 effective_iteration_level=1 if allow_hh else 0,
             )
 
-        result = {
-            'generations': generation,
-            'best_fitness': best_so_far,
-            'state': state,
-            # HMR's keys: converged, solved, final_fitness, sparse_hh_stats
-            **self._hmr_result_keys(
-                target_fitness, gen_best if generation else best_so_far, best_so_far
-            ),
-        }
-        if collect_history:
-            result['history'] = history
-
-        return result
+        return self._route_result(
+            generation, best_so_far, state, target_fitness, gen_best if generation else best_so_far,
+            history,
+        )

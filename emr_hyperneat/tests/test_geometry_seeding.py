@@ -66,8 +66,8 @@ class TestGeometrySeedingConfiguration:
             preset='default',
             seed_weight=-0.5
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr['geometry_seeding']['seed_weight'] == -0.5
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        assert emr_block['geometry_seeding']['seed_weight'] == -0.5
         result = run_quick_evolution(algorithm, config, xor_problem)
         assert_no_errors(result)
 

@@ -308,14 +308,14 @@ class TestBaseEMRPaper:
         assert r1.fitness_history == r2.fitness_history
 
 
-# Bio-inspired palette evolution (PPSN): a timescale-compatible strategy (circadian)
-# discovers and retains an oscillatory activation, starting from a palette without one, on
-# Parity-4. Slow; excluded from the fast gate, run on demand. All three checks share one run.
-# The runner is the EMR version of release 0.2.0: population 150 whatever pop_size says, and HMR's
-# level-0 rule and key split, which its paper folder's emr_settings.py pins, as the published runs
-# on the HMR engine had them. Its golden was recorded on it, the same value on arm64 and x86_64
-# with XLA_FLAGS unset and under --xla_cpu_multi_thread_eigen=false. Release 0.1.0 ran
-# this runner on the HMR engine, whose golden was 0.7666119933128357 (within 1e-3).
+# Bio-inspired palette evolution (PPSN): a timescale-compatible strategy (circadian) discovers and
+# retains an oscillatory activation, starting from a palette without one, on Parity-4. Slow;
+# excluded from the fast gate, run on demand. All three checks share one run. The runner is the EMR
+# version of release 0.2.0: population 150 whatever pop_size says, and the prototype's level-0 rule
+# and key split, which its paper folder's emr_settings.py pins, as the published runs on the
+# prototype engine had them. Its golden was recorded on it, the same value on arm64 and x86_64 with
+# XLA_FLAGS unset and under --xla_cpu_multi_thread_eigen=false. Release 0.1.0 ran this runner on the
+# prototype engine, whose golden was 0.7666119933128357 (within 1e-3).
 @pytest.mark.slow
 class TestBioInspiredPaper:
     @pytest.fixture(scope="class")
@@ -470,7 +470,7 @@ class TestMonotonicClassBarrierPaper:
 # Aggregation oracle (PPSN), slow. A fixed global 'min' aggregation cannot substitute for
 # palette evolution: monotonic activations + min-aggregation still fail Parity-4. The runner is
 # the EMR version of release 0.2.0 (best fitness 0.7659 at the 15th generation); release 0.1.0
-# ran it on the HMR engine (0.7678). The finding holds on both.
+# ran it on the prototype engine (0.7678). The finding holds on both.
 @pytest.mark.slow
 class TestAggregationOraclePaper:
     @pytest.fixture(scope="class")

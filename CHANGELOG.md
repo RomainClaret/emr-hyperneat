@@ -3,16 +3,111 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## 0.3.0
+
+### Added
+
+- **True neuromodulation in the substrate API.** `substrate_config` accepts true neuromodulation
+  (level 4) of a feed-forward substrate with receptors from the weights, the engine's default, and
+  carries its settings in `SubstrateConfig.neuromodulation` (`NeuromodulationSettings`: channel
+  count, strength, receptor derivation, modulation mode, node rule, output inversion).
+  `substrate_forward` then applies the generation loop's node rule and output inversion, bit for
+  bit. `substrate_neuromodulation(substrate, neurotransmitter=None)` returns each hidden position's
+  receptor densities and base gain as the loop derives them, with the neurotransmitter vector
+  (`default_neurotransmitter`, the loop's single-task vector, when none is given), as a
+  `SubstrateNeuromodulation`; a caller may build one itself and pass it as
+  `substrate_forward(..., neuromodulation=)`. Under neuromodulation the configuration's output
+  activation applies, as in the loop. Still refused: other neuromodulation modes, receptors from
+  dedicated CPPN outputs or from the self-connection query, branch gating, a recurrent substrate,
+  and multi-task.
+- **An aggregation palette in the substrate API** (`aggregation.palette`, any subset of
+  `AGGREGATION_LIST`), decoded as the loop decodes it: `SubstrateConfig.aggregation_palette`.
+- **`SUBSTRATE_CAPABILITIES`** in `emr_hyperneat.substrate`, the features the substrate API covers
+  (`sparse_cap_policy`, `neuromodulation`, `aggregation_palette`, `substrate_steps`), and the
+  substrate's steps documented as public, with parameters the tests pin:
+  `get_hierarchical_grid`, `cppn_query_rows`, `compute_hierarchical_variances_batch`,
+  `cppn_output_function_indices`, `substrate_weight_matrices`, `self_connection_rows`.
+- **`emr_hyperneat.vocabulary`**: the activation and aggregation functions, the neurotransmitter
+  vectors, `derive_receptor_from_weight`, the neuromodulated node rule
+  (`true_neuromodulation_node_fn`, `true_neuromodulation_node_rule`) and `invert_outputs`, each the
+  engine's own object, importable without TensorNEAT or the configuration schemas.
+
+### Changed
+
+- The settings, names and texts of the package no longer name the frozen prototype engine that
+  release 0.1.0 ships beside EMR. A setting value named after that engine is named after what it
+  computes, and a configuration with the earlier value raises (unknown value), listing the values
+  it accepts:
+  - `recurrence.settling_rule: drive_once`, the settling rule of the prototype engine: the input
+    drive enters through the first state only, then each step is `h = step(h + recurrent(h))`;
+  - `leo.mode: compound_unrescaled`, its LEO gate: the weight scaled by `max_weight` and kept where
+    it passes the weight threshold and LEO passes its own, with the kept range not rescaled;
+  - `neuromodulation.node_rule: steep_gate`, the node rule of its FULL variant: gains
+    `bg + s m` unclipped, no bias, the gate `sigmoid(5 m)`.
+
+  The tables of its neuromodulation mode names are `PROTOTYPE_NEUROMODULATION_MODES`,
+  `PROTOTYPE_OPTION_B_MODES`, `PROTOTYPE_LEVEL_MODES` and `PROTOTYPE_NAMED_MODE_LEVELS`, and its
+  read settings `PROTOTYPE_READS`. The module of its attribute names is `engine/aliases_mixin.py`
+  (`AliasesMixin`); the names themselves are unchanged. The functions of its settling rule and LEO
+  gate are `settle_hidden_drive_once` and `leo_sparsification_compound_unrescaled`, importable from
+  `emr_hyperneat.emrhyperneat` as their earlier names were.
+- A configuration without an `emr_hyperneat` block that names another engine's blocks (a key of
+  `algorithm_params` ending in `hyperneat`, or a block ending in `_hyperneat`, other than EMR's)
+  raises, naming them; such a configuration shaped for the prototype engine raised before as well.
+  With an `emr_hyperneat` block, such keys are refused as unknown keys, as every unknown key is.
+- The values the tests compare EMR against are recorded again from the prototype engine, keyed by
+  inputs under the names above (`emr_hyperneat/tests/prototype_reference.py`,
+  `prototype_reference_values.py`); every value equals the one recorded before for its case.
+- Duplicated code inside the engine is merged, each merge equal in effect to the code it replaces:
+  the same results, bit for bit, on every generation path, execution mode and route that the tests
+  and the regression digests cover. Depth offload's two generations share one level loop; the
+  routes of `run_until_threshold` share their weight matrices, forwards, key split, result and
+  streaming arm; the multi-output CPPN queries are the one-output queries with one more parameter
+  per level; the two-module evaluators are one closure; the eager and traceable variance and mask
+  functions run one loop and one subdivision rule, which the streaming build and depth offload
+  call too. `compute_hierarchical_variances_batch` and `compute_subdivision_masks_batch` now read
+  the grid's static level tuples, which both grid types carry, so a grid object without them
+  raises `AttributeError`. A few inputs that raised still raise, with another exception type:
+  `compute_subdivision_masks_batch` raises `AttributeError` when given neither a grid nor
+  variances, and, with `return_all_masks` inside `jax.jit` or with a CPU grid, `TypeError` for a
+  non-numeric threshold or malformed variances.
+
+### Fixed
+
+- The configuration schemas no longer use pydantic's class-based `Config` (deprecated since pydantic
+  2.0) or read `model_fields` from a model instance (deprecated since 2.11), so building a
+  configuration emits no pydantic deprecation warning. Both are removed in pydantic 3, and the
+  package now requires `pydantic>=2.0,<3`.
+- The nightly workflow ran no test from 0.2.0 on: it stops when a test file is missing from its
+  shard list, and `test_sparse_cap_policy.py` was. Every test file is assigned again, and the suite
+  checks the assignment as the workflow reads it, shard label by shard label
+  (`test_pytest_config.py`).
+- `evaluate_genome_on_problem` applies `fitness_rescale_variance`, as the generation loop does to
+  the fitness it records; it returned the score before the rescale.
+- Neuromodulation settings the generation loop could not run raise when the configuration is read:
+  an unknown `node_rule`, in any block and under any mode (a gating mode refused it as a rule of
+  `true_neuromodulation`, and a disabled block took it); an unknown `modulation_mode` (the loop ran
+  it as `full`); and `node_rule: anti` with more than four channels without multi-task (its first
+  generation failed with a shape error, since the single-task vector has four).
+- `substrate_forward` refuses a neurotransmitter vector shorter than the channels the node rule and
+  the output inversion read; JAX's clamped indexing ran such a vector silently.
+
 ## 0.2.0
+
+This section gives the settings, constants and files that 0.3.0 renamed by their 0.3.0 names
+(`drive_once`, `compound_unrescaled`, `steep_gate`, `USE_PROTOTYPE_RULE_AND_SPLIT`,
+`prototype_trajectories.json`, and the `prototype_*`, `test_aliases.py` and
+`test_leo_compound_unrescaled.py` test files); release 0.2.0 names them after the prototype engine,
+as the CHANGELOG at tag v0.2.0 gives them.
 
 Results of recurrent runs change: one settling rule, a multi-hop expansion within each genome's own
 connections, and new defaults.
 [docs/configuration.md](docs/configuration.md#reproducing-a-010-recurrent-run) lists the settings
 that reproduce a 0.1.0 recurrent run. Runs on the multi-device routes of `run_until_threshold`
-compute what a single-device run computes, and the HMR engine's split routes and island model are
-routes of it. The HMR engine's features are settings of `EMRHyperNEAT`, off by default. The frozen
-HMR module is no longer shipped: the paper scripts that ran it are EMR versions, and their published
-runs reproduce on 0.1.0
+compute what a single-device run computes, and the prototype engine's split routes and island model
+are routes of it. The prototype engine's features are settings of `EMRHyperNEAT`, off by default.
+The frozen prototype module is no longer shipped: the paper scripts that ran it are EMR
+versions, and their published runs reproduce on 0.1.0
 ([docs/reproducing-experiments.md](docs/reproducing-experiments.md#choosing-a-release)). Keys and
 values that 0.1.0 ignored raise. On a CPU, the per-node paper's EMR runners give the same results as
 with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0 applies the
@@ -63,56 +158,60 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   (`papers/releases.json`; 0.1.0, tag `v0.1.0`, for the four papers), and `scripts/replicate.py`
   runs a paper's commands on that release in its own checkout and environment, or on another one
   with `--release`.
-- **The HMR engine's features, as settings of `EMRHyperNEAT`**, each off unless configured. HMR's
-  defects are fixed, not reproduced, and the tests check many of them against values recorded from
-  the HMR engine (Tests and CI).
-  - Recurrence: `recurrence.settling_rule: hmr`, HMR's settling rule, also in the substrate API's
-    recurrent forward, with HMR FULL's additive rule under static gating, context gating or true
-    neuromodulation; `dynamic_functions.hh_activation_mode: initial_only` under it.
-    `recurrence.network_model: node_list`, HMR's node-list recurrent model, at depths 1 to 5.
-    `recurrence.hh_cache_trigger` (`time_or_mask`, the default, or `time`).
-  - Per-node functions: `dynamic_functions` mode `modular`, HMR's activation, sparsity and scaling
-    layers, and the `modular` aggregation method; HMR's weight interpretations `magnitude`,
-    `combined`, `hierarchical_sparsity`, `sparsity_threshold` and `stp_inspired`, with the
-    `sparsity` blocks they read; HMR's reads (`cppn_read: input_mean`, `weight_source: raw`); an
-    aggregation palette (`aggregation.palette`, or `agg_palette` set by a runner); built-in palette
-    evolution (`dynamic_functions.palette_evolution`, under mode `cppn_output`); HMR's live palette
-    strategy (`dynamic_functions.live_strategy`, `set_palette_strategy`).
-  - Neuromodulation: HMR's mode names (its Option A and Option B names, `xdg_style`,
+- **The prototype engine's features, as settings of `EMRHyperNEAT`**, each off unless configured.
+  The prototype's defects are fixed, not reproduced, and the tests check many of them against values
+  recorded from the prototype engine (Tests and CI).
+  - Recurrence: `recurrence.settling_rule: drive_once`, the prototype's settling rule, also in the
+    substrate API's recurrent forward, with the additive rule of the prototype's FULL variant under
+    static gating, context gating or true neuromodulation; `dynamic_functions.hh_activation_mode:
+    initial_only` under it. `recurrence.network_model: node_list`, the prototype's node-list
+    recurrent model, at depths 1 to 5. `recurrence.hh_cache_trigger` (`time_or_mask`, the default,
+    or `time`).
+  - Per-node functions: `dynamic_functions` mode `modular`, the prototype's activation, sparsity and
+    scaling layers, and the `modular` aggregation method; the prototype's weight interpretations
+    `magnitude`, `combined`, `hierarchical_sparsity`, `sparsity_threshold` and `stp_inspired`, with
+    the `sparsity` blocks they read; the prototype's reads (`cppn_read: input_mean`, `weight_source:
+    raw`); an aggregation palette (`aggregation.palette`, or `agg_palette` set by a runner);
+    built-in palette evolution (`dynamic_functions.palette_evolution`, under mode `cppn_output`);
+    the prototype's live palette strategy (`dynamic_functions.live_strategy`,
+    `set_palette_strategy`).
+  - Neuromodulation: the prototype's mode names (its Option A and Option B names, `xdg_style`,
     `modulatory_only`, and `custom` with level flags); Option B, receptor densities from dedicated
     CPPN outputs (`receptor_from_weight: false`; 0.1.0 raised `NotImplementedError` for it at the
-    first generation); gates and modulatory neurons from dedicated CPPN outputs
-    (`gate_source: cppn`, HMR's `gate_from_cppn`, `modulatory_source: cppn`) and the
-    modulatory-neuron options (selection, count rule, signal, node weights, scope, CPPN read, CPPN
-    outputs, matched gain, `mod_neuron_count`); `node_rule: anti`, HMR ANTI's rule.
-  - Multi-task: HMR's call form, `run_generation_multitask(state, MultiTaskConfig(tasks={name:
-    (inputs, targets)}, ...))`, returning `MultiTaskMetrics` by task name; per-genome orthogonality
-    and specialization bonuses (`orthogonality_bonus_weight`, `specialization_bonus_weight`,
-    `orthogonality_metric`); branch gating (`branch_gating_mode`); the modulation penalty
-    (`modulation_penalty`). 0.1.0 accepted the last two at any value and applied neither.
-  - LEO (link-expression output): the `leo` block (`compound`, `replacement`, and `hmr_compound`,
-    HMR's gate), on every path that builds weights in the standard and streaming modes.
+    first generation); gates and modulatory neurons from dedicated CPPN outputs (`gate_source:
+    cppn`, the prototype's `gate_from_cppn`, `modulatory_source: cppn`) and the modulatory-neuron
+    options (selection, count rule, signal, node weights, scope, CPPN read, CPPN outputs, matched
+    gain, `mod_neuron_count`); `node_rule: anti`, the rule of the prototype's ANTI variant.
+  - Multi-task: the prototype's call form, `run_generation_multitask(state,
+    MultiTaskConfig(tasks={name: (inputs, targets)}, ...))`, returning `MultiTaskMetrics` by task
+    name; per-genome orthogonality and specialization bonuses (`orthogonality_bonus_weight`,
+    `specialization_bonus_weight`, `orthogonality_metric`); branch gating (`branch_gating_mode`);
+    the modulation penalty (`modulation_penalty`). 0.1.0 accepted the last two at any value and
+    applied neither.
+  - LEO (link-expression output): the `leo` block (`compound`, `replacement`, and
+    `compound_unrescaled`, the prototype's gate), on every path that builds weights in the standard
+    and streaming modes.
   - `emr_hyperneat.weight_threshold`, the input-to-hidden and hidden-to-output pruning threshold:
     0.1 by default, which 0.1.0 always used.
   - A configured `output_activation` on the plain path (no per-node function, aggregation or
     neuromodulation) runs as mode `global` with a `tanh` hidden activation, which equals the plain
     evaluation bit for bit; 0.1.0 ignored it there and applied a sigmoid. With `aggregation.mode:
     modular` and method `none`, which aggregate nothing, it raises.
-  - HMR's names: `NUM_ACTIVATIONS`; `NT_PRESETS` and the mnist and iris vectors;
+  - The prototype's names: `NUM_ACTIVATIONS`; `NT_PRESETS` and the mnist and iris vectors;
     `get_cppn_num_outputs` and `get_cppn_receptor_base_idx`; `cppn_num_outputs`, `aggregation_mode`,
     `_hidden_act_func` and `_output_act_func`; `run_generation_vmapped_multires` and
     `run_generation_vmapped_multiresA`; `configure_offloading(skip_dead_levels=)`;
     `run_until_threshold`'s keys `converged`, `solved`, `final_fitness` and `sparse_hh_stats`; UNI's
     `get_recurrence_metrics`, `sparse_hh_count`, `hh_cache_status`, `_use_sparse_hh` and
-    `_use_full_recurrent`; the four single-network true-neuromodulation evaluators; HMR's three
-    context-gated multi-task methods, which raise.
+    `_use_full_recurrent`; the four single-network true-neuromodulation evaluators; the prototype's
+    three context-gated multi-task methods, which raise.
   - Continual learning: `get_best_genome_with_fitness`, `inject_genome_into_population`,
     `freeze_topology`, `unfreeze_topology`, `is_topology_frozen`, `evaluate_genome_on_problem` and
     `create_state_for_new_problem`.
-  - `execution.generation_loop` (`"python"`, the default, or `"while_loop"`): the HMR engine's GPU
-    loop over the plain feed-forward generation, compiled once inside `jax.lax.while_loop`. Speed
-    only, within one float32 ulp of fitness; it refuses every setting outside that generation. See
-    [the generation loop](docs/configuration.md#the-generation-loop).
+  - `execution.generation_loop` (`"python"`, the default, or `"while_loop"`): the prototype engine's
+    GPU loop over the plain feed-forward generation, compiled once inside `jax.lax.while_loop`.
+    Speed only, within one float32 ulp of fitness; it refuses every setting outside that generation.
+    See [the generation loop](docs/configuration.md#the-generation-loop).
   - **The split routes** (`multi_gpu_strategy: population_pmap`, `position_sharding` or `hybrid`):
     `single_gpu`'s generation with its one-output CPPN query and its evaluation spread over a grid
     of devices, which the `emr_hyperneat.parallel` block sets (`population_devices`,
@@ -120,20 +219,20 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
     genomes, by grid positions or both, and the evaluation is split by genomes; the rest of the
     generation, hidden-to-hidden discovery at any iteration level included, runs on the first
     device. Every setting of the standard generation runs, and on CPU devices a run equals
-    `single_gpu`'s bit for bit (on GPUs, to float32 rounding). The HMR engine's names map onto them:
-    `population_parallel` is `population_pmap`; `position_pmap`, `shard_map`, `cppn_chunked` and
-    `position_sharding_chunked` are `position_sharding`. See
+    `single_gpu`'s bit for bit (on GPUs, to float32 rounding). The prototype engine's names map onto
+    them: `population_parallel` is `population_pmap`; `position_pmap`, `shard_map`, `cppn_chunked`
+    and `position_sharding_chunked` are `position_sharding`. See
     [`parallel`](docs/configuration.md#parallel-the-split-routes-device-grid). In 0.1.0 these names
     ran on one device (Changed gives the two chunked ones): the configuration key warned and ran
     `single_gpu`, and the constructor ran the one-device loop under the name.
-  - **The island model** (`multi_gpu_strategy: island_model`, and the HMR engine's
+  - **The island model** (`multi_gpu_strategy: island_model`, and the prototype engine's
     `island_model_v2`): islands of the population evolve apart in lockstep, each a `single_gpu` run
     on its device at its own population and seed, as the `emr_hyperneat.islands` block sets
     (`count`, `populations`, `devices`, `migration_interval`, `migrants`, `topology`). Every
     `migration_interval` generations each island's best `migrants` genomes go, with their fitness,
     to the next island (`ring`), to every other (`star`) or to one drawn from the run's seed
     (`random`), and replace the receiver's worst genomes in its next selection step. Island i's seed
-    is drawn from the run's seed and i (`island_seed`), where the HMR engine's `seed + i` made
+    is drawn from the run's seed and i (`island_seed`), where the prototype engine's `seed + i` made
     island 1 of seed 42 island 0 of seed 43. See
     [`islands`](docs/configuration.md#islands-the-island-model). 0.1.0 ran both names on one device,
     as the split routes' names.
@@ -154,26 +253,26 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   compared the evolved assignment with a single random one. A reused algorithm object also draws
   again for its next run.
 - **`neuromodulation.node_rule: paper`**, the published neuromodulated node, on every path
-  (`node_rule: hmr_full`). In 0.1.0 the single-task path computed HMR FULL's rule (an unclipped
-  gain, no bias, the gate `sigmoid(5 m)`) and the multi-task path the published one (a gain clipped
-  to [0.1, 5], an additive bias, the gate `sigmoid(m)`). The output inversion acts only when
-  `use_output_inversion` is set and the vector has four channels or more: 0.1.0's multi-task path
-  read the fourth channel whatever the count, so with two or three channels a modulation channel
-  also inverted the outputs, and it ignored the flag.
+  (`node_rule: steep_gate`). In 0.1.0 the single-task path computed the rule of the prototype's FULL
+  variant (an unclipped gain, no bias, the gate `sigmoid(5 m)`) and the multi-task path the
+  published one (a gain clipped to [0.1, 5], an additive bias, the gate `sigmoid(m)`). The output
+  inversion acts only when `use_output_inversion` is set and the vector has four channels or more:
+  0.1.0's multi-task path read the fourth channel whatever the count, so with two or three channels
+  a modulation channel also inverted the outputs, and it ignored the flag.
 - **`hh_activation_mode: every_iteration`**. 0.1.0's default, `initial_only`, is refused outside
-  `recurrence.settling_rule: hmr`; `tanh` settles as it did when no input aggregation is configured.
+  `recurrence.settling_rule: drive_once`; `tanh` settles as it did when no input aggregation is configured.
 
 ### Changed
 
-- **Mode `modular`** computes HMR's three layers; 0.1.0 warned that it was not implemented and
-  evaluated fixed `tanh`. With `aggregation.mode: modular` its aggregation method applies; 0.1.0 ran
-  `sum`.
+- **Mode `modular`** computes the prototype's three layers; 0.1.0 warned that it was not implemented
+  and evaluated fixed `tanh`. With `aggregation.mode: modular` its aggregation method applies; 0.1.0
+  ran `sum`.
 - **A runner's `agg_palette` takes effect** (0.1.0 read no aggregation palette), and the palettes a
   runner sets between generations (`df_palette`, `agg_palette`) are checked every generation: an
   entry outside its function list raises. 0.1.0 failed with an `IndexError` at evaluation on an
   activation entry beyond the list and silently wrapped a negative one.
 - **`cppn_chunked` and `position_sharding_chunked` run the position split** (`position_sharding`), a
-  CPPN query split by grid position, as the HMR engine ran them. 0.1.0's configuration key ran
+  CPPN query split by grid position, as the prototype engine ran them. 0.1.0's configuration key ran
   `cppn_chunked` as `streaming`, one device querying one level at a time, and
   `position_sharding_chunked` as `full_pipeline_parallel`, the data-parallel pipeline. A run under
   either name computes what `single_gpu` computes, bit for bit on a CPU; name `streaming` or
@@ -187,8 +286,8 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
 
 ### Removed
 
-- `emr_hyperneat/_hmr_frozen/`, the frozen HMR engine (8 modules, 53,215 lines), and its tests
-  (`test_hmr_frozen.py`). No module, test or paper script imports it; release 0.1.0 ships it, and
+- The frozen prototype engine (8 modules, 53,215 lines) and its tests. No module, test or paper
+  script imports it; release 0.1.0 ships it, and
   `scripts/replicate.py` runs the published originals there.
 - The code in `_compat/utils/jax_smart_config.py` that added `--xla_gpu_deterministic_ops=true` to
   `XLA_FLAGS`. Nothing in 0.1.0 reached it.
@@ -264,7 +363,8 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   multi-task evaluators compute (accuracy plus 0.01 of 1 - MSE; accuracy plus 0.1 of the outputs'
   mean distance from 0.5). In 0.1.0 both names computed MSE there.
 - **`substrate.hidden_activation` and `output_activation` are the defaults of the
-  `dynamic_functions` activations**, as in HMR's dynamic-functions variant; 0.1.0 read neither key.
+  `dynamic_functions` activations**, as in the prototype's dynamic-functions variant; 0.1.0 read
+  neither key.
 - **With `weight_interpretation` aggregation the hidden-to-hidden side follows the
   interpretation**; 0.1.0 ran `magnitude_bio` there for `sign_uniformity` and `fan_in`.
 - **`variance_rule: legacy` applies on every execution mode.** In 0.1.0 streaming and depth_offload
@@ -373,10 +473,10 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   holds every set. 0.1.0 kept such a genome's first pairs in (source, target) position order, not
   its strongest, without a word (`sparse_cap_policy: truncate` does that, with a warning), and its
   depth offload raised `RuntimeError` at the cap.
-- `hh_activation_mode: initial_only` outside `recurrence.settling_rule: hmr`,
+- `hh_activation_mode: initial_only` outside `recurrence.settling_rule: drive_once`,
   `dynamic_functions.global_activation`, `aggregation.global_aggregation`, and
   `cppn_output_indices.weight` other than 0.
-- Dynamic functions, aggregation, neuromodulation or `settling_rule: hmr` with `depth_offload`,
+- Dynamic functions, aggregation, neuromodulation or `settling_rule: drive_once` with `depth_offload`,
   `eval_only_parallel` or, on two or more devices, `population_parallel_process`, whose evaluations
   run `tanh` nodes with sum aggregation; dynamic functions or aggregation on any
   `run_generation_multitask` call; recurrence with its two-module mode.
@@ -394,9 +494,9 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   known. In the tests alone: `emr_hyperneat.extended` (two "recurrence" tests ran feed-forward),
   `strategy`, `pop_size`, `dynamic_functions.activation_palette`, `aggregation.aggregation_func`,
   `geometry_seeding.use_7d_inputs` (a "5-D" preset ran 7-D rows), the neuromodulation level flags
-  outside mode `custom` (beside an HMR mode name, a flag that repeats its preset is accepted),
-  `context_derivation` and `num_nt`. `neat.species_size` is accepted. An HMR-shaped configuration
-  (`algorithm_params.hmrhyperneat`) raises instead of running every default.
+  outside mode `custom` (beside one of the prototype's mode names, a flag that repeats its preset
+  is accepted), `context_derivation` and `num_nt`. `neat.species_size` is accepted. A
+  configuration shaped for the prototype engine raises instead of running every default.
   `recurrence.max_connections`, checked and never read, warns (`UserWarning`).
 - Unknown activation, aggregation and interpretation names, palette entries outside
   `ACTIVATION_LIST`, an unknown `aggregation.mode` or `hh_aggregation_mode` (0.1.0 ran `tanh`,
@@ -412,9 +512,9 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   `cppn_output`, beside a `palette`, and on depth offload, the multi-device routes and
   `run_generation_multitask`; a `fitness_rescale_variance` that is not positive; `mod_neuron_ratio`
   outside (0, 1]; an aggregation palette under a mode that decodes no per-node aggregation.
-- An unknown neuromodulation mode or preset (HMR's mode names translate; 0.1.0 accepted any mode
-  name and raised at the first generation), a mode or preset that combines levels (`full`), a mode
-  that contradicts the preset, `branch_gating: true` (never implemented), and `enabled` that
+- An unknown neuromodulation mode or preset (the prototype's mode names translate; 0.1.0 accepted
+  any mode name and raised at the first generation), a mode or preset that combines levels (`full`),
+  a mode that contradicts the preset, `branch_gating: true` (never implemented), and `enabled` that
   contradicts the mode (true with no mode or preset, false with one; 0.1.0 ran the mode whatever
   `enabled` said); a `node_rule` other than `paper` outside `true_neuromodulation`; a
   `context_source` other than `'task_id'`, now its default (0.1.0 accepted `'input'` and `'learned'`
@@ -425,7 +525,7 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
   `tanh` for an unknown activation, as `evaluate_with_neurotransmitter` did);
   `orthogonality_bonus`, `specialization_bonus` and `confusion_eval_frequency` away from their
   defaults, which nothing applies. The two bonuses, `confusion_eval_frequency` and the generalist
-  bonus type are checked on a `MultiTaskConfig` set by hand or by HMR's call form too.
+  bonus type are checked on a `MultiTaskConfig` set by hand or by the prototype's call form too.
 - `enabled: false` together with `allow_hidden_to_hidden: true`, and a recurrence preset
   contradicted by `enabled` or `allow_hidden_to_hidden` in the same block (in 0.1.0 the preset took
   precedence over both keys).
@@ -454,32 +554,34 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
 
 ### Papers
 
-- **The scripts whose published runs used the HMR engine are EMR versions**, since 0.2.0 does not
-  ship that engine:
+- **The scripts whose published runs used the prototype engine are EMR versions**, since 0.2.0 does
+  not ship that engine:
   - `emr-dynamic-functions-bio-inspired`: the ten `benchmark_bio_*` runners;
   - `emr-dynamic-functions`: `E3_population_sensitivity.py`, `E4_recurrent_parity8.py` and
     `E5_recurrence_type.py`;
   - `emr-hyperneat`: `run_gecco2026_experiments.py` and `run_statistical_validation.py`;
   - `emr-neuromodulation`: the shared runner `multihead_palette_neuromodulation.py` runs EMR only
-    (0.1.0's `backend` parameter selected the HMR engine), with the scripts that drive it.
+    (0.1.0's `backend` parameter selected the prototype engine), with the scripts that drive it.
 
-  Each runs its experiment as it ran: population 150 where the HMR variant ignored `neat.pop_size`,
-  and iteration level 2 for the recurrent presets that ran it. It runs on EMR's defaults with HMR's
-  level-0 variance rule and random-key split pinned (`scripts/runners/emr_settings.py`,
-  `USE_HMR_RULE_AND_SPLIT`), and writes to `results/<dir>_emr/`, apart from the published runs.
-  `run_gecco2026_experiments.py` runs `with_lateral` and `with_self` as their names say, where the
-  HMR engine ran both as `hidden_only`. Each paper's README gives, run by run at one seed, what EMR
-  gives against the HMR engine of release 0.1.0. The published runs reproduce on 0.1.0 with
+  Each runs its experiment as it ran: population 150 where the prototype variant ignored
+  `neat.pop_size`, and iteration level 2 for the recurrent presets that ran it. It runs on EMR's
+  defaults with the prototype's level-0 variance rule and random-key split pinned
+  (`scripts/runners/emr_settings.py`, `USE_PROTOTYPE_RULE_AND_SPLIT`), and writes to
+  `results/<dir>_emr/`, apart from the published runs. `run_gecco2026_experiments.py` runs
+  `with_lateral` and `with_self` as their names say, where the prototype engine ran both as
+  `hidden_only`. Each paper's README gives, run by run at one seed, what EMR gives against the
+  prototype engine of release 0.1.0. The published runs reproduce on 0.1.0 with
   `scripts/replicate.py`.
 - `benchmark_seed_upgrade.py` and `probe_emr_config.py` of `emr-neuromodulation`, which failed at
   import in 0.1.0, import the shared runner from its folder.
-- The per-node paper's validator `scripts/analysis/_validate_emr_port.py` compares EMR with HMR's 18
-  trajectories recorded on 0.1.0 (`scripts/analysis/hmr_trajectories.json`) instead of running the
-  frozen module.
+- The per-node paper's validator `scripts/analysis/_validate_emr_port.py` compares EMR with the
+  prototype's 18 trajectories recorded on 0.1.0 (`scripts/analysis/prototype_trajectories.json`)
+  instead of running the frozen module.
 - Every other paper script keeps 0.1.0's code: apart from docstrings, the syntax trees of 534 of the
   555 Python files 0.1.0 ships under `papers/` are unchanged.
 - `TestBioInspiredPaper`'s golden is recorded again on the EMR version of its runner
-  (0.775484561920166, on arm64 and x86_64); 0.1.0's, on the HMR engine, was 0.7666119933128357.
+  (0.775484561920166, on arm64 and x86_64); 0.1.0's, on the prototype engine, was
+  0.7666119933128357.
 
 ### Documentation and text
 
@@ -532,8 +634,8 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
       activations such as `sin` solve parity beyond XOR, which monotonic activations almost never
       do.
   - **Populations in six bio-inspired runners:** their docstrings stated populations of 200 to 800,
-    passed as `neat.pop_size`. The HMR variant they ran reads `population_size`, so every published
-    run used 150, as the paper's errata record.
+    passed as `neat.pop_size`. The prototype variant they ran reads `population_size`, so every
+    published run used 150, as the paper's errata record.
   - **The base class `EMRHyperNEATMultiGPU`** (not exported) makes none of 0.1.0's unmeasured
     claims: depth 7 at population 1000 on 11 GiB GPUs, "the MOST EFFICIENT multi-GPU approach",
     "near-linear speedup", a faster Python loop for one generation.
@@ -568,8 +670,8 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
     must equal a single-device run's; marked slow, each split route runs five generations against
     `single_gpu`, bit for bit in ten forms, with a negative control;
   - `test_device_split.py`: the split routes' query and evaluation backends, the device grid and its
-    refusals, the HMR engine's names, the one-device fallback; on two, three and four forced CPU
-    devices (marked slow) every grid's query equals the one-device query bit for bit, and a
+    refusals, the prototype engine's names, the one-device fallback; on two, three and four forced
+    CPU devices (marked slow) every grid's query equals the one-device query bit for bit, and a
     generation with both backends equals `single_gpu`'s in eleven evaluation forms;
   - `test_islands.py`: the island seeds, every refusal, each island equal to `single_gpu` at its
     seed and population bit for bit over five generations, migration against the same islands
@@ -578,17 +680,18 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
     script of every paper loads as `python script.py` would load it), `test_pytest_config.py`,
     `test_x64.py`, `test_pipeline_hh_outside_pmap.py`;
   - `test_silent_drops.py`: the settings above that 0.1.0 accepted and ignored raise;
-  - the HMR features' tests: `test_hmr_reference.py`, `test_hmr_names.py`,
-    `test_hmr_base_settings.py`, `test_unified_recipe.py`, `test_live_palette_strategy.py`,
-    `test_anti_node_rule.py`, `test_custom_levels.py`, `test_leo_hmr_compound.py`,
+  - the prototype features' tests: `test_prototype_reference.py`, `test_aliases.py`,
+    `test_prototype_base_settings.py`, `test_unified_recipe.py`, `test_live_palette_strategy.py`,
+    `test_anti_node_rule.py`, `test_custom_levels.py`, `test_leo_compound_unrescaled.py`,
     `test_additive_settling.py`, `test_leo_features.py`, `test_continual_learning.py`,
-    `test_palette_evolution.py` and `test_node_list.py`. They read the HMR side from values recorded
-    from the HMR engine on arm64 and x86_64 (`hmr_reference.py`, `hmr_reference_values.py`), never
-    from a live HMR engine;
+    `test_palette_evolution.py` and `test_node_list.py`. They read the prototype side from values
+    recorded from the prototype engine on arm64 and x86_64 (`prototype_reference.py`,
+    `prototype_reference_values.py`), never from a live prototype engine;
   - `test_generation_loop.py` (the traceable feed-forward generation against the general path, the
-    `while_loop` against the default loop, the HMR engine's own loop through the recorded values).
-- `test_isolation.py`: no module of the package and no paper or release script imports the HMR
-  engine or passes `backend='hmr'`, by syntax tree, and the frozen package is not importable.
+    `while_loop` against the default loop, the prototype engine's own loop through the recorded
+    values).
+- `test_isolation.py`: no module of the package and no paper or release script imports the prototype
+  engine or selects it as a backend, by syntax tree, and the frozen package is not importable.
 - `test_smoke.py` runs `fitness_utils.py`: its docstring's example, every fitness mode and its
   jitted form, and the threshold helper.
 - `TestMaxConnectionsConfig` checks that `recurrence.max_connections` warns and changes nothing.
@@ -598,7 +701,7 @@ with 0.1.0; the neuromodulation paper's runner departs from 0.1.0, because 0.2.0
 - Paper validation also covers the per-node paper's depth (E8) and Two Spirals (E7) runners. The
   `replicate` job of the paper-validation workflow, on manual dispatch, runs each release that
   `papers/releases.json` names through the script, with that release's own paper findings, and
-  reruns 0.1.0's two slow classes whose runners ran the HMR engine there.
+  reruns 0.1.0's two slow classes whose runners ran the prototype engine there.
 - The CPU subprocesses of the paper-validation tests and of the golden test drop an inherited
   `JAX_PLATFORM_NAME` and `JAX_BACKEND_TARGET`, which made them ask a CPU-only JAX for a GPU
   backend.
@@ -639,8 +742,8 @@ Initial public release of EMR-HyperNEAT as a standalone, installable package.
 - **Evolvable computation**: per-node activation and aggregation functions, palette evolution, and
   4-vector neuromodulation for multi-behavior genotypes.
 - **Substrate rule**: `variance_rule` defaults to `canonical` (one substrate across execution
-  modes); `legacy` reproduces the published standard-path numbers, and the frozen `_hmr_frozen`
-  module reproduces specific published tables bit-for-bit.
+  modes); `legacy` reproduces the published standard-path numbers, and the frozen prototype
+  engine reproduces specific published tables bit-for-bit.
 - **Multi-GPU**: single-device by default; `full_pipeline_parallel`, `eval_only_parallel`, and
   `streaming` distribute across devices through `run_until_threshold`.
 - **Tests**: cross-layout contracts assert bitwise on CPU and to float32 rounding on a GPU;

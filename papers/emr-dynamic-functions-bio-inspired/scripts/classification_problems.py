@@ -10,7 +10,7 @@ Key Problems:
 - Concentric Circles: Tests radial pattern recognition
 - Parity (N-bit): Tests deep logical reasoning
 
-Each problem matches the interface expected by HMR-HyperNEAT:
+Each problem matches the interface expected by the prototype engine:
 - input_shape, output_shape: Tuple dimensions
 - jitable, use_bias: Boolean flags
 - get_data(): Returns list of (input, target) tuples

@@ -1,12 +1,12 @@
-"""HMR ANTI's neuromodulation rule as neuromodulation.node_rule 'anti'.
+"""The neuromodulation rule of the prototype's ANTI variant as neuromodulation.node_rule 'anti'.
 
-ANTI (HMR's anti-correlated-receptors neuromodulation variant) modulates every node from every
-neurotransmitter channel, m = receptors @ nt, with gains clip(bg + s m, 0.1, 5) and the gate
+ANTI (the prototype's anti-correlated-receptors neuromodulation variant) modulates every node from
+every neurotransmitter channel, m = receptors @ nt, with gains clip(bg + s m, 0.1, 5) and the gate
 sigmoid(m): act(gains pre) * sigmoid(m), no bias and no output inversion. The paper's rule reads
-three channels and inverts the outputs with the fourth; HMR FULL's has unclipped gains and the gate
-sigmoid(5 m). The parity test runs EMR's rule on ANTI's own arrays against ANTI's own population
-evaluator, both as recorded in the research repository (hmr_reference.py); the other two rules are
-the negative control.
+three channels and inverts the outputs with the fourth; the rule of the prototype's FULL variant
+has unclipped gains and the gate sigmoid(5 m). The parity test runs EMR's rule on ANTI's own arrays
+against ANTI's own population evaluator, both as recorded in the research repository
+(prototype_reference.py); the other two rules are the negative control.
 """
 import jax
 import jax.numpy as jnp
@@ -19,7 +19,7 @@ from emr_hyperneat.emrhyperneat import (
     refuse_anti_branch_gating,
     true_neuromodulation_node_rule,
 )
-from hmr_reference import hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import prototype_value, live  # type: ignore[import-not-found]
 
 XOR_X = jnp.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]], dtype=jnp.float32)
 XOR_Y = jnp.array([[0.], [1.], [1.], [0.]], dtype=jnp.float32)
@@ -38,17 +38,17 @@ class _TwoInputXOR:
         return list(zip(self.inputs, self.targets))
 
 
-def _hmr_config():
+def _prototype_config():
     """ANTI's true neuromodulation: Option A from the weight (tanh), four NT types, strength 5."""
     return {
         'algorithm_params': {
-            'hmrhyperneat': {
+            'emrhyperneat': {
                 'population_size': 10,
                 'substrate': {
                     'input_coords': [[-1.0, 0.0], [1.0, 0.0]],
                     'output_coords': [[0.0, 1.0]],
                 },
-                'hmr_hyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': 3,
                     'variance_threshold': 0.03,
@@ -65,8 +65,8 @@ def _hmr_config():
 
 def _as_emr(config, **neuromodulation):
     params = dict(config['algorithm_params'])
-    block = dict(params.pop('hmrhyperneat'))
-    emr = dict(block.pop('hmr_hyperneat'), variance_rule='legacy')
+    block = dict(params.pop('emrhyperneat'))
+    emr = dict(block.pop('emr_hyperneat'), variance_rule='legacy')
     emr['neuromodulation'] = {**emr['neuromodulation'], **neuromodulation}
     block['emr_hyperneat'] = emr
     params['emrhyperneat'] = block
@@ -76,16 +76,16 @@ def _as_emr(config, **neuromodulation):
 @pytest.fixture(scope='module')
 def antis_arrays():
     """One generation of ANTI: its arrays, its NT for the single-task run, and its own evaluator's
-    fitness (hmr_reference.py)."""
-    args = (_hmr_config(), _TwoInputXOR(), DEFAULT_SEED, 'xor', XOR_X, XOR_Y)
-    return hmr_value('anti_node_rule.antis_arrays', lambda: live('anti_arrays', *args), inputs=args)
+    fitness (prototype_reference.py)."""
+    args = (_prototype_config(), _TwoInputXOR(), DEFAULT_SEED, 'xor', XOR_X, XOR_Y)
+    return prototype_value('anti_node_rule.antis_arrays', lambda: live('anti_arrays', *args), inputs=args)
 
 
 def _ours(rule, arrays, nt):
     algorithm = EMRHyperNEAT()
     problem = _TwoInputXOR()
     state = algorithm.initialize(
-        algorithm.create_config(_as_emr(_hmr_config(), node_rule=rule)), problem, seed=DEFAULT_SEED
+        algorithm.create_config(_as_emr(_prototype_config(), node_rule=rule)), problem, seed=DEFAULT_SEED
     )
     algorithm.run_generation_verbose(state, problem, skip_metrics=True)
     return np.asarray(algorithm._eval_population_true_neuromodulated(*arrays, nt, XOR_X, XOR_Y))
@@ -96,7 +96,7 @@ class TestAgainstLiveAnti:
         arrays, nt, theirs = antis_arrays
         np.testing.assert_allclose(_ours('anti', arrays, nt), theirs, rtol=0, atol=1e-6)
 
-    @pytest.mark.parametrize('rule', ['paper', 'hmr_full'])
+    @pytest.mark.parametrize('rule', ['paper', 'steep_gate'])
     def test_negative_control_the_other_rules(self, antis_arrays, rule):
         arrays, nt, theirs = antis_arrays
         assert float(np.max(np.abs(_ours(rule, arrays, nt) - theirs))) > 1e-3
@@ -126,11 +126,11 @@ def test_the_rule():
 class TestChecks:
     @staticmethod
     def _create(**neuromodulation):
-        EMRHyperNEAT().create_config(_as_emr(_hmr_config(), **neuromodulation))
+        EMRHyperNEAT().create_config(_as_emr(_prototype_config(), **neuromodulation))
 
     def test_no_output_inversion(self):
         algorithm = EMRHyperNEAT()
-        algorithm.create_config(_as_emr(_hmr_config(), node_rule='anti'))
+        algorithm.create_config(_as_emr(_prototype_config(), node_rule='anti'))
         assert algorithm.neuromod_config.use_output_inversion is False
 
     @pytest.mark.parametrize('neuromodulation, match', [
@@ -141,7 +141,7 @@ class TestChecks:
         with pytest.raises(ValueError, match=match):
             self._create(**neuromodulation)
 
-    @pytest.mark.parametrize('rule', ['anti', 'hmr_full'])
+    @pytest.mark.parametrize('rule', ['anti', 'steep_gate'])
     def test_a_rule_outside_true_neuromodulation(self, rule):
         """Another mode would ignore a node rule, so it raises.
         """
@@ -184,7 +184,7 @@ class TestBranchGating:
         algorithm = EMRHyperNEAT()
         problem = _TwoInputXOR()
         state = algorithm.initialize(
-            algorithm.create_config(_as_emr(_hmr_config(), node_rule='anti')),
+            algorithm.create_config(_as_emr(_prototype_config(), node_rule='anti')),
             problem,
             seed=DEFAULT_SEED,
         )
@@ -195,3 +195,22 @@ class TestBranchGating:
             algorithm.evaluate_with_neurotransmitter(
                 nt, XOR_X, XOR_Y, branch_gating_mode='hierarchical'
             )
+
+
+class TestChannelCount:
+    """'anti' reads every neurotransmitter channel and the single-task vector has four, so more channels are refused
+    without multi-task, which gives each task a vector of num_nt_types channels."""
+
+    @pytest.mark.parametrize('num_nt', [5, 6])
+    def test_single_task_above_four_is_refused(self, num_nt):
+        config = create_config_with_neuromodulation('true_neuromodulation_4nt', recurrence_preset='feedforward',
+                                                    node_rule='anti', use_output_inversion=False,
+                                                    num_nt_types=num_nt)
+        with pytest.raises(ValueError, match='single-task vector has four'):
+            EMRHyperNEAT().create_config(config)
+
+    def test_multi_task_above_four_is_accepted(self):
+        config = create_config_with_multi_task(['xor', 'and'], recurrence_preset='feedforward')
+        emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr['neuromodulation'].update(node_rule='anti', use_output_inversion=False, num_nt_types=5)
+        EMRHyperNEAT().create_config(config)

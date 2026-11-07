@@ -99,7 +99,7 @@ class ParameterSupportValidator:
             return result
 
         # Walk all fields in the model
-        for field_name, field_info in config.model_fields.items():
+        for field_name, field_info in type(config).model_fields.items():
             current_path = f"{path}.{field_name}" if path else field_name
             current_value = getattr(config, field_name, None)
 

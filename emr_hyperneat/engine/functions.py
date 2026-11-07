@@ -12,14 +12,15 @@ import numpy as np
 from emr_hyperneat.engine.config import _refuse_unknown_keys
 
 
-#: Weight interpretations of dynamic_functions mode 'weight_interpretation'. The last five are HMR's
-#: (its dynamic-functions variant); 0.1.0 ran them as magnitude_bio.
+#: Weight interpretations of dynamic_functions mode 'weight_interpretation'. The last five are the
+#: prototype's (its dynamic-functions variant); 0.1.0 ran them as magnitude_bio.
 ACTIVATION_INTERPRETATIONS = ('magnitude_bio', 'variance', 'sign', 'magnitude', 'combined',
                               'hierarchical_sparsity', 'sparsity_threshold', 'stp_inspired')
 #: Aggregation interpretations (aggregation mode 'weight_interpretation' and
 #: modular.aggregation_method).
 AGGREGATION_INTERPRETATIONS = ('magnitude_bio', 'variance', 'sign_uniformity', 'fan_in')
-#: The three layers of dynamic_functions mode 'modular' (HMR's names), and its aggregation method.
+#: The three layers of dynamic_functions mode 'modular' (the prototype's names), and its aggregation
+#: method.
 MODULAR_ACTIVATION_METHODS = ('none', 'magnitude_bio', 'magnitude', 'sign', 'variance')
 MODULAR_SPARSITY_METHODS = ('none', 'hierarchical', 'threshold', 'wta')
 MODULAR_SCALING_METHODS = ('none', 'stp_inspired')
@@ -29,7 +30,7 @@ MODULAR_AGGREGATION_METHODS = ('none',) + AGGREGATION_INTERPRETATIONS
 def activation_interpretation_signal(weights: jnp.ndarray, interpretation: str) -> jnp.ndarray:
     """The per-node value a weight interpretation decodes into an activation index.
 
-    The formulas are HMR's (dynamic-functions variant). The three sparsity and scaling
+    The formulas are the prototype's (dynamic-functions variant). The three sparsity and scaling
     interpretations select the activation as magnitude_bio does; what else they do is applied at
     evaluation.
 
@@ -46,7 +47,7 @@ def activation_interpretation_signal(weights: jnp.ndarray, interpretation: str) 
         return jnp.tanh(jnp.var(weights, axis=1) * 5)
     mean_abs = jnp.mean(jnp.abs(weights), axis=1)
     if interpretation == 'magnitude':
-        # High magnitude to a high index (HMR's "computational" mapping)
+        # High magnitude to a high index (the prototype's "computational" mapping)
         return jnp.tanh(mean_abs * 2 - 1)
     if interpretation == 'combined':
         weight_var = jnp.var(weights, axis=1)
@@ -71,8 +72,8 @@ def activation_interpretation_signal(weights: jnp.ndarray, interpretation: str) 
 def level_sparsity_quantiles(
     level_offsets: Tuple[int, ...], sparsity: Dict[str, float]
 ) -> jnp.ndarray:
-    """Per-position quantile under which a hidden value is zeroed, by the position's grid level
-    (HMR's hierarchical sparsity): level 0 keeps the top ``level_0`` fraction of each sample's
+    """Per-position quantile under which a hidden value is zeroed, by the position's grid level (the
+    prototype's hierarchical sparsity): level 0 keeps the top ``level_0`` fraction of each sample's
     active values, level 1 ``level_1``, deeper levels ``level_2_plus``.
 
     Args:
@@ -89,16 +90,16 @@ def level_sparsity_quantiles(
 
 
 def node_sparsity_quantiles(weights: jnp.ndarray) -> jnp.ndarray:
-    """Per-node quantile from the incoming weight magnitude (HMR's sparsity threshold): a weak node
-    keeps less of its values. In [0.5, 0.95], shape (pop_size, num_nodes)."""
+    """Per-node quantile from the incoming weight magnitude (the prototype's sparsity threshold): a
+    weak node keeps less of its values. In [0.5, 0.95], shape (pop_size, num_nodes)."""
     mean_abs = jnp.mean(jnp.abs(weights), axis=1)
     return jax.nn.sigmoid(-mean_abs * 2 + 1) * 0.45 + 0.5
 
 
 def stp_depression(weights: jnp.ndarray) -> jnp.ndarray:
-    """Per-node factor that scales a node's incoming weights (HMR's static short-term-plasticity
-    approximation): a strong node, with a high release probability U, is depressed more. In
-    [0.6, 0.95], shape (pop_size, num_nodes)."""
+    """Per-node factor that scales a node's incoming weights (the prototype's static
+    short-term-plasticity approximation): a strong node, with a high release probability U, is
+    depressed more. In [0.6, 0.95], shape (pop_size, num_nodes)."""
     mean_abs = jnp.mean(jnp.abs(weights), axis=1)
     release = jax.nn.sigmoid(mean_abs * 2) * 0.7 + 0.1
     return 1.0 - release * 0.5
@@ -110,10 +111,11 @@ def sparsify_by_quantile(
     """Zero each hidden value below its node's quantile of the sample's absolute values over the
     active nodes.
 
-    HMR took the quantile over every position of the evaluation axis, so a genome's inactive
-    positions (and the padding of its sparse path) entered the order statistics with the value their
-    function gives at zero input (0 for tanh, 0.5 for sigmoid, 1 for gauss), and the kept fraction
-    depended on how many positions were inactive. Here only the genome's active nodes count.
+    The prototype took the quantile over every position of the evaluation axis, so a genome's
+    inactive positions (and the padding of its sparse path) entered the order statistics with the
+    value their function gives at zero input (0 for tanh, 0.5 for sigmoid, 1 for gauss), and the
+    kept fraction depended on how many positions were inactive. Here only the genome's active nodes
+    count.
 
     Args:
         hidden: One genome's hidden values, shape (num_samples, num_nodes).
@@ -139,8 +141,8 @@ def sparsify_winner_take_all(
     """Keep the ``k_percent`` largest absolute values of each sample among the active nodes (at
     least one).
 
-    HMR counted the k from every position of the evaluation axis, active or not; here it is a
-    fraction of the genome's active nodes.
+    The prototype counted the k from every position of the evaluation axis, active or not; here it
+    is a fraction of the genome's active nodes.
     """
     magnitude = jnp.abs(hidden)
     ordered = jnp.sort(jnp.where(node_mask[None, :], magnitude, -jnp.inf), axis=-1)
@@ -180,20 +182,20 @@ def parse_function_palette(entries: Any, names: List[str], where: str) -> jnp.nd
     return jnp.array(indices, dtype=jnp.int32)
 
 
-#: dynamic_functions.palette_evolution's settings (from HMR's dynamic-functions variant).
+#: dynamic_functions.palette_evolution's settings (from the prototype's dynamic-functions variant).
 PALETTE_EVOLUTION_KEYS = frozenset({
     'enabled', 'mutation_rate', 'min_active', 'initial_mask', 'stagnation_generations', 'decode',
 })
 #: How the per-node decode reads an evolving palette. 'stable': the channel is binned over the whole
 #: ACTIVATION_LIST and a disabled function snaps to its nearest enabled one, so toggling one
-#: function changes only the nodes of its bin. 'rebin': HMR's, the channel binned over the enabled
-#: functions, so every toggle moves every bin and remaps a quarter to a half of every genome's
-#: nodes, the champion's included, with no change to any genome.
+#: function changes only the nodes of its bin. 'rebin': the prototype's, the channel binned over the
+#: enabled functions, so every toggle moves every bin and remaps a quarter to a half of every
+#: genome's nodes, the champion's included, with no change to any genome.
 PALETTE_EVOLUTION_DECODES = ('stable', 'rebin')
 
 
 def parse_palette_evolution(block: Dict[str, Any]) -> Dict[str, Any]:
-    """dynamic_functions.palette_evolution, checked (HMR's fell back silently: an unknown
+    """dynamic_functions.palette_evolution, checked (the prototype's fell back silently: an unknown
     initial_mask ran 'full', out-of-range indices were dropped, min_active was never checked against
     the initial mask).
 
@@ -254,7 +256,7 @@ def parse_palette_evolution(block: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-#: dynamic_functions.live_strategy's settings (HMR's live palette strategy).
+#: dynamic_functions.live_strategy's settings (the prototype's live palette strategy).
 LIVE_STRATEGY_KEYS = frozenset(
     {'enabled', 'perturbation_rate', 'perturbation_strength', 'perturbation_decay'}
 )
@@ -264,7 +266,7 @@ LIVE_STRATEGY_KEY = 0x11FE
 
 
 def parse_live_strategy(block: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """dynamic_functions.live_strategy, checked (HMR read its settings unchecked).
+    """dynamic_functions.live_strategy, checked (the prototype read its settings unchecked).
 
     Returns:
         None when the block is absent or disabled; otherwise perturbation_rate (the share of the
@@ -328,9 +330,9 @@ def palette_snap_table(mask: np.ndarray) -> np.ndarray:
 def mutate_palette_mask(
     key: jnp.ndarray, mask: np.ndarray, mutation_rate: float, min_active: int
 ) -> np.ndarray:
-    """HMR's palette mutation: every function's bit flips with probability ``mutation_rate``; a
-    result with fewer than ``min_active`` functions keeps the old mask. The draw is HMR's
-    (``jax.random.uniform`` over the list).
+    """The prototype's palette mutation: every function's bit flips with probability
+    ``mutation_rate``; a result with fewer than ``min_active`` functions keeps the old mask. The
+    draw is the prototype's (``jax.random.uniform`` over the list).
     """
     flip = np.asarray(jax.random.uniform(key, (mask.shape[0],))) < mutation_rate
     new = np.where(flip, ~mask, mask)
@@ -384,23 +386,23 @@ ACTIVATION_LIST = [
     'osc_adapt', 'gain_mod', 'receptive', 'band_pass', 'integrate',
 ]
 
-#: The number of functions in ACTIVATION_LIST: 18 (HMR's name; its dynamic-functions variant's list
-#: holds the same 18, although its comment says 13)
+#: The number of functions in ACTIVATION_LIST: 18 (the prototype's name; its dynamic-functions
+#: variant's list holds the same 18, although its comment says 13)
 NUM_ACTIVATIONS = len(ACTIVATION_LIST)
 
 
 #: Where cppn_output reads a node's function channel ('self': at the node's self-connection, EMR's
-#: read; 'input_mean': averaged over the input-to-node queries, HMR's dynamic-functions and
-#: aggregation variants) and what the weight interpretations read ('w1': EMR's W1, the weight
+#: read; 'input_mean': averaged over the input-to-node queries, the prototype's dynamic-functions
+#: and aggregation variants) and what the weight interpretations read ('w1': EMR's W1, the weight
 #: channel scaled by tanh times max_weight and thresholded; 'raw': the weight channel itself,
-#: unmasked, as HMR read it). Opt-ins, for runs that reproduce HMR's.
-HMR_READS = {'cppn_read': ('self', 'input_mean'), 'weight_source': ('w1', 'raw')}
+#: unmasked, as the prototype read it). Opt-ins, for runs that reproduce the prototype's.
+PROTOTYPE_READS = {'cppn_read': ('self', 'input_mean'), 'weight_source': ('w1', 'raw')}
 
 
-def _parse_hmr_reads(section: str, block: Dict[str, Any]) -> Tuple[str, str]:
-    """The block's cppn_read and weight_source, checked against HMR_READS."""
+def _parse_prototype_reads(section: str, block: Dict[str, Any]) -> Tuple[str, str]:
+    """The block's cppn_read and weight_source, checked against PROTOTYPE_READS."""
     values = []
-    for key, names in HMR_READS.items():
+    for key, names in PROTOTYPE_READS.items():
         value = block.get(key, names[0])
         if value not in names:
             raise ValueError(f"{section}.{key} must be one of {names}, got {value!r}")
@@ -646,9 +648,9 @@ def aggregation_from_weight_interpretation(
         return continuous_to_index(normalized, num_aggregations, decode)
 
 
-#: Draws of the random function modes. 'genome': one draw per population slot from the run's key,
-#: as HMR drew its negative controls; 'shared': 0.1.0's draw, one assignment for every genome from a
-#: fixed key.
+#: Draws of the random function modes. 'genome': one draw per population slot from the run's key, as
+#: the prototype drew its negative controls; 'shared': 0.1.0's draw, one assignment for every genome
+#: from a fixed key.
 RANDOM_SCOPES = ('genome', 'shared')
 
 
@@ -925,6 +927,27 @@ def segment_sum_2d(
     return result.at[:, segment_ids].add(data)
 
 
+def _segment_extreme_2d(
+    data: jnp.ndarray,
+    segment_ids: jnp.ndarray,
+    num_segments: int,
+    valid_mask: jnp.ndarray,
+    fill: float,
+    extreme: str,
+) -> jnp.ndarray:
+    """Segment max or min for batched 2D data (`segment_max_2d`, `segment_min_2d`).
+
+    ``fill`` (-inf for max, +inf for min) starts every segment and stands in for invalid
+    elements, so neither can win; a segment left at ``fill`` had no contribution and gives 0.
+    ``extreme`` names the scatter operation, ``'max'`` or ``'min'``.
+    """
+    n_samples = data.shape[0]
+    result = jnp.full((n_samples, num_segments), fill, dtype=data.dtype)
+    masked_data = jnp.where(valid_mask[None, :], data, fill)
+    result = getattr(result.at[:, segment_ids], extreme)(masked_data)
+    return jnp.where(result == fill, 0.0, result)
+
+
 def segment_max_2d(
     data: jnp.ndarray,
     segment_ids: jnp.ndarray,
@@ -942,15 +965,7 @@ def segment_max_2d(
     Returns:
         Max per segment, shape (n_samples, num_segments)
     """
-    n_samples = data.shape[0]
-    # Initialize with -inf so max works correctly
-    result = jnp.full((n_samples, num_segments), -jnp.inf, dtype=data.dtype)
-    # Mask invalid data to -inf
-    masked_data = jnp.where(valid_mask[None, :], data, -jnp.inf)
-    # JAX scatter max
-    result = result.at[:, segment_ids].max(masked_data)
-    # Replace -inf with 0 for segments with no contributions
-    return jnp.where(result == -jnp.inf, 0.0, result)
+    return _segment_extreme_2d(data, segment_ids, num_segments, valid_mask, -jnp.inf, 'max')
 
 
 def segment_min_2d(
@@ -970,15 +985,7 @@ def segment_min_2d(
     Returns:
         Min per segment, shape (n_samples, num_segments)
     """
-    n_samples = data.shape[0]
-    # Initialize with +inf so min works correctly
-    result = jnp.full((n_samples, num_segments), jnp.inf, dtype=data.dtype)
-    # Mask invalid data to +inf
-    masked_data = jnp.where(valid_mask[None, :], data, jnp.inf)
-    # JAX scatter min
-    result = result.at[:, segment_ids].min(masked_data)
-    # Replace +inf with 0 for segments with no contributions
-    return jnp.where(result == jnp.inf, 0.0, result)
+    return _segment_extreme_2d(data, segment_ids, num_segments, valid_mask, jnp.inf, 'min')
 
 
 def segment_count_2d(

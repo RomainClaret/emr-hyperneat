@@ -70,8 +70,8 @@ class PaletteMixin:
             )
 
     def set_palette_strategy(self, strategy: Any) -> None:
-        """HMR's live palette strategy: a runner's strategy object sets the palette after each
-        generation.
+        """The prototype's live palette strategy: a runner's strategy object sets the palette after
+        each generation.
 
         The object has ``get_active_palette()`` (ACTIVATION_LIST indices), and may have
         ``post_generation_update(generation=..., best_fitness=..., fitness_history=...)``, called
@@ -79,8 +79,8 @@ class PaletteMixin:
         Its palette now becomes the run's. When a later palette is longer, a share of the population
         (``perturbation_rate``) gets ``perturbation_strength`` added to the bias of the CPPN's
         activation output node, which moves the activation channel toward the higher bins. Without a
-        ``dynamic_functions.live_strategy`` block the call enables the strategy with HMR's defaults
-        (rate 0.15, strength 0.3, no decay), as HMR's did.
+        ``dynamic_functions.live_strategy`` block the call enables the strategy with the prototype's
+        defaults (rate 0.15, strength 0.3, no decay), as the prototype's did.
 
         Args:
             strategy: The strategy object.
@@ -92,8 +92,8 @@ class PaletteMixin:
         """
         self._check_live_strategy()
         if not callable(getattr(strategy, 'get_active_palette', None)):
-            raise TypeError("a palette strategy needs get_active_palette() (HMR skipped an object "
-                            "without it)")
+            raise TypeError("a palette strategy needs get_active_palette() (the prototype skipped "
+                            "an object without it)")
         if self._live_strategy is None:
             self._live_strategy = parse_live_strategy({'enabled': True})
         self._palette_strategy = strategy
@@ -114,7 +114,7 @@ class PaletteMixin:
         self._check_function_palettes()
 
     def update_palette_from_strategy(self, state: Any, best_fitness: float) -> Any:
-        """HMR's name: one step of the live palette strategy, after a generation's tell.
+        """The prototype's name: one step of the live palette strategy, after a generation's tell.
 
         Tells the strategy the generation (counted from 1) and its best fitness, reads its palette,
         and when the palette grew perturbs the population (:meth:`_perturb_activation_outputs`).
@@ -133,7 +133,7 @@ class PaletteMixin:
         if self._palette_strategy is None:
             raise ValueError(
                 "dynamic_functions.live_strategy is enabled but no strategy is set: call "
-                "set_palette_strategy(strategy) before the first generation (HMR "
+                "set_palette_strategy(strategy) before the first generation (the prototype "
                 "skipped the step)"
             )
         self._live_generation += 1
@@ -161,10 +161,10 @@ class PaletteMixin:
     def _perturb_activation_outputs(
         self, state: Any, old_palette_size: int, new_palette_size: int
     ) -> Any:
-        """Push a share of the population toward the bins a grown palette added (HMR's name, its
-        defect fixed).
+        """Push a share of the population toward the bins a grown palette added (the prototype's
+        name, its defect fixed).
 
-        HMR added perturbation_strength to column 0 of every node of the chosen genomes:
+        The prototype added perturbation_strength to column 0 of every node of the chosen genomes:
         TensorNEAT's node key, not the bias, so the activation channel did not move and the genomes'
         node keys became fractional. It also split state.randkey to choose them. Here the strength
         goes to the bias (column 1) of the activation output node alone, and the genomes are drawn
@@ -172,7 +172,8 @@ class PaletteMixin:
 
         Args:
             state: The state the tell returned.
-            old_palette_size: The palette's length before the step (HMR's signature; unused).
+            old_palette_size: The palette's length before the step (the prototype's signature;
+                unused).
             new_palette_size: Its length after (unused).
 
         Returns:
@@ -234,16 +235,16 @@ class PaletteMixin:
     def _palette_evolution_step(
         self, fitnesses: jnp.ndarray, custom_metrics: Dict[str, Any]
     ) -> None:
-        """HMR's palette evolution, once per generation (a random walk: the comment's 'adopt only
-        improving mutations' was never implemented, and is not here either).
+        """The prototype's palette evolution, once per generation (a random walk: the comment's
+        'adopt only improving mutations' was never implemented, and is not here either).
 
         After ``stagnation_generations`` generations without a new run-wide best fitness, every
         function's bit flips with probability ``mutation_rate`` (kept if fewer than ``min_active``
         remain); the new palette applies from the next generation. The best comes from this
-        generation's fitnesses (HMR's came from the metrics, 0.0 under skip_metrics, so it then
-        mutated every five generations). Metrics: ``palette`` (the palette this generation used),
-        ``palette_names``, ``palette_changed``, and ``next_palette`` when it changed (HMR recorded
-        the next palette under ``palette``, only on a change).
+        generation's fitnesses (the prototype's came from the metrics, 0.0 under skip_metrics, so it
+        then mutated every five generations). Metrics: ``palette`` (the palette this generation
+        used), ``palette_names``, ``palette_changed``, and ``next_palette`` when it changed (the
+        prototype recorded the next palette under ``palette``, only on a change).
         """
         evolution = getattr(self, 'df_palette_evolution', None)
         if evolution is None:
@@ -254,8 +255,8 @@ class PaletteMixin:
         values = np.asarray(fitnesses, dtype=np.float64)
         best = float(np.max(values[np.isfinite(values)])) if np.isfinite(values).any() else -np.inf
         if self._palette_best is None:
-            # HMR's first call: the first generation's best, and it already counts as a stagnant
-            # generation
+            # The prototype's first call: the first generation's best, and it already counts as a
+            # stagnant generation
             self._palette_best = best
         if best > self._palette_best:
             self._palette_best = best

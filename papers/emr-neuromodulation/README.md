@@ -18,7 +18,7 @@ Twenty of the 24 benchmark runners implement their own optimizer and neuromodula
 **inline** (no dependency on the EMR algorithm package) and run standalone. The other four call
 the shared runner described below, which runs EMR: `benchmark_expanded_random_nt.py`,
 `benchmark_extended_generations_indirect.py`, `benchmark_nt_geometry_ablation.py` and
-`benchmark_seed_upgrade.py`. Their published runs used the HMR engine (see
+`benchmark_seed_upgrade.py`. Their published runs used the prototype engine (see
 [below](#the-indirect-headline-result-requires-the-algorithm), and
 [on release 0.1.0](#reproducing-the-published-runs-on-release-010) for running them there). From
 0.2.0 `benchmark_seed_upgrade.py` imports the runner from its own folder and writes to
@@ -66,7 +66,7 @@ python scripts/figures/generate_fig_pertask_hero_result.py     # needs results/p
 The headline *indirect-encoding* multi-task barrier was produced by driving the substrate
 algorithm's neuromodulation pathway (neurotransmitter presets, per-head palettes)
 through the shared runner `scripts/runners/multihead_palette_neuromodulation.py`. From 0.2.0 the
-runner runs EMR only. The published runs used the HMR engine, which release 0.1.0 ships and
+runner runs EMR only. The published runs used the prototype engine, which release 0.1.0 ships and
 0.2.0 does not; the runner of 0.1.0 selects it through its `backend` parameter (its
 default is EMR). The `scripts/analysis/probe_emr_config.py` validator loads the shared runner from
 `scripts/runners/`: run it from this folder as `python scripts/analysis/probe_emr_config.py` (at
@@ -78,26 +78,15 @@ benchmarks and all analysis/figures above do not require them.
 
 The four scripts that call the shared runner pass it no `backend`, so on release 0.1.0 they run its
 default, EMR, and `benchmark_seed_upgrade.py` fails at import there (it imports the runner from a
-research path). This form, from the repository root, runs them on the HMR engine of release 0.1.0,
-as the published runs did:
+research path). The command that runs them on the prototype engine of release 0.1.0, as the published
+runs did, selects that engine by its 0.1.0 name. It is in this README at release 0.2.0, section
+"Reproducing the published runs on release 0.1.0":
 
 ```bash
-python scripts/replicate.py run emr-neuromodulation --release 0.1.0 -- python -c "
-import functools, runpy, sys, types
-sys.path.insert(0, 'scripts/runners')
-import multihead_palette_neuromodulation as runner
-runner.run_multihead_palette_experiment = functools.partial(runner.run_multihead_palette_experiment, backend='hmr')
-for name in ('experiments', 'experiments.neuromodulation'):
-    sys.modules.setdefault(name, types.ModuleType(name))
-sys.modules['experiments.neuromodulation.multihead_palette_neuromodulation'] = runner
-sys.argv = ['scripts/runners/benchmark_seed_upgrade.py', '--seeds', '3']
-runpy.run_path(sys.argv[0], run_name='__main__')"
+git show v0.2.0:papers/emr-neuromodulation/README.md
 ```
 
-`sys.argv` names the script and its arguments; the same lines serve
-`benchmark_expanded_random_nt.py`, `benchmark_extended_generations_indirect.py` and
-`benchmark_nt_geometry_ablation.py` (the two `experiments` lines matter only for
-`benchmark_seed_upgrade.py`). A run on the HMR engine prints its configuration lines, for example
+A run on the prototype engine prints its configuration lines, for example
 `[Neuromodulation] Mode: true_neuromodulation_4nt_option_a_tanh`, which an EMR run does not print.
 On 0.1.0 the scripts write to the published folders of the release checkout
 (`.replicate/v0.1.0/papers/emr-neuromodulation/results/`) and skip a run whose file exists there.
@@ -105,11 +94,11 @@ On 0.1.0 the scripts write to the published folders of the release checkout
 At the validation configuration, one seed per configuration (42 where the row names none) with full
 generation budgets, both engines on one x86 server (two Intel Xeon E5-2683 v4, one CPU per run,
 `XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`, jax 0.6.1), EMR in release 0.2.0 gives the
-right-hand column where the HMR engine of release 0.1.0 gave the left. A cell is the generation of
-the first solve, or not solved, with the best fitness; one seed shows where the two engines agree
-and differ, not a solve rate. The five runs end the same way on both engines.
+right-hand column where the prototype engine of release 0.1.0 gave the left. A cell is the
+generation of the first solve, or not solved, with the best fitness; one seed shows where the two
+engines agree and differ, not a solve rate. The five runs end the same way on both engines.
 
-| Run | HMR engine (release 0.1.0) | EMR (release 0.2.0) |
+| Run | Prototype engine (release 0.1.0) | EMR (release 0.2.0) |
 |---|---|---|
 | `benchmark_seed_upgrade.py --conditions 1task_xor` (seed 0) | converged at 22 (lowest task 1.000000) | converged at 22 (lowest task 1.000000) |
 | `benchmark_seed_upgrade.py --conditions 5task_xor_and_or_nand_nor` (seed 0) | not converged (lowest task 0.750000) | not converged (lowest task 0.750000) |

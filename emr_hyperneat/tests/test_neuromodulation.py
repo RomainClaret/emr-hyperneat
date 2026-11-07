@@ -307,18 +307,18 @@ class TestNeuromodulationWithDynamicFunctions:
     def test_neuromodulation_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify neuromodulation works with dynamic functions."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['dynamic_functions'] = {
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
-        hmr['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
+        emr_block['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -373,8 +373,8 @@ class TestComprehensiveNeuromodulation:
     def test_full_feature_combination(self, algorithm, xor_problem):
         """Test neuromodulation with all features enabled."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'full_recurrent',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -383,15 +383,15 @@ class TestComprehensiveNeuromodulation:
             'allow_self_loops': True,
             'iteration_level': 2,
         }
-        hmr['dynamic_functions'] = {
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'sum',
         }
-        hmr['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
+        emr_block['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=STANDARD_GENERATIONS)
 
@@ -452,8 +452,8 @@ class TestContextSource:
     @staticmethod
     def _config(**neuromodulation):
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['neuromodulation'] = {'enabled': True, 'mode': 'context_gating', 'context_dim': 4,
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['neuromodulation'] = {'enabled': True, 'mode': 'context_gating', 'context_dim': 4,
                                   **neuromodulation}
         return config
 
@@ -488,14 +488,14 @@ class TestGatedModulationConnection:
     def test_gated_with_decay(self, algorithm, xor_problem):
         """Verify gated connection type works with decay."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'modulatory_neurons',
             'mod_neuron_ratio': 0.1,
@@ -548,14 +548,14 @@ class TestOutputInversion:
     def test_output_inversion_enabled(self, algorithm, xor_problem):
         """Verify output inversion can be enabled."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -569,14 +569,14 @@ class TestOutputInversion:
     def test_output_inversion_disabled(self, algorithm, xor_problem):
         """Verify output inversion can be disabled (default)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -589,12 +589,13 @@ class TestOutputInversion:
 
 
 class TestNeuromodulationNodeRule:
-    """One neuromodulated node for every path: the paper's rule by default, HMR FULL's as an opt-in.
+    """One neuromodulated node for every path: the paper's rule by default, the rule of the
+    prototype's FULL variant as an opt-in.
 
-    The paper's rule clips the gain to [0.1, 5], adds a bias and gates with sigmoid(m); HMR FULL's,
-    the rule 0.1.0's single-task path computed (its multi-task path computed the paper's), leaves
-    the gain unclipped, adds no bias and gates with sigmoid(5 m). The output inversion reads nt[3]
-    only when the vector has four or more channels.
+    The paper's rule clips the gain to [0.1, 5], adds a bias and gates with sigmoid(m); the rule of
+    the prototype's FULL variant, which 0.1.0's single-task path computed (its multi-task path
+    computed the paper's), leaves the gain unclipped, adds no bias and gates with sigmoid(5 m). The
+    output inversion reads nt[3] only when the vector has four or more channels.
     """
 
     @staticmethod
@@ -606,7 +607,7 @@ class TestNeuromodulationNodeRule:
         pre = jnp.array([[0.4, -1.1, 2.0], [-0.5, 0.2, 0.3]])
         return receptors, base_gains, nt, pre
 
-    @pytest.mark.parametrize('rule', ['paper', 'hmr_full'])
+    @pytest.mark.parametrize('rule', ['paper', 'steep_gate'])
     @pytest.mark.parametrize('mode', ['full', 'gating_only', 'gain_bias_only'])
     def test_node_formulas(self, rule, mode):
         import jax.numpy as jnp
@@ -665,16 +666,16 @@ class TestNeuromodulationNodeRule:
         with pytest.raises(ValueError, match='node_rule must be one of'):
             algorithm.create_config(config)
 
-    def test_two_module_set_after_create_config_refuses_hmr_full(self, algorithm,
+    def test_two_module_set_after_create_config_refuses_steep_gate(self, algorithm,
                                                                  two_task_problems):
         """A runner may set two_module_mode on the multi-task configuration after create_config;
-        the modules compute the paper's rule, so 'hmr_full' is refused there too."""
+        the modules compute the paper's rule, so 'steep_gate' is refused there too."""
         import dataclasses
         from conftest import create_config_with_multi_task
         config = create_config_with_multi_task(task_names=two_task_problems['task_names'])
         emr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         emr['recurrence'] = {'preset': 'feedforward'}
-        emr['neuromodulation']['node_rule'] = 'hmr_full'
+        emr['neuromodulation']['node_rule'] = 'steep_gate'
         state = algorithm.initialize(algorithm.create_config(config),
                                      two_task_problems['problems'][0], seed=DEFAULT_SEED)
         algorithm.multitask_config = dataclasses.replace(algorithm.multitask_config,
@@ -691,14 +692,14 @@ class TestBranchGating:
         """Branch gating is not implemented (the function is never called), so enabling it raises
         rather than passing on an ignored key."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -711,14 +712,14 @@ class TestBranchGating:
     def test_branch_gating_disabled(self, algorithm, xor_problem):
         """Verify branch gating can be disabled (default)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -732,14 +733,14 @@ class TestBranchGating:
     def test_branch_gating_with_static_gating(self, algorithm, xor_problem):
         """Branch gating with static gating raises too (not implemented)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'static_gating',
             'branch_gating': True,
@@ -751,22 +752,23 @@ class TestBranchGating:
 class TestContextDerivation:
     """Context gating's context: context_dim, and context_derivation refused.
 
-    context_derivation ('mean', 'statistics') is read by no engine, EMR or HMR, so it raises,
-    naming context_source, which is not read either: context gating takes its context from the
-    current task index.
+    context_derivation ('mean', 'statistics') is read by no engine, EMR or the prototype, so it
+    raises, naming context_source, which is not read either: context gating takes its context from
+    the current task index.
     """
 
     @staticmethod
     def _context_gating_config(**neuromodulation):
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {'enabled': True, 'mode': 'context_gating', 'context_dim': 4, **neuromodulation}
+        emr_block['neuromodulation'] = {'enabled': True, 'mode': 'context_gating', 'context_dim': 4,
+                                        **neuromodulation}
         return config
 
     def test_context_gating_default(self, algorithm, xor_problem):
@@ -804,14 +806,14 @@ class TestGateHardness:
     def test_gate_hardness_values(self, algorithm, xor_problem, hardness):
         """Verify different gate_hardness values work with soft_threshold."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'static_gating',
             'gate_scaling': 'soft_threshold',
@@ -824,14 +826,14 @@ class TestGateHardness:
     def test_gate_hardness_default(self, algorithm, xor_problem):
         """Verify default gate_hardness (10.0) works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'static_gating',
             'gate_scaling': 'soft_threshold',
@@ -847,14 +849,14 @@ class TestGateHardness:
         results = {}
         for hardness in [1.0, 20.0]:
             config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['recurrence'] = {
+            emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+            emr_block['recurrence'] = {
                 'preset': 'hidden_only',
                 'enabled': True,
                 'allow_hidden_to_hidden': True,
                 'iteration_level': 2,
             }
-            hmr['neuromodulation'] = {
+            emr_block['neuromodulation'] = {
                 'enabled': True,
                 'mode': 'static_gating',
                 'gate_scaling': 'soft_threshold',
@@ -871,14 +873,14 @@ class TestGateHardness:
         """Verify extreme gate_hardness values work (0.1 and 100.0)."""
         for hardness in [0.1, 100.0]:
             config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['recurrence'] = {
+            emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+            emr_block['recurrence'] = {
                 'preset': 'hidden_only',
                 'enabled': True,
                 'allow_hidden_to_hidden': True,
                 'iteration_level': 2,
             }
-            hmr['neuromodulation'] = {
+            emr_block['neuromodulation'] = {
                 'enabled': True,
                 'mode': 'static_gating',
                 'gate_scaling': 'soft_threshold',
@@ -900,14 +902,14 @@ class TestSelfConnectionQuery:
     def test_self_connection_query_disabled(self, algorithm, xor_problem):
         """Verify use_self_connection_query=False (default) works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -922,14 +924,14 @@ class TestSelfConnectionQuery:
     def test_self_connection_query_enabled(self, algorithm, xor_problem):
         """Verify use_self_connection_query=True works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -945,14 +947,14 @@ class TestSelfConnectionQuery:
         """Verify use_self_connection_query works with different receptor derivation methods."""
         for derivation in ['tanh', 'orthogonal', 'phase_shifted']:
             config = create_base_config()
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['recurrence'] = {
+            emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+            emr_block['recurrence'] = {
                 'preset': 'hidden_only',
                 'enabled': True,
                 'allow_hidden_to_hidden': True,
                 'iteration_level': 2,
             }
-            hmr['neuromodulation'] = {
+            emr_block['neuromodulation'] = {
                 'enabled': True,
                 'mode': 'true_neuromodulation',
                 'num_nt_types': 4,
@@ -977,82 +979,82 @@ class TestCombinedNeuromodulationLevels:
     def test_static_gating_with_modulatory_neurons(self, algorithm, xor_problem):
         """Verify static gating + modulatory neurons combination."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'modulatory_neurons',  # Level 3
             'static_gating': True,  # Also enable Level 1
             'mod_neuron_ratio': 0.1,
             'mod_connection_type': 'multiplicative',
         }
-        # EMR evaluates one level per run, so a level flag beside the mode raises: one mode is
-        # one level (HMR's 'custom' with level flags becomes the level HMR evaluated,
-        # test_custom_levels.py).
+        # EMR evaluates one level per run, so a level flag beside the mode raises: one mode is one
+        # level (the prototype's 'custom' with level flags becomes the level the prototype
+        # evaluated, test_custom_levels.py).
         with pytest.raises(ValueError, match='neuromodulation.static_gating is not a setting'):
             algorithm.create_config(config)
 
     def test_context_gating_with_static_gating(self, algorithm, xor_problem):
         """Verify context gating + static gating combination."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'context_gating',  # Level 2
             'static_gating': True,  # Also enable Level 1
             'context_dim': 4,
         }
-        # EMR evaluates one level per run, so a level flag beside the mode raises: one mode is
-        # one level (HMR's 'custom' with level flags becomes the level HMR evaluated,
-        # test_custom_levels.py).
+        # EMR evaluates one level per run, so a level flag beside the mode raises: one mode is one
+        # level (the prototype's 'custom' with level flags becomes the level the prototype
+        # evaluated, test_custom_levels.py).
         with pytest.raises(ValueError, match='neuromodulation.static_gating is not a setting'):
             algorithm.create_config(config)
 
     def test_true_neuromodulation_with_static_gating(self, algorithm, xor_problem):
         """Verify TRUE neuromodulation + static gating combination."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',  # Level 4
             'static_gating': True,  # Also enable Level 1
             'num_nt_types': 4,
             'receptor_derivation': 'tanh',
         }
-        # EMR evaluates one level per run, so a level flag beside the mode raises: one mode is
-        # one level (HMR's 'custom' with level flags becomes the level HMR evaluated,
-        # test_custom_levels.py).
+        # EMR evaluates one level per run, so a level flag beside the mode raises: one mode is one
+        # level (the prototype's 'custom' with level flags becomes the level the prototype
+        # evaluated, test_custom_levels.py).
         with pytest.raises(ValueError, match='neuromodulation.static_gating is not a setting'):
             algorithm.create_config(config)
 
     def test_true_neuromodulation_with_branch_gating(self, algorithm, xor_problem):
         """TRUE neuromodulation with branch gating raises: branch gating is not implemented."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -1066,8 +1068,8 @@ class TestCombinedNeuromodulationLevels:
         """A neuromodulation configuration with many settings. It sets no static_gating (a level
         flag: one mode is one level), gate_from_cppn or branch_gating, which EMR refuses."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'full_recurrent',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -1076,7 +1078,7 @@ class TestCombinedNeuromodulationLevels:
             'allow_self_loops': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'gate_scaling': 'soft_threshold',
@@ -1087,7 +1089,7 @@ class TestCombinedNeuromodulationLevels:
             'modulation_mode': 'full',
             'use_output_inversion': True,
         }
-        hmr['dynamic_functions'] = {
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
         }
@@ -1151,12 +1153,12 @@ class TestModulatoryNeuronsPerGenome:
         np.testing.assert_array_equal(mask.sum(axis=1), expected)
 
 class TestOptionB:
-    """HMR's Option B: each NT type's receptor density is a dedicated CPPN output at the node's
-    self-connection, tanh-bounded, and the base gain comes from the weight output there; the outputs
-    follow every other channel. 0.1.0 raised NotImplementedError for receptor_from_weight false, and
-    failed on HMR's Option B names, both at the first generation. HMR also decoded channel 1, the
-    first receptor, as a per-node activation whenever its CPPN had more than one output; EMR does
-    not."""
+    """The prototype's Option B: each NT type's receptor density is a dedicated CPPN output at the
+    node's self-connection, tanh-bounded, and the base gain comes from the weight output there; the
+    outputs follow every other channel. 0.1.0 raised NotImplementedError for receptor_from_weight
+    false, and failed on the prototype's Option B names, both at the first generation. The prototype
+    also decoded channel 1, the first receptor, as a per-node activation whenever its CPPN had more
+    than one output; EMR does not."""
 
     @staticmethod
     def _config(**block):
@@ -1182,7 +1184,7 @@ class TestOptionB:
             and algorithm._cppn_output_indices['receptor'] == 2
         )
 
-    def test_hmr_names(self):
+    def test_aliases(self):
         config = create_config_with_neuromodulation(
             'true_neuromodulation_4nt', recurrence_preset='feedforward', population_size=20
         )
@@ -1261,13 +1263,13 @@ class TestOptionB:
 
 
 class TestCppnNeuromodulation:
-    """HMR's neuromodulation from dedicated CPPN outputs: a gate per connection (static gating
-    multiplies the weights; context gating gates each case with sigmoid(logit + influence * mean of
-    the case's input statistics)), and modulatory neurons from a node-type output with factors from
-    a mod-factor output. EMR derived gates and modulatory neurons from the weights only (and still
-    does by default). Fixed rather than reproduced: modulatory neurons are chosen among a genome's
-    active positions (HMR's percentile ran over every position) and the
-    modulatory signal is each case's (HMR used the first case's for every case)."""
+    """The prototype's neuromodulation from dedicated CPPN outputs: a gate per connection (static
+    gating multiplies the weights; context gating gates each case with sigmoid(logit + influence *
+    mean of the case's input statistics)), and modulatory neurons from a node-type output with
+    factors from a mod-factor output. EMR derived gates and modulatory neurons from the weights only
+    (and still does by default). Fixed rather than reproduced: modulatory neurons are chosen among a
+    genome's active positions (the prototype's percentile ran over every position) and the
+    modulatory signal is each case's (the prototype used the first case's for every case)."""
 
     @staticmethod
     def _setup(mode, recurrence='feedforward', **block):
@@ -1334,9 +1336,9 @@ class TestCppnNeuromodulation:
         gates = np.asarray(record['G1'])
         assert set(np.unique(gates)) <= {0.0, 1.0} and gates.min() == 0.0 and gates.max() == 1.0
 
-    def test_hmr_sigmoid_gates_never_close(self):
-        """HMR's sigmoid of a tanh-bounded output (gate_hardness 1): every active gate lies in
-        (0.26, 0.74)."""
+    def test_prototype_sigmoid_gates_never_close(self):
+        """The prototype's sigmoid of a tanh-bounded output (gate_hardness 1): every active gate
+        lies in (0.26, 0.74)."""
         import numpy as np
         algorithm, state = self._setup('static_gating', gate_source='cppn', gate_hardness=1.0)
         algorithm.run_generation(state, XORProblem())
@@ -1523,7 +1525,7 @@ class TestCppnModulatoryCount:
 
     @pytest.mark.parametrize('block', [
         {'mode': 'modulatory_neurons', 'modulatory_source': 'cppn', 'mod_decay': 0.9},
-        {'mode': 'modulatory_only', 'mod_decay': 0.5},  # HMR's name for the CPPN source
+        {'mode': 'modulatory_only', 'mod_decay': 0.5},  # The prototype's name for the CPPN source
         {'preset': 'modulatory_only', 'modulatory_source': 'cppn', 'mod_decay': 0.9},
     ])
     def test_mod_decay_is_refused_with_the_cppn_source(self, block):
@@ -1650,7 +1652,7 @@ class TestModulatoryOptions:
         resolved = {}
         for name, block in (('weights', {}), ('cppn', {'modulatory_source': 'cppn'}),
                             ('override', {'modulatory_source': 'cppn', 'modulatory_scope': 'all'}),
-                            ('hmr_name', {'mode': 'modulatory_only'})):
+                            ('prototype_name', {'mode': 'modulatory_only'})):
             algorithm = EMRHyperNEAT()
             algorithm.create_config(self._config(**block))
             resolved[name] = {
@@ -1665,7 +1667,7 @@ class TestModulatoryOptions:
         }
         assert resolved['cppn'] == {**resolved['weights'], **E.MODULATORY_BUNDLES['cppn']}
         assert resolved['override'] == {**resolved['cppn'], 'modulatory_scope': 'all'}
-        assert resolved['hmr_name'] == resolved['cppn']
+        assert resolved['prototype_name'] == resolved['cppn']
         # A configuration built directly resolves the same way
         assert E.NeuromodulationConfig(modulatory_source='cppn').modulatory_count_rule == 'ceil'
 
@@ -2024,9 +2026,10 @@ class TestModulatoryOptions:
         assert algorithm.evaluate_on_data(state, inputs[:2], targets[:2])['n_samples'] == 2
 
 
-class TestHmrLevelModes:
-    """HMR's level presets used as modes: its evaluation took one level, so 'xdg_style' ran context
-    gating and 'modulatory_only' modulatory neurons, both from dedicated CPPN outputs."""
+class TestPrototypeLevelModes:
+    """The prototype's level presets used as modes: its evaluation took one level, so 'xdg_style'
+    ran context gating and 'modulatory_only' modulatory neurons, both from dedicated CPPN
+    outputs."""
 
     @pytest.mark.parametrize('name, mode, source, outputs, flag', [
         ('xdg_style', 'context_gating', ('gate_source', 'cppn'), 2, 'static_gating'),
@@ -2035,8 +2038,8 @@ class TestHmrLevelModes:
     ])
     def test_translation(self, name, mode, source, outputs, flag):
         """A flag that repeats the preset's level is accepted. A flag of another level, as
-        modulatory_only with static_gating true, raises (test_silent_drops.py): HMR merged it into
-        the preset, an unread gate output, as 'full'."""
+        modulatory_only with static_gating true, raises (test_silent_drops.py): the prototype merged
+        it into the preset, an unread gate output, as 'full'."""
         config = create_base_config(population_size=20)
         config['algorithm_params']['emrhyperneat']['emr_hyperneat']['neuromodulation'] = {
             'enabled': True, 'mode': name, flag: True}

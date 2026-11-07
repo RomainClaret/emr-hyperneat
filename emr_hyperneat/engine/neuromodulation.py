@@ -1,6 +1,6 @@
-"""Neuromodulation: its configuration and presets, the neurotransmitter presets and receptor derivation,
-HMR's mode names and their translation, the CPPN channels that drive it, the modulatory options and
-masks, and the neuromodulated node rules."""
+"""Neuromodulation: its configuration and presets, the neurotransmitter presets and receptor
+derivation, the prototype's mode names and their translation, the CPPN channels that drive it, the
+modulatory options and masks, and the neuromodulated node rules."""
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -53,7 +53,7 @@ def resolve_modulatory_options(block: Dict[str, Any]) -> Dict[str, Any]:
     for the others). Values are not checked here; the neuromodulation parse refuses unknown ones.
 
     Args:
-        block: The neuromodulation block (HMR's names already translated).
+        block: The neuromodulation block (the prototype's names already translated).
 
     Returns:
         Option name -> value, for every key of MODULATORY_OPTIONS.
@@ -136,8 +136,9 @@ class NeuromodulationConfig:
             modulatory_scope: The options that each change one thing between the two bundles;
             None takes the bundle's value
         mod_neuron_count: The modulatory count of modulatory_count_rule 'fixed', at least 1
-        modulatory_cppn_read: Where a CPPN output the options read is taken: 'input_mean' (its
-            mean over the input-to-node queries, HMR's read) or 'self' (the self-connection query)
+        modulatory_cppn_read: Where a CPPN output the options read is taken: 'input_mean' (its mean
+            over the input-to-node queries, the prototype's read) or 'self' (the self-connection
+            query)
         modulatory_cppn_outputs: 'read' (the CPPN carries the outputs the options read) or
             'always' (both)
         modulatory_matched_gain: 'none', 'mean' (each case's signal replaced by its mean over the
@@ -186,8 +187,8 @@ class NeuromodulationConfig:
     mode: str = 'disabled'  # 'disabled', 'static_gating', 'context_gating', 'modulatory_neurons', 'true_neuromodulation'
 
     # Where the gates and the modulatory neurons come from: 'weights' (EMR's derivations from the
-    # incoming weights) or 'cppn' (HMR's: a gate per connection from a dedicated CPPN output; the
-    # modulatory node type and factor from two dedicated CPPN outputs)
+    # incoming weights) or 'cppn' (the prototype's: a gate per connection from a dedicated CPPN
+    # output; the modulatory node type and factor from two dedicated CPPN outputs)
     gate_source: str = 'weights'
     modulatory_source: str = 'weights'
 
@@ -208,9 +209,9 @@ class NeuromodulationConfig:
     gate_hardness: float = 10.0  # For soft_threshold gate scaling
     modulation_mode: str = 'full'  # 'full', 'gating_only', 'gain_bias_only'
     use_output_inversion: bool = True  # Whether NT4 controls output inversion
-    # The neuromodulated node: 'paper' (the published rule, on every path), 'hmr_full' (HMR FULL's
-    # rule, which 0.1.0's single-task path computed) or 'anti' (HMR ANTI's); see
-    # true_neuromodulation_node_rule.
+    # The neuromodulated node: 'paper' (the published rule, on every path), 'steep_gate' (the rule
+    # of the prototype's FULL variant, which 0.1.0's single-task path computed) or 'anti' (the rule
+    # of its ANTI variant); see true_neuromodulation_node_rule.
     node_rule: str = 'paper'
     branch_gating: bool = False  # Branch-specific gating (e.g., IH vs HH)
 
@@ -391,8 +392,8 @@ NT_PRESETS_6: Dict[str, jnp.ndarray] = {
     'iris': jnp.array([0.17, 0.17, 0.17, 0.17, 0.17, 0.17]),
 }
 
-# HMR's name for the 2-type table, its default: the same object, so a runner that edits one edits
-# both
+# The prototype's name for the 2-type table, its default: the same object, so a runner that edits
+# one edits both
 NT_PRESETS: Dict[str, jnp.ndarray] = NT_PRESETS_2
 
 # Default task presets (4-dimensional for [DA, 5HT, NE, ACh])
@@ -590,15 +591,15 @@ def derive_context_from_input(inputs: jnp.ndarray, method: str = 'statistics') -
         return jnp.array([jnp.mean(flat)])
 
 
-#: HMR's neuromodulation variant used preset names as modes. Its Option A names (receptor densities
-#: derived from the weight channel) are EMR's true_neuromodulation with the name's NT count and
-#: receptor derivation, read at the node's self-connection as HMR read them
+#: The prototype's neuromodulation variant used preset names as modes. Its Option A names (receptor
+#: densities derived from the weight channel) are EMR's true_neuromodulation with the name's NT
+#: count and receptor derivation, read at the node's self-connection as the prototype read them
 #: (use_self_connection_query): name -> (num_nt_types, derivation). Its Option B name (receptors
-#: from dedicated CPPN outputs) is in HMR_OPTION_B_MODES. Two of its names are EMR's own, with EMR's
-#: meaning: 'true_neuromodulation' (HMR: 2 NTs, Option B) and 'static_gating' (HMR: a CPPN-output
-#: gate per connection; EMR derives the gate from the incoming weights); a run that reproduces an
-#: HMR run with those names sets EMR's settings explicitly.
-HMR_NEUROMODULATION_MODES: Dict[str, Tuple[int, str]] = {
+#: from dedicated CPPN outputs) is in PROTOTYPE_OPTION_B_MODES. Two of its names are EMR's own, with
+#: EMR's meaning: 'true_neuromodulation' (the prototype: 2 NTs, Option B) and 'static_gating' (the
+#: prototype: a CPPN-output gate per connection; EMR derives the gate from the incoming weights); a
+#: run that reproduces a run of the prototype with those names sets EMR's settings explicitly.
+PROTOTYPE_NEUROMODULATION_MODES: Dict[str, Tuple[int, str]] = {
     'true_neuromodulation_option_a_abs': (2, 'abs'),
     'true_neuromodulation_option_a_normalized': (2, 'normalized'),
     'true_neuromodulation_option_a_tanh': (2, 'tanh'),
@@ -611,23 +612,25 @@ HMR_NEUROMODULATION_MODES: Dict[str, Tuple[int, str]] = {
     'true_neuromodulation_5nt_option_a_tanh': (5, 'tanh'),
     'true_neuromodulation_6nt_option_a_tanh': (6, 'tanh'),
 }
-HMR_OPTION_B_MODES = ('true_neuromodulation_4nt',)
-#: HMR's level presets used as modes. HMR's evaluation took one level, in the order true
-#: neuromodulation, modulatory neurons, context gating, static gating, so 'xdg_style' (static and
+PROTOTYPE_OPTION_B_MODES = ('true_neuromodulation_4nt',)
+#: The prototype's level presets used as modes. The prototype's evaluation took one level, in the
+#: order true neuromodulation, modulatory neurons, context gating, static gating, so 'xdg_style'
+#: (static and
 #: context gating) ran Level 2 and 'modulatory_only' Level 3, both from dedicated CPPN outputs:
 #: EMR's mode with the CPPN source. 'full' (all three) ran Level 3 while its CPPN also carried a
 #: gate output nothing read, so it is refused rather than translated to a CPPN with one output
-#: fewer. HMR's 'static_gating' is also EMR's own mode name (gates from the weights by default): a
-#: run that reproduces HMR's sets gate_source 'cppn'.
-HMR_LEVEL_MODES: Dict[str, Tuple[str, Dict[str, str]]] = {
+#: fewer. The prototype's 'static_gating' is also EMR's own mode name (gates from the weights by
+#: default): a run that reproduces the prototype's sets gate_source 'cppn'.
+PROTOTYPE_LEVEL_MODES: Dict[str, Tuple[str, Dict[str, str]]] = {
     'xdg_style': ('context_gating', {'gate_source': 'cppn'}),
     'modulatory_only': ('modulatory_neurons', {'modulatory_source': 'cppn'}),
 }
 
 
-#: HMR's 'custom' level flags (other than true_neuromodulation alone) as the level HMR evaluated and
-#: its CPPN source: its gating read the CPPN's gate output, its modulatory neurons the CPPN's factor
-#: and node-type outputs, and static with context gating ran context gating.
+#: The prototype's 'custom' level flags (other than true_neuromodulation alone) as the level the
+#: prototype evaluated and its CPPN source: its gating read the CPPN's gate output, its modulatory
+#: neurons the CPPN's factor and node-type outputs, and static with context gating ran context
+#: gating.
 CUSTOM_LEVEL_TRANSLATIONS: Dict[Tuple[str, ...], Tuple[str, Dict[str, str]]] = {
     ('static_gating',): ('static_gating', {'gate_source': 'cppn'}),
     ('context_gating',): ('context_gating', {'gate_source': 'cppn'}),
@@ -636,56 +639,56 @@ CUSTOM_LEVEL_TRANSLATIONS: Dict[Tuple[str, ...], Tuple[str, Dict[str, str]]] = {
 }
 
 
-#: The levels each HMR mode name sets (its preset's flags); Option A and B names set true
+#: The levels each of the prototype's mode names sets (its preset's flags); Option A and B names set true
 #: neuromodulation.
-HMR_NAMED_MODE_LEVELS: Dict[str, Tuple[str, ...]] = {
+PROTOTYPE_NAMED_MODE_LEVELS: Dict[str, Tuple[str, ...]] = {
     'xdg_style': ('static_gating', 'context_gating'),
     'modulatory_only': ('modulatory_neurons',),
     **{
         name: ('true_neuromodulation',)
-        for name in (*HMR_NEUROMODULATION_MODES, *HMR_OPTION_B_MODES)
+        for name in (*PROTOTYPE_NEUROMODULATION_MODES, *PROTOTYPE_OPTION_B_MODES)
     },
 }
 
 
 def _refuse_level_flags_against_named_mode(block: Dict[str, Any], mode: str) -> None:
-    """Refuse a level flag that changes the levels an HMR mode name sets.
+    """Refuse a level flag that changes the levels one of the prototype's mode names sets.
 
-    HMR merged a block's level flags into the preset its mode named (get_neuromodulation_config
-    updates the preset's values with the block's) and evaluated the highest level set, so
-    'xdg_style' with modulatory_neurons true ran modulatory neurons. The translation of HMR's names
-    dropped the flags without a word. A flag that repeats the preset's value changes nothing and is
-    accepted.
+    The prototype merged a block's level flags into the preset its mode named
+    (get_neuromodulation_config updates the preset's values with the block's) and evaluated the
+    highest level set, so 'xdg_style' with modulatory_neurons true ran modulatory neurons. The
+    translation of the prototype's names dropped the flags without a word. A flag that repeats the
+    preset's value changes nothing and is accepted.
 
     Raises:
         ValueError: A flag whose value differs from the named preset's.
     """
-    levels = HMR_NAMED_MODE_LEVELS[mode]
+    levels = PROTOTYPE_NAMED_MODE_LEVELS[mode]
     for flag in ('static_gating', 'context_gating', 'modulatory_neurons', 'true_neuromodulation'):
         if flag in block and bool(block[flag]) != (flag in levels):
             raise ValueError(
-                f"neuromodulation.{flag}={block[flag]!r} changes the levels HMR's mode {mode!r} "
-                f"sets {levels}: HMR merged the flags into its preset and evaluated the highest "
+                f"neuromodulation.{flag}={block[flag]!r} changes the levels the prototype's mode {mode!r} "
+                f"sets {levels}: the prototype merged the flags into its preset and evaluated the highest "
                 "level set, which this translation cannot follow; set mode 'custom' with the level "
                 "flags you mean")
 
 
-def _translate_hmr_neuromodulation(block: Dict[str, Any]) -> Dict[str, Any]:
-    """An HMR-named neuromodulation block as the equivalent EMR block.
+def _translate_prototype_neuromodulation(block: Dict[str, Any]) -> Dict[str, Any]:
+    """A neuromodulation block in the prototype's names as the equivalent EMR block.
 
-    An Option A mode name, or 'custom' with HMR's level flags and true_neuromodulation alone,
-    becomes EMR's true_neuromodulation with the name's (or the block's) NT count and receptor
-    derivation and HMR's receptor source (use_self_connection_query true unless the block says
-    otherwise); the block's other keys pass through. Any other block is returned as is.
+    An Option A mode name, or 'custom' with the prototype's level flags and true_neuromodulation
+    alone, becomes EMR's true_neuromodulation with the name's (or the block's) NT count and receptor
+    derivation and the prototype's receptor source (use_self_connection_query true unless the block
+    says otherwise); the block's other keys pass through. Any other block is returned as is.
 
     Raises:
         ValueError: A setting contradicting the name, 'custom' with another level or with Option B.
     """
     mode = block.get('mode') if isinstance(block, dict) else None
-    if mode in HMR_NAMED_MODE_LEVELS:
+    if mode in PROTOTYPE_NAMED_MODE_LEVELS:
         _refuse_level_flags_against_named_mode(block, mode)
-    if mode in HMR_LEVEL_MODES:
-        level, source = HMR_LEVEL_MODES[mode]
+    if mode in PROTOTYPE_LEVEL_MODES:
+        level, source = PROTOTYPE_LEVEL_MODES[mode]
         flags = ('static_gating', 'context_gating', 'modulatory_neurons', 'true_neuromodulation')
         translated = {
             key: value for key, value in block.items() if key not in flags + ('enabled', 'mode')
@@ -693,23 +696,23 @@ def _translate_hmr_neuromodulation(block: Dict[str, Any]) -> Dict[str, Any]:
         for key, value in source.items():
             if translated.get(key, value) != value:
                 raise ValueError(
-                    f"neuromodulation.{key}={translated[key]!r} contradicts HMR's mode {mode!r} "
+                    f"neuromodulation.{key}={translated[key]!r} contradicts the prototype's mode {mode!r} "
                     f"(its {level} came from dedicated CPPN outputs)"
                 )
         translated.update(mode=level, **source)
         return translated
     if mode == 'full':
         raise ValueError(
-            "neuromodulation.mode 'full' is HMR's three-level preset, which evaluated Level 3 only "
-            "(its evaluation takes one level) while its CPPN also evolved a gate output nothing "
+            "neuromodulation.mode 'full' is the prototype's three-level preset, which evaluated Level 3 "
+            "only (its evaluation takes one level) while its CPPN also evolved a gate output nothing "
             "read; use mode modulatory_neurons with modulatory_source 'cppn' (a CPPN with one "
             "output fewer)"
         )
-    if mode in HMR_OPTION_B_MODES:
-        # HMR's Option B name: receptors from dedicated CPPN outputs, four NT types
+    if mode in PROTOTYPE_OPTION_B_MODES:
+        # The prototype's Option B name: receptors from dedicated CPPN outputs, four NT types
         if block.get('num_nt_types', 4) != 4 or block.get('receptor_from_weight', False):
             raise ValueError(
-                f"neuromodulation.mode {mode!r} is HMR's Option B with four NT types; the block "
+                f"neuromodulation.mode {mode!r} is the prototype's Option B with four NT types; the block "
                 f"contradicts it"
             )
         # The level flags repeat the name's level (checked above), so they go as the other names' do
@@ -728,7 +731,7 @@ def _translate_hmr_neuromodulation(block: Dict[str, Any]) -> Dict[str, Any]:
         }
         translated.update(mode='true_neuromodulation', num_nt_types=4, receptor_from_weight=False)
         return translated
-    if mode not in HMR_NEUROMODULATION_MODES and mode != 'custom':
+    if mode not in PROTOTYPE_NEUROMODULATION_MODES and mode != 'custom':
         return block
     level_flags = ('static_gating', 'context_gating', 'modulatory_neurons', 'true_neuromodulation')
     if mode == 'custom':
@@ -743,25 +746,25 @@ def _translate_hmr_neuromodulation(block: Dict[str, Any]) -> Dict[str, Any]:
             for key, value in source.items():
                 if translated.get(key, value) != value:
                     raise ValueError(
-                        f"neuromodulation.{key}={translated[key]!r} contradicts HMR's 'custom' "
+                        f"neuromodulation.{key}={translated[key]!r} contradicts the prototype's 'custom' "
                         f"with {levels} (its {level} came from dedicated CPPN outputs)"
                     )
             translated.update(mode=level, **source)
             return translated
         if not levels:
             raise ValueError(
-                "neuromodulation.mode 'custom' with no level flag: HMR evaluated no "
+                "neuromodulation.mode 'custom' with no level flag: the prototype evaluated no "
                 "neuromodulation; leave the block out"
             )
         if levels != ('true_neuromodulation',):
             evaluated = levels[-1]
             raise ValueError(
-                f"neuromodulation.mode 'custom' with the levels {levels}: HMR evaluated "
+                f"neuromodulation.mode 'custom' with the levels {levels}: the prototype evaluated "
                 f"{evaluated} alone (its evaluation takes one level) while its CPPN also evolved "
                 f"the outputs of the others, which nothing read; configure {evaluated} alone"
             )
         if not block.get('receptor_from_weight', True):
-            # HMR's Option B through 'custom': receptors from dedicated CPPN outputs
+            # The prototype's Option B through 'custom': receptors from dedicated CPPN outputs
             translated = {
                 key: value
                 for key, value in block.items()
@@ -775,12 +778,12 @@ def _translate_hmr_neuromodulation(block: Dict[str, Any]) -> Dict[str, Any]:
             return translated
         num_nt, derivation = block.get('num_nt_types', 2), block.get('receptor_derivation', 'tanh')
     else:
-        num_nt, derivation = HMR_NEUROMODULATION_MODES[mode]
+        num_nt, derivation = PROTOTYPE_NEUROMODULATION_MODES[mode]
         for key, value in (('num_nt_types', num_nt), ('receptor_derivation', derivation),
                            ('receptor_from_weight', True)):
             if key in block and block[key] != value:
                 raise ValueError(
-                    f"neuromodulation.{key}={block[key]!r} contradicts HMR's mode {mode!r} "
+                    f"neuromodulation.{key}={block[key]!r} contradicts the prototype's mode {mode!r} "
                     f"({key}={value!r})"
                 )
     translated = {
@@ -799,13 +802,13 @@ NEUROMODULATION_SOURCES = ('weights', 'cppn')
 
 def neuromodulation_cppn_channels(block: Dict[str, Any]) -> List[str]:
     """The dedicated CPPN outputs a neuromodulation block reads, in channel order, after every other
-    channel (HMR's order): Option B's receptors (one per NT type, 'receptor'), the per-connection
-    gate ('gate', gate_source 'cppn', HMR's gate_from_cppn), or the modulatory factor and node type
-    ('mod_factor' when the summed signal reads it, 'node_type' when CPPN selection does, both under
-    modulatory_cppn_outputs 'always'; modulatory_source 'cppn' reads both); none otherwise. Resolved
-    as the neuromodulation parse resolves the block, because the CPPN's output count
-    is fixed before that parse runs."""
-    block = _translate_hmr_neuromodulation(block or {})
+    channel (the prototype's order): Option B's receptors (one per NT type, 'receptor'), the
+    per-connection gate ('gate', gate_source 'cppn', the prototype's gate_from_cppn), or the
+    modulatory factor and node type ('mod_factor' when the summed signal reads it, 'node_type' when
+    CPPN selection does, both under modulatory_cppn_outputs 'always'; modulatory_source 'cppn' reads
+    both); none otherwise. Resolved as the neuromodulation parse resolves the block, because the
+    CPPN's output count is fixed before that parse runs."""
+    block = _translate_prototype_neuromodulation(block or {})
     if not isinstance(block, dict):
         return []
     preset = block.get('preset')
@@ -846,17 +849,19 @@ def get_cppn_num_outputs(dynamic_functions_mode: str, neuromod_config: Any = Non
     configuration (a block or a NeuromodulationConfig): the weight, the activation channel under
     'cppn_output', and the dedicated outputs of neuromodulation_cppn_channels.
 
-    HMR's name (its neuromodulation variant). HMR counted a gate output whenever gating was on and
-    two modulatory outputs whenever modulatory neurons were; this engine builds the outputs a
-    configuration reads, so a gate derived from the weights takes none. Like HMR's helper, it does
-    not count the aggregation and LEO channels, which create_config adds."""
+    The prototype's name (its neuromodulation variant). The prototype counted a gate output whenever
+    gating was on and two modulatory outputs whenever modulatory neurons were; this engine builds
+    the outputs a configuration reads, so a gate derived from the weights takes none. Like the
+    prototype's helper, it does not count the aggregation and LEO channels, which create_config
+    adds."""
     outputs = 1 + int(dynamic_functions_mode == 'cppn_output')
     return outputs + len(neuromodulation_cppn_channels(_neuromodulation_block_of(neuromod_config)))
 
 
 def get_cppn_receptor_base_idx(dynamic_functions_mode: str, neuromod_config: Any = None) -> int:
-    """The first CPPN output of Option B's receptor densities in get_cppn_num_outputs' layout
-    (HMR's name): the receptors are the last outputs, so without them it is the output count."""
+    """The first CPPN output of Option B's receptor densities in get_cppn_num_outputs' layout (the
+    prototype's name): the receptors are the last outputs, so without them it is the output
+    count."""
     block = _neuromodulation_block_of(neuromod_config)
     return get_cppn_num_outputs(dynamic_functions_mode, block) - option_b_receptor_outputs(block)
 
@@ -885,8 +890,9 @@ def exact_ceil_counts(counts: np.ndarray, ratio: float) -> np.ndarray:
 
 def cppn_modulatory_masks(node_type: jnp.ndarray, active: jnp.ndarray, ratio: float) -> jnp.ndarray:
     """Each genome's modulatory neurons from the CPPN's node-type output: the ceil(ratio x active
-    count) of its active positions with the highest output (HMR took the outputs above a percentile
-    over every position, inactive ones included). A genome with no active position has none.
+    count) of its active positions with the highest output (the prototype took the outputs above a
+    percentile over every position, inactive ones included). A genome with no active position has
+    none.
 
     The count is exact on the host (:func:`exact_ceil_counts`): computed in float32 on the device,
     it would count one more where ratio x count lands just above an integer (0.3 x 50 would give 16,
@@ -956,7 +962,8 @@ def check_modulatory_options(config: 'NeuromodulationConfig', block: Dict[str, A
     Args:
         config: The parsed configuration, the options resolved to their bundle where the block
             leaves them unset.
-        block: The neuromodulation block as given (HMR's names translated), for the keys it sets.
+        block: The neuromodulation block as given (the prototype's names translated), for the keys
+            it sets.
 
     Raises:
         ValueError: An unknown value. ``mod_neuron_ratio`` outside (0, 1]: above 1 every active
@@ -1004,7 +1011,7 @@ def check_modulatory_options(config: 'NeuromodulationConfig', block: Dict[str, A
             )
     if ('mod_decay' in block and config.modulatory_signal != 'mean_decay'
             and config.modulatory_node_weights != 'variance'):
-        # HMR's Level 3 ignored it; only a key the block sets is refused
+        # The prototype's Level 3 ignored it; only a key the block sets is refused
         raise ValueError(
             "neuromodulation.mod_decay scales the signal of modulatory_signal 'mean_decay' and the "
             "per-node weights of modulatory_node_weights 'variance'; with signal "
@@ -1023,10 +1030,10 @@ def check_modulatory_options(config: 'NeuromodulationConfig', block: Dict[str, A
 def option_b_receptor_outputs(block: Dict[str, Any]) -> int:
     """The CPPN outputs Option B's receptor densities take: one per NT type when true
     neuromodulation reads its receptors from dedicated outputs (receptor_from_weight false), else 0.
-    Resolved as the neuromodulation parse resolves the block (HMR's names translated, a preset's
-    values under the block's), because the CPPN's output count
-    is fixed before that parse runs."""
-    block = _translate_hmr_neuromodulation(block or {})
+    Resolved as the neuromodulation parse resolves the block (the prototype's names translated, a
+    preset's values under the block's), because the CPPN's output count is fixed before that parse
+    runs."""
+    block = _translate_prototype_neuromodulation(block or {})
     if not isinstance(block, dict):
         return 0
     preset = block.get('preset')
@@ -1041,9 +1048,9 @@ def option_b_receptor_outputs(block: Dict[str, Any]) -> int:
     return int(block.get('num_nt_types', base.num_nt_types if base is not None else 4))
 
 
-#: The neuromodulated node's rules (neuromodulation.node_rule): the paper's, HMR FULL's and HMR
-#: ANTI's (true_neuromodulation_node_rule).
-NEUROMODULATION_NODE_RULES = ('paper', 'hmr_full', 'anti')
+#: The neuromodulated node's rules (neuromodulation.node_rule): the paper's and those of the
+#: prototype's FULL and ANTI variants (true_neuromodulation_node_rule).
+NEUROMODULATION_NODE_RULES = ('paper', 'steep_gate', 'anti')
 
 
 def modulatory_neuron_masks(weight_var: jnp.ndarray, active: jnp.ndarray, ratio: float) -> jnp.ndarray:
@@ -1238,14 +1245,15 @@ def true_neuromodulation_node_rule(
     The first three neurotransmitter channels select among a node's receptors,
     m = receptors[:, :3] @ nt[:3]; the fourth only inverts outputs (:func:`invert_outputs`).
 
-    'paper' (the published rule; HMR's neuromodulation variant, and the rule of every EMR path):
+    'paper' (the published rule; the prototype's neuromodulation variant, and the rule of every EMR path):
     gating_only act(pre) * sigmoid(s m); otherwise gains clip(bg + s m, 0.1, 5) (NaN to 1) and bias
-    s m, gain_bias_only act(gains pre + bias), full act(gains pre + bias) * sigmoid(m). 'hmr_full'
-    (HMR FULL's rule, which 0.1.0's single-task path computed): gains bg + s m, gate sigmoid(5 m);
-    gating_only act(pre) * gate, gain_bias_only act(gains pre), full act(gains pre) * gate. 'anti'
-    (HMR ANTI's rule, its anti-correlated-receptors variant): m over every channel, m = receptors @
-    nt, gains clip(bg + s m, 0.1, 5), act(gains pre) * sigmoid(m); modulation_mode 'full' only, no
-    output inversion and no branch gating (the configuration checks refuse the others).
+    s m, gain_bias_only act(gains pre + bias), full act(gains pre + bias) * sigmoid(m). 'steep_gate'
+    (the rule of the prototype's FULL variant, which 0.1.0's single-task path computed): gains bg +
+    s m, gate sigmoid(5 m); gating_only act(pre) * gate, gain_bias_only act(gains pre), full
+    act(gains pre) * gate. 'anti' (the rule of the prototype's ANTI variant, its
+    anti-correlated-receptors variant): m over every channel, m = receptors @ nt, gains clip(bg + s
+    m, 0.1, 5), act(gains pre) * sigmoid(m); modulation_mode 'full' only, no output inversion and no
+    branch gating (the configuration checks refuse the others).
 
     ``modulation``, when given, is m: branch gating routes one receptor channel per region of the
     grid (:func:`compute_modulation_with_branch_gating`), and either rule applies to it.
@@ -1263,7 +1271,7 @@ def true_neuromodulation_node_rule(
         mod_strength: Modulation strength s.
         num_nt: Number of neurotransmitter channels.
         modulation_mode: 'full', 'gating_only' or 'gain_bias_only'.
-        rule: 'paper', 'hmr_full' or 'anti'.
+        rule: 'paper', 'steep_gate' or 'anti'.
         modulation: m when given (branch gating), else computed from the receptors.
 
     Returns:
@@ -1276,7 +1284,7 @@ def true_neuromodulation_node_rule(
     if rule == 'anti':
         form, terms = 'gain_gate', (jnp.clip(base_gains + mod_strength * modulation, 0.1, 5.0),
                                     jax.nn.sigmoid(modulation))
-    elif rule == 'hmr_full':
+    elif rule == 'steep_gate':
         gains, gates = base_gains + mod_strength * modulation, jax.nn.sigmoid(modulation * 5.0)
         if modulation_mode == 'gating_only':
             form, terms = 'gate', (gates,)
@@ -1322,7 +1330,7 @@ def true_neuromodulation_node_fn(
         mod_strength: Modulation strength s.
         num_nt: Number of neurotransmitter channels.
         modulation_mode: 'full', 'gating_only' or 'gain_bias_only'.
-        rule: 'paper' or 'hmr_full'.
+        rule: 'paper', 'steep_gate' or 'anti'.
 
     Returns:
         The node function of the pre-activation.

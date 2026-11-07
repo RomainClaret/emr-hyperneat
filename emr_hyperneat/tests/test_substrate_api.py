@@ -6,9 +6,12 @@ builds for a population equal the arrays the generation loop cached for the same
 population, and its forward pass reproduces the loop's fitness exactly.
 
 Also covered: the CPPN query-row layout, the configurations `substrate_config`
-refuses, the aggregation channel of an aggregation-only CPPN, and recurrent configurations
-with per-node or global activations, which the recurrent path applies without a warning.
+refuses, the aggregation channel of an aggregation-only CPPN, recurrent configurations
+with per-node or global activations, which the recurrent path applies without a warning,
+true neuromodulation of a feed-forward substrate and the aggregation palette (bit for bit
+against the loop), and the API's capabilities and public steps.
 """
+import inspect
 
 import warnings
 
@@ -32,6 +35,7 @@ from emr_hyperneat import (
     substrate_forward,
     substrate_queries,
 )
+from emr_hyperneat import substrate as api
 from emr_hyperneat.emrhyperneat import (
     _eval_single_fitness,
     continuous_to_index,
@@ -47,26 +51,26 @@ POP = 20
 SEED = 42
 
 
-def _hmr(config):
+def _emr(config):
     return config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
 
 
 def _agg_only():
     config = create_config_with_recurrence("feedforward", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["aggregation"] = {"mode": "cppn_output", "num_aggregations": 4}
+    _emr(config)["aggregation"] = {"mode": "cppn_output", "num_aggregations": 4}
     return config
 
 
 def _agg_global_max():
     config = create_config_with_recurrence("feedforward", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["aggregation"] = {"mode": "global", "global_function": "max"}
+    _emr(config)["aggregation"] = {"mode": "global", "global_function": "max"}
     return config
 
 
 def _combined(**agg):
     config = create_config_with_combined_recurrence(
         "feedforward", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["aggregation"].update(agg)
+    _emr(config)["aggregation"].update(agg)
     return config
 
 
@@ -78,31 +82,39 @@ def _palette_full():
 
 def _uniform_full18():
     config = _palette_full()
-    _hmr(config)["dynamic_functions"]["index_decode"] = "uniform"
+    _emr(config)["dynamic_functions"]["index_decode"] = "uniform"
     return config
 
 
 def _uniform_combined():
     config = _combined(index_decode="uniform")
-    _hmr(config)["dynamic_functions"]["index_decode"] = "uniform"
+    _emr(config)["dynamic_functions"]["index_decode"] = "uniform"
     return config
 
 
 def _locality():
     config = create_config_with_dynamic_functions(
         "cppn_output_6", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["locality_radius"] = 0.5
+    _emr(config)["locality_radius"] = 0.5
     return config
 
 
 def _geometry_seeded():
     config = create_config_with_geometry_seeding(
         "default", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["dynamic_functions"] = {"mode": "cppn_output", "num_activations": 6}
+    _emr(config)["dynamic_functions"] = {"mode": "cppn_output", "num_activations": 6}
+    return config
+
+
+def _agg_palette():
+    """An aggregation palette that is not a leading run of AGGREGATION_LIST: max, product, mean."""
+    config = create_config_with_recurrence("feedforward", max_depth=DEPTH, population_size=POP)
+    _emr(config)["aggregation"] = {"mode": "cppn_output", "palette": ["max", "product", "mean"]}
     return config
 
 
 CONFIGS = {
+    "aggregation_palette": _agg_palette,
     "plain": lambda: create_config_with_recurrence(
         "feedforward", max_depth=DEPTH, population_size=POP),
     "global_sin": lambda: create_config_with_dynamic_functions(
@@ -236,25 +248,214 @@ def _recurrent_cppn_output():
 def _recurrent_union():
     # Recurrence itself is described (test_substrate_recurrent.py); the union discovery is not
     config = _recurrent_cppn_output()
-    _hmr(config)["recurrence"]["hh_discovery_mode"] = "union"
+    _emr(config)["recurrence"]["hh_discovery_mode"] = "union"
     return config
 
 
-def _neuromodulated():
+def _neuromodulated(**settings):
     return create_config_with_neuromodulation(
         "true_neuromodulation_4nt", recurrence_preset="feedforward",
-        max_depth=DEPTH, population_size=POP)
+        max_depth=DEPTH, population_size=POP, **settings)
+
+
+def _neuromodulated_output(name):
+    config = _neuromodulated()
+    config["algorithm_params"]["emrhyperneat"]["substrate"]["output_activation"] = name
+    return config
+
+
+def _neuromodulated_with(block, value):
+    config = _neuromodulated()
+    _emr(config)[block] = value
+    return config
+
+
+#: True neuromodulation of a feed-forward substrate: the engine's defaults (receptors from the first input
+#: weight, the paper's rule, mode full, inversion, four channels, strength 2), then one setting at a time.
+NM_CONFIGS = {
+    "default": _neuromodulated,
+    "rule_steep_gate": lambda: _neuromodulated(node_rule="steep_gate"),
+    "rule_steep_gate_gating": lambda: _neuromodulated(node_rule="steep_gate", modulation_mode="gating_only"),
+    "rule_anti": lambda: _neuromodulated(node_rule="anti", use_output_inversion=False),
+    "mode_gating_only": lambda: _neuromodulated(modulation_mode="gating_only"),
+    "mode_gain_bias_only": lambda: _neuromodulated(modulation_mode="gain_bias_only"),
+    "nt_2": lambda: _neuromodulated(num_nt_types=2),
+    "nt_6": lambda: _neuromodulated(num_nt_types=6),
+    "no_inversion": lambda: _neuromodulated(use_output_inversion=False),
+    "strength_5": lambda: _neuromodulated(modulation_strength=5.0),
+    "output_relu": lambda: _neuromodulated_output("relu"),
+    "cppn_activations": lambda: _neuromodulated_with(
+        "dynamic_functions", {"mode": "cppn_output", "num_activations": 4}),
+    "aggregation_palette": lambda: _neuromodulated_with(
+        "aggregation", {"mode": "cppn_output", "palette": ["max", "product", "mean"]}),
+    **{f"derivation_{method}": (lambda method=method: _neuromodulated(receptor_derivation=method))
+       for method in ("abs", "normalized", "fourier", "softmax", "orthogonal", "phase_shifted")},
+}
+
+
+@pytest.mark.parametrize("name", sorted(NM_CONFIGS))
+def test_neuromodulated_substrates_match_the_generation_loop(name):
+    """The receptors, base gains and fitness of a neuromodulated feed-forward substrate are the loop's."""
+    algo, problem, state = _setup(NM_CONFIGS[name]())
+    substrate = algo.population_substrates(state)
+    algo.run_generation(state, problem)
+    assert substrate.config.neuromodulation is not None
+    assert _same(substrate.W1, algo._cached_W1), "W1"
+    nm = api.substrate_neuromodulation(substrate)
+    assert _same(nm.receptors, algo._neuromod_true["receptor_densities"]), "receptors"
+    assert _same(nm.base_gains, algo._neuromod_true["base_gains"]), "base gains"
+    outputs = substrate_forward(substrate, algo._cached_inputs)
+    fitness = jax.vmap(
+        lambda out: _eval_single_fitness(out, algo._cached_targets, algo.fitness_mode)
+    )(outputs)
+    np.testing.assert_array_equal(np.asarray(fitness), np.asarray(algo._cached_fitnesses))
+
+
+def test_neuromodulation_settings_follow_the_configuration():
+    algo, _, _ = _setup(_neuromodulated(node_rule="steep_gate", modulation_strength=5.0, num_nt_types=6))
+    settings = algo.substrate_config().neuromodulation
+    assert settings == api.NeuromodulationSettings(
+        num_nt_types=6, modulation_strength=5.0, receptor_derivation="tanh", modulation_mode="full",
+        node_rule="steep_gate", output_inversion=True)
+
+
+def test_the_output_activation_under_neuromodulation_is_the_one_the_loop_applies():
+    """With neither per-node mode on, the loop's plain branch (tanh and sigmoid) does not run under
+    neuromodulation, so the configured output activation is the one evaluated, and reported."""
+    algo, _, _ = _setup(_neuromodulated_output("relu"))
+    assert algo.substrate_config().output_activation == "relu"
+
+
+def test_a_given_neuromodulation_replaces_the_configured_one():
+    """The forward applies the SubstrateNeuromodulation it is given: the computed one gives the same
+    outputs; other receptors give others; and a substrate built without neuromodulation takes one."""
+    algo, problem, state = _setup(_neuromodulated())
+    substrate = algo.population_substrates(state)
+    inputs = jnp.asarray(problem.inputs, dtype=jnp.float32)
+    nm = api.substrate_neuromodulation(substrate)
+    configured = substrate_forward(substrate, inputs)
+    np.testing.assert_array_equal(np.asarray(substrate_forward(substrate, inputs, neuromodulation=nm)),
+                                  np.asarray(configured))
+    flipped = nm._replace(receptors=-nm.receptors)
+    assert not np.array_equal(np.asarray(substrate_forward(substrate, inputs, neuromodulation=flipped)),
+                              np.asarray(configured))
+    plain = substrate._replace(config=substrate.config._replace(neuromodulation=None))
+    np.testing.assert_array_equal(np.asarray(substrate_forward(plain, inputs, neuromodulation=nm)),
+                                  np.asarray(configured))
+    with pytest.raises(ValueError, match="must cover the substrate"):
+        substrate_forward(plain, inputs, neuromodulation=nm._replace(base_gains=nm.base_gains[:1]))
+
+
+
+def test_a_short_neurotransmitter_vector_is_refused():
+    """JAX clamps an index past the end, so a vector shorter than the channels the rule and the
+    inversion read ran silently; it is refused."""
+    algo, problem, state = _setup(_neuromodulated())
+    substrate = algo.population_substrates(state)
+    inputs = jnp.asarray(problem.inputs, dtype=jnp.float32)
+    short = api.substrate_neuromodulation(substrate, neurotransmitter=[0.5, 0.5, 0.2])
+    with pytest.raises(ValueError, match="reads 4 entries"):
+        substrate_forward(substrate, inputs, neuromodulation=short)
+
+
+def test_the_anti_rule_reads_every_channel():
+    """Under 'anti' five channels need a five-entry vector: the four-entry default is refused, and
+    five entries run."""
+    algo, problem, state = _setup(_neuromodulated(node_rule="anti", use_output_inversion=False))
+    substrate = algo.population_substrates(state)
+    inputs = jnp.asarray(problem.inputs, dtype=jnp.float32)
+    nm = api.substrate_neuromodulation(substrate)
+    weight = substrate.W1[:, 0, :] / substrate.config.max_weight
+    five = nm._replace(receptors=api.derive_receptor_from_weight(weight, "tanh", 5) * 2.0 - 1.0,
+                       settings=nm.settings._replace(num_nt_types=5))
+    with pytest.raises(ValueError, match="reads 5 entries"):
+        substrate_forward(substrate, inputs, neuromodulation=five)
+    outputs = substrate_forward(substrate, inputs, neuromodulation=five._replace(
+        neurotransmitter=jnp.asarray([0.5, 0.5, 0.5, 1.0, 0.5])))
+    assert np.all(np.isfinite(np.asarray(outputs)))
+
+def test_substrate_neuromodulation_needs_its_settings():
+    algo, _, state = _setup(create_config_with_recurrence("feedforward", max_depth=DEPTH, population_size=POP))
+    with pytest.raises(ValueError, match="no neuromodulation settings"):
+        api.substrate_neuromodulation(algo.population_substrates(state))
+
+
+def test_the_default_neurotransmitter_is_the_loops():
+    np.testing.assert_array_equal(np.asarray(api.default_neurotransmitter(4)), [0.5, 0.5, 0.5, 1.0])
+    np.testing.assert_array_equal(np.asarray(api.default_neurotransmitter(6)), [0.5, 0.5, 0.5, 1.0])
+    np.testing.assert_array_equal(np.asarray(api.default_neurotransmitter(2)), [0.5, 0.5])
+
+
+def test_capabilities_and_public_steps():
+    """SUBSTRATE_CAPABILITIES names what the API covers, and the substrate's steps are the engine's own
+    functions, with the keyword names a caller may rely on."""
+    from emr_hyperneat import emrhyperneat as engine
+    from emr_hyperneat import emrhyperneat_base as base
+    assert api.SUBSTRATE_CAPABILITIES == frozenset(
+        {"sparse_cap_policy", "neuromodulation", "aggregation_palette", "substrate_steps"})
+    assert api.get_hierarchical_grid is base.get_hierarchical_grid
+    assert api.cppn_query_rows is base.cppn_query_rows
+    assert api.compute_hierarchical_variances_batch is base.compute_hierarchical_variances_batch
+    assert api.cppn_output_function_indices is engine.cppn_output_function_indices
+    assert api.substrate_weight_matrices is engine.substrate_weight_matrices
+    assert api.self_connection_rows is engine.self_connection_rows
+    assert api.derive_receptor_from_weight is engine.derive_receptor_from_weight
+    assert {name: _parameters(getattr(api, name)) for name in PUBLIC_STEP_PARAMETERS} == (
+        PUBLIC_STEP_PARAMETERS)
+    assert _parameters(api.derive_receptor_from_weight) == (
+        ("weight", REQUIRED), ("method", "tanh"), ("num_nt_types", 4))
+
+
+REQUIRED = "required"
+
+#: The parameters (name, default) of the substrate's public steps, which the API keeps: a change to
+#: one of these functions keeps them, or the API wraps the new function in the old parameters.
+PUBLIC_STEP_PARAMETERS = {
+    "get_hierarchical_grid": (("max_depth", REQUIRED),),
+    "cppn_query_rows": (("source_coord", REQUIRED), ("target_positions", REQUIRED),
+                        ("outgoing", REQUIRED), ("geometry_seeding_enabled", False),
+                        ("agent_coord", None)),
+    "compute_hierarchical_variances_batch": (("all_weights", REQUIRED), ("grid", REQUIRED),
+                                             ("legacy_level0_variance", False)),
+    "cppn_output_function_indices": (("self_conn", REQUIRED), ("masks", REQUIRED), ("W1", REQUIRED),
+                                     ("channel", REQUIRED), ("num_options", REQUIRED),
+                                     ("num_cppn_outputs", REQUIRED), ("palette", None),
+                                     ("decode", "tanh")),
+    "substrate_weight_matrices": (("input_weights", REQUIRED), ("output_weights", REQUIRED),
+                                  ("masks", REQUIRED), ("max_weight", REQUIRED),
+                                  ("weight_threshold", 0.1), ("locality_radius", None),
+                                  ("input_coords", None), ("output_coords", None),
+                                  ("positions", None)),
+    "self_connection_rows": (("positions", REQUIRED), ("geometry_seeding_enabled", False)),
+}
+
+
+def _parameters(function):
+    return tuple((parameter.name,
+                  REQUIRED if parameter.default is inspect.Parameter.empty else parameter.default)
+                 for parameter in inspect.signature(function).parameters.values())
 
 
 def _streaming():
     config = create_config_with_recurrence("feedforward", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["execution"] = {"mode": "streaming"}
+    _emr(config)["execution"] = {"mode": "streaming"}
     return config
+
+
+def _neuromodulated_recurrent():
+    return create_config_with_neuromodulation(
+        "true_neuromodulation_4nt", recurrence_preset="hidden_only",
+        max_depth=DEPTH, population_size=POP)
 
 
 @pytest.mark.parametrize("make, reason", [
     (_recurrent_union, "hh_discovery_mode"),
-    (_neuromodulated, "neuromodulation"),
+    (_neuromodulated_recurrent, "true neuromodulation with hidden-to-hidden connections"),
+    (lambda: _neuromodulated(receptor_from_weight=False), "receptor_from_weight false"),
+    (lambda: _neuromodulated(use_self_connection_query=True), "use_self_connection_query"),
+    (lambda: create_config_with_neuromodulation(
+        "static_gating", recurrence_preset="feedforward", max_depth=DEPTH, population_size=POP),
+     "neuromodulation mode 'static_gating'"),
     (lambda: create_config_with_dynamic_functions(
         "weight_interp_variance", max_depth=DEPTH, population_size=POP), "weight_interpretation"),
     (lambda: create_config_with_dynamic_functions(
@@ -294,7 +495,7 @@ def test_aggregation_only_reads_its_own_channel():
 
 def test_aggregation_channel_zero_reproduces_pre_0_2_runs():
     config = _agg_only()
-    _hmr(config)["dynamic_functions"] = {"cppn_output_indices": {"aggregation": 0}}
+    _emr(config)["dynamic_functions"] = {"cppn_output_indices": {"aggregation": 0}}
     algo = EMRHyperNEAT()
     algo.create_config(config)
     assert algo.num_cppn_outputs == 2
@@ -305,7 +506,7 @@ def test_two_output_ablation_keeps_sharing_the_weight_channel():
     """Both modes with an explicit two-output CPPN: channel 1 is the activation's."""
     config = create_config_with_combined_recurrence(
         "feedforward", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["dynamic_functions"]["num_cppn_outputs"] = 2
+    _emr(config)["dynamic_functions"]["num_cppn_outputs"] = 2
     algo = EMRHyperNEAT()
     algo.create_config(config)
     assert algo._cppn_output_indices == {"weight": 0, "activation": 1, "aggregation": 0}
@@ -333,7 +534,7 @@ def test_uniform_decode_reaches_every_palette_entry():
     for decode in ("tanh", "uniform"):
         config = create_config_with_dynamic_functions(
             "cppn_output_4", num_activations=18, palette="full", max_depth=4, population_size=100)
-        _hmr(config)["dynamic_functions"]["index_decode"] = decode
+        _emr(config)["dynamic_functions"]["index_decode"] = decode
         algo, _, state = _setup(config)
         reached[decode] = set(np.unique(np.asarray(algo.population_substrates(state).act_indices)).tolist())
     assert reached["tanh"] <= set(range(2, 16))

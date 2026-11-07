@@ -882,6 +882,72 @@ def _neat_operator_block(algo_params: Dict[str, Any], name: str,
 # These functions compute variance at each level and determine which regions
 # need subdivision based on ES-HyperNEAT semantics (high variance = subdivide).
 
+def _subdivision_reach(prev_reached: Any, prev_variances: Any, variance_threshold: Optional[float],
+                       forced: bool, parent_indices: Any) -> Any:
+    """The cells of a level that subdivision reaches, [pop_size, cells] boolean.
+
+    A cell is reached when its parent (``parent_indices``) was reached and subdivides, on canonical
+    ES-HyperNEAT's two clauses (naive/eshyperneat/eshyperneat.py:441): forced (level <=
+    initial_depth) or a variance above the threshold. The variance clause alone stops subdividing
+    at level 2-3, so deep grids need both. A forced level does not read ``variance_threshold``.
+    The operators dispatch on their operands: depth offload's numpy arrays stay numpy, the other
+    paths' jnp arrays jnp. ``forced`` is a Python bool, so a traced caller unrolls the branch.
+    """
+    subdivided = prev_reached if forced else prev_reached & (prev_variances > variance_threshold)
+    return subdivided[:, parent_indices]
+
+
+def _subdivision_variances(
+    all_weights: jnp.ndarray,
+    level_offsets: Tuple[int, ...],
+    level_grid_sizes: Tuple[int, ...],
+    num_levels: int,
+    legacy_level0_variance: bool,
+) -> List[jnp.ndarray]:
+    """The variances of every level but the finest, each [pop_size, num_cells_at_level].
+
+    The loop of compute_hierarchical_variances_batch and compute_hierarchical_variances_batch_jit,
+    which each add the finest level's zeros in their own type. Its indices and sizes are static
+    Python integers (the grid's static tuples), so it also traces inside jax.jit and while loops.
+    """
+    pop_size = all_weights.shape[0]
+    variances_list = []
+
+    for level in range(num_levels - 1):  # No variance at finest level
+        level_start = level_offsets[level]
+        level_end = level_offsets[level + 1]
+
+        if level == 0 and legacy_level0_variance:
+            # Legacy level 0 (the original standard path): one scalar per genome over
+            # level 0's own four weights, so the level subdivides all-or-nothing.
+            level_weights = all_weights[:, level_start:level_end]
+            variance = jnp.var(level_weights, axis=1, keepdims=True)
+            variances_list.append(variance)  # [pop_size, 1]
+        else:
+            # Canonical, level 0 included: variance of the 2x2 child blocks at level+1
+            next_start = level_offsets[level + 1]
+            next_end = level_offsets[level + 2]
+            child_grid_size = level_grid_sizes[level + 1]
+            parent_grid_size = level_grid_sizes[level]
+            next_level_weights = all_weights[:, next_start:next_end]
+
+            # Reshape to [pop_size, child_grid, child_grid]
+            child_grids = next_level_weights.reshape(pop_size, child_grid_size, child_grid_size)
+            # Reshape to [pop_size, parent_grid, 2, parent_grid, 2]
+            reshaped = child_grids.reshape(pop_size, parent_grid_size, 2, parent_grid_size, 2)
+            # Transpose to [pop_size, parent_grid, parent_grid, 2, 2]
+            reshaped = reshaped.transpose(0, 1, 3, 2, 4)
+            # Reshape to [pop_size, parent_grid, parent_grid, 4]
+            blocks = reshaped.reshape(pop_size, parent_grid_size, parent_grid_size, 4)
+            # Compute variance over the 4 children
+            variances = jnp.var(blocks, axis=-1)
+            # Flatten to [pop_size, num_parent_cells]
+            variances = variances.reshape(pop_size, parent_grid_size * parent_grid_size)
+            variances_list.append(variances)
+
+    return variances_list
+
+
 def compute_hierarchical_variances_batch(
     all_weights: jnp.ndarray,
     grid: HierarchicalGridStructure,
@@ -901,50 +967,22 @@ def compute_hierarchical_variances_batch(
     Returns:
         List of variance arrays per level, each [pop_size, num_cells_at_level]
     """
+    # Read before any operation, so a bad argument raises here: with the grid traced by jax.jit,
+    # range() raises TracerIntegerConversionError; inside jax.jit, int() of the device array raises
+    # ConcretizationTypeError; a CPU grid has no level_offsets (AttributeError)
     pop_size = all_weights.shape[0]
-    level_variances_batch = []
-
-    for level in range(grid.num_levels - 1):  # No variance at finest level
-        level_start = int(grid.level_offsets[level])
-        level_end = int(grid.level_offsets[level + 1])
-
-        if level == 0 and legacy_level0_variance:
-            # Legacy level 0 (the original standard path): one scalar per genome over
-            # level 0's own four weights, so the level subdivides all-or-nothing.
-            level_weights = all_weights[:, level_start:level_end]
-            variance = jnp.var(level_weights, axis=1, keepdims=True)
-            level_variances_batch.append(variance)  # [pop_size, 1]
-        else:
-            # Canonical, level 0 included: variance of the 2x2 child blocks at level+1
-            next_level_start = int(grid.level_offsets[level + 1])
-            next_level_end = int(grid.level_offsets[level + 2])
-            next_level_weights = all_weights[:, next_level_start:next_level_end]
-
-            child_grid_size = int(np.sqrt(next_level_end - next_level_start))
-            parent_grid_size = child_grid_size // 2
-
-            # Reshape to [pop_size, child_grid, child_grid]
-            child_grids = next_level_weights.reshape(pop_size, child_grid_size, child_grid_size)
-
-            # Compute 2x2 block variances using reshape and var
-            # Reshape to [pop_size, parent_grid, 2, parent_grid, 2]
-            reshaped = child_grids.reshape(pop_size, parent_grid_size, 2, parent_grid_size, 2)
-            # Transpose to [pop_size, parent_grid, parent_grid, 2, 2]
-            reshaped = reshaped.transpose(0, 1, 3, 2, 4)
-            # Reshape to [pop_size, parent_grid, parent_grid, 4]
-            blocks = reshaped.reshape(pop_size, parent_grid_size, parent_grid_size, 4)
-            # Compute variance over the 4 children
-            variances = jnp.var(blocks, axis=-1)
-            # Flatten to [pop_size, num_parent_cells]
-            variances = variances.reshape(pop_size, parent_grid_size * parent_grid_size)
-
-            level_variances_batch.append(variances)
+    num_levels = grid.num_levels
+    range(num_levels - 1)
+    finest_size = int(grid.level_offsets[num_levels]) - int(grid.level_offsets[num_levels - 1])
+    level_variances_batch = _subdivision_variances(
+        all_weights, grid.level_offsets_static, grid.level_grid_sizes_static, num_levels,
+        legacy_level0_variance,
+    )
 
     # Add zeros for finest level (no children)
     # Use numpy to avoid JIT cache cross-device errors
     # The jnp.zeros call uses a globally cached JIT trace that causes
     # "Buffer on device cuda:X but replica assigned to cuda:Y" errors
-    finest_size = int(grid.level_offsets[grid.num_levels]) - int(grid.level_offsets[grid.num_levels - 1])
     level_variances_batch.append(np.zeros((pop_size, finest_size), dtype=np.float32))
 
     return level_variances_batch
@@ -972,60 +1010,18 @@ def compute_subdivision_masks_batch(
         If return_all_masks=True: (masks_A, masks_B, masks_C) - each [pop_size, total_positions] boolean
         If return_all_masks=False: masks_A only - [pop_size, total_positions] boolean
     """
-    pop_size = level_variances[0].shape[0]
-    num_levels = grid.num_levels
-
-    # Track reached cells at each level
-    level_reached = []
-    level_reached.append(jnp.ones((pop_size, 4), dtype=bool))  # Level 0 always reached
-
-    for level in range(1, num_levels):
-        prev_reached = level_reached[level - 1]
-        prev_variances = level_variances[level - 1]
-
-        # Canonical ES-HyperNEAT subdivides on two clauses:
-        #   (level < initial_depth) or (variance > threshold)
-        # A parent at level-1 is forced when level-1 < initial_depth, i.e.
-        # level <= initial_depth. Static Python branch: unrolls at trace time.
-        if level <= initial_depth:
-            prev_subdivided = prev_reached
-        else:
-            # Cells subdivided if reached AND high variance
-            prev_subdivided = prev_reached & (prev_variances > variance_threshold)
-
-        # Current level reached if parent was subdivided
-        parent_indices = grid.parent_indices[level]
-        # Gather parent subdivision status for each cell
-        current_reached = prev_subdivided[:, parent_indices]
-
-        level_reached.append(current_reached)
-
-    # Build masks
-    # Mask A: All reached positions
-    masks_A = jnp.concatenate(level_reached, axis=1)
-
-    # Skip masks_B and masks_C if not needed, so they are not allocated
-    if not return_all_masks:
-        return masks_A
-
-    # Mask B: Only finest level reached positions
-    masks_B = jnp.zeros((pop_size, grid.total_positions), dtype=bool)
-    finest_start = int(grid.level_offsets[num_levels - 1])
-    masks_B = masks_B.at[:, finest_start:].set(level_reached[num_levels - 1])
-
-    # Mask C: Stopping points (reached AND (low variance OR finest))
-    masks_C_parts = []
-    for level in range(num_levels):
-        reached = level_reached[level]
-        if level == num_levels - 1:
-            stopping = reached
-        else:
-            low_variance = level_variances[level] <= variance_threshold
-            stopping = reached & low_variance
-        masks_C_parts.append(stopping)
-    masks_C = jnp.concatenate(masks_C_parts, axis=1)
-
-    return masks_A, masks_B, masks_C
+    # The traceable function's masks, on the grid's static metadata
+    masks = compute_subdivision_masks_batch_jit(
+        level_variances, variance_threshold, num_levels=grid.num_levels,
+        parent_indices_tuple=grid.parent_indices, level_offsets=grid.level_offsets_static,
+        total_positions=grid.total_positions, initial_depth=initial_depth,
+        return_all_masks=return_all_masks,
+    )
+    if return_all_masks:
+        # Like the variances, the eager masks read the device array: inside jax.jit int() raises
+        # ConcretizationTypeError (substrate_masks traces), and a CPU grid has no level_offsets
+        int(grid.level_offsets[grid.num_levels - 1])
+    return masks
 
 
 # JIT-Compatible Variance and Mask Functions
@@ -1057,48 +1053,13 @@ def compute_hierarchical_variances_batch_jit(
     Returns:
         Tuple of variance arrays per level, each [pop_size, num_cells_at_level]
     """
-    pop_size = all_weights.shape[0]
-    variances_list = []
-
-    for level in range(num_levels - 1):  # No variance at finest level
-        # Static Python integers: no int() conversion needed
-        level_start = level_offsets[level]
-        level_end = level_offsets[level + 1]
-
-        if level == 0 and legacy_level0_variance:
-            # Legacy level 0 (the original standard path): one scalar per genome over
-            # level 0's own four weights, so the level subdivides all-or-nothing.
-            level_weights = all_weights[:, level_start:level_end]
-            variance = jnp.var(level_weights, axis=1, keepdims=True)
-            variances_list.append(variance)  # [pop_size, 1]
-        else:
-            # Canonical, level 0 included: variance of the 2x2 child blocks at level+1
-            next_start = level_offsets[level + 1]
-            next_end = level_offsets[level + 2]
-            child_grid_size = level_grid_sizes[level + 1]  # Static!
-            parent_grid_size = level_grid_sizes[level]     # Static!
-
-            # Use array slicing with static indices
-            next_level_weights = all_weights[:, next_start:next_end]
-
-            # Static reshape dimensions
-            child_grids = next_level_weights.reshape(pop_size, child_grid_size, child_grid_size)
-            # Reshape to [pop_size, parent_grid, 2, parent_grid, 2]
-            reshaped = child_grids.reshape(pop_size, parent_grid_size, 2, parent_grid_size, 2)
-            # Transpose to [pop_size, parent_grid, parent_grid, 2, 2]
-            reshaped = reshaped.transpose(0, 1, 3, 2, 4)
-            # Reshape to [pop_size, parent_grid, parent_grid, 4]
-            blocks = reshaped.reshape(pop_size, parent_grid_size, parent_grid_size, 4)
-            # Compute variance over the 4 children
-            variances = jnp.var(blocks, axis=-1)
-            # Flatten to [pop_size, num_parent_cells]
-            variances = variances.reshape(pop_size, parent_grid_size * parent_grid_size)
-
-            variances_list.append(variances)
+    variances_list = _subdivision_variances(
+        all_weights, level_offsets, level_grid_sizes, num_levels, legacy_level0_variance,
+    )
 
     # Add zeros for finest level (no children)
-    finest_size = level_sizes[-1]  # Static Python int!
-    variances_list.append(jnp.zeros((pop_size, finest_size)))
+    finest_size = level_sizes[-1]  # Static Python int
+    variances_list.append(jnp.zeros((all_weights.shape[0], finest_size)))
 
     return tuple(variances_list)
 
@@ -1139,24 +1100,11 @@ def compute_subdivision_masks_batch_jit(
     level_reached = [jnp.ones((pop_size, 4), dtype=bool)]  # Level 0 always reached
 
     for level in range(1, num_levels):
-        prev_reached = level_reached[level - 1]
-        prev_variances = level_variances[level - 1]
-
-        # Canonical ES-HyperNEAT subdivides on two clauses:
-        #   (level < initial_depth) or (variance > threshold)
-        # Forced when level <= initial_depth. Static branch, unrolls at trace time.
-        if level <= initial_depth:
-            prev_subdivided = prev_reached
-        else:
-            # Cells subdivided if reached AND high variance
-            prev_subdivided = prev_reached & (prev_variances > variance_threshold)
-
-        # Current level reached if parent was subdivided
-        parent_indices = parent_indices_tuple[level]
-        # Gather parent subdivision status for each cell
-        current_reached = prev_subdivided[:, parent_indices]
-
-        level_reached.append(current_reached)
+        # A forced level (level <= initial_depth) is a static branch, unrolled at trace time
+        level_reached.append(_subdivision_reach(
+            level_reached[level - 1], level_variances[level - 1], variance_threshold,
+            level <= initial_depth, parent_indices_tuple[level],
+        ))
 
     # Build masks using static indices
     masks_A = jnp.concatenate(level_reached, axis=1)
@@ -1230,7 +1178,7 @@ _per_device_vmap_cache = {}
 _per_device_cache_lock = threading.Lock()
 
 
-def _create_query_fn_for_device(cppn_forward: Any, device_id: int):
+def _create_query_fn_for_device(cppn_forward: Any, device_id: int, flatten: bool = True):
     """Create a fresh query function bound to a specific device.
 
     This creates a new function each time, ensuring no trace contamination
@@ -1240,6 +1188,9 @@ def _create_query_fn_for_device(cppn_forward: Any, device_id: int):
     Args:
         cppn_forward: The CPPN forward function
         device_id: Target device index
+        flatten: Flatten each CPPN's (num_positions, num_outputs) outputs inside the compiled
+            function, the one-output layout; False keeps the output axis
+            (`_create_multi_output_query_fn_for_device`)
 
     Returns:
         A fresh JIT-compiled query function for this device
@@ -1259,9 +1210,10 @@ def _create_query_fn_for_device(cppn_forward: Any, device_id: int):
             """
             def query_single_cppn(cppn_tuple):
                 """Query one CPPN at all positions."""
-                return jax.vmap(
+                outputs = jax.vmap(
                     lambda x: cppn_forward(state, cppn_tuple, x)
-                )(inputs).flatten()
+                )(inputs)
+                return outputs.flatten() if flatten else outputs
 
             return jax.vmap(
                 query_single_cppn,
@@ -1300,7 +1252,7 @@ def _get_device_specific_query_fn(device_id: int, cppn_forward: Any):
 
 
 def _query_population_vmap_device_aware(cppn_forward, state, inputs,
-                                         cppns_transformed, device_id):
+                                         cppns_transformed, device_id, get_query_fn=None):
     """Query all CPPNs at all positions using device-aware vmap.
 
     This uses per-device JIT-compiled functions to avoid trace sharing
@@ -1315,9 +1267,13 @@ def _query_population_vmap_device_aware(cppn_forward, state, inputs,
         inputs: Input array (num_positions, input_dim)
         cppns_transformed: Tuple of 4 arrays, each (pop_size, ...)
         device_id: Device index for trace isolation
+        get_query_fn: The per-device cache that gives the compiled query: None for this
+            one-output query's (`_get_device_specific_query_fn`); `query_cppn_multi_output`
+            passes `_get_multi_output_query_fn`
 
     Returns:
-        (pop_size, num_positions) array of CPPN outputs
+        (pop_size, num_positions) array of CPPN outputs; (pop_size, num_positions,
+        num_outputs) from the multi-output cache
     """
     # Get the target device
     devices = jax.devices()
@@ -1331,7 +1287,7 @@ def _query_population_vmap_device_aware(cppn_forward, state, inputs,
     cppns_on_device = tuple(jax.device_put(arr, device) for arr in cppns_transformed)
 
     # Get per-device query function (creates one if not cached)
-    query_fn = _get_device_specific_query_fn(device_id, cppn_forward)
+    query_fn = (get_query_fn or _get_device_specific_query_fn)(device_id, cppn_forward)
 
     # Execute under device context
     with jax.default_device(device):
@@ -1421,6 +1377,7 @@ def batch_query_population_positions(
     device_id: int = 0,
     geometry_seeding_enabled: bool = False,
     agent_coord: Optional[np.ndarray] = None,
+    query_population: Any = None,
 ) -> jnp.ndarray:
     """Query all CPPNs at all target positions in one vmap call.
 
@@ -1446,9 +1403,13 @@ def batch_query_population_positions(
         geometry_seeding_enabled: If True, add delta_x, delta_y to CPPN inputs (7D instead of 5D)
         agent_coord: Optional (2,) agent team position for swarm mode.
             When provided, prepends [agent_x, agent_y] to CPPN inputs.
+        query_population: The device-aware query run on the rows: None for
+            `_query_population_vmap_device_aware`; `batch_query_population_positions_multi_output`
+            passes `query_cppn_multi_output`
 
     Returns:
-        (pop_size, num_positions) array of CPPN outputs
+        (pop_size, num_positions) array of CPPN outputs; (pop_size, num_positions,
+        num_outputs) through `query_cppn_multi_output`
     """
     # Get target device and ensure all inputs are on correct device
     devices = jax.devices()
@@ -1474,9 +1435,82 @@ def batch_query_population_positions(
     # Each device gets its own compiled trace, preventing cross-device reuse.
     # This maintains vmap performance while ensuring correct device placement.
 
-    return _query_population_vmap_device_aware(
+    return (query_population or _query_population_vmap_device_aware)(
         cppn_forward, state, inputs, cppns_transformed, device_id
     )
+
+
+def _query_sources_in_chunks(state: Any, cppns_transformed: Tuple, source_coords: jnp.ndarray,
+                             target_positions: jnp.ndarray, outgoing: bool, cppn_forward: Any,
+                             pop_chunk_size: int, device_id: int, geometry_seeding_enabled: bool,
+                             agent_coord: Optional[np.ndarray],
+                             query_positions: Any) -> Tuple[np.ndarray, Any]:
+    """The loop of the two multi-source queries: every source's outputs, in population chunks.
+
+    ``query_positions`` queries one source for one chunk of genomes:
+    `batch_query_population_positions` for `batch_query_population_multi_source_chunked`,
+    `batch_query_population_positions_multi_output` for
+    `batch_query_population_multi_source_multi_output`. Chunks and sources are joined with numpy
+    on the host; each caller transposes the stack and chooses where the result lives (on the
+    query device for the first, on the host for the second).
+
+    Returns:
+        The (num_sources, pop_size, num_positions) numpy stack (num_outputs last for a
+        multi-output query) and the query device.
+    """
+    # Get target device for device-consistent operations
+    devices = jax.devices()
+    device = devices[device_id] if device_id < len(devices) else devices[0]
+
+    # Ensure inputs are on correct device
+    source_coords = jax.device_put(source_coords, device)
+    target_positions = jax.device_put(target_positions, device)
+    cppns_transformed = tuple(jax.device_put(arr, device) for arr in cppns_transformed)
+
+    pop_size = cppns_transformed[0].shape[0]
+    num_sources = source_coords.shape[0]
+
+    results_list = []
+
+    # Sequential loop over sources (typically 3-10 for XOR)
+    for source_idx in range(num_sources):
+        source_coord = source_coords[source_idx]
+
+        # Chunked processing over population
+        chunk_results = []
+        for chunk_start in range(0, pop_size, pop_chunk_size):
+            chunk_end = min(chunk_start + pop_chunk_size, pop_size)
+
+            # Extract chunk of CPPNs (already on correct device)
+            chunk_cppns = (
+                cppns_transformed[0][chunk_start:chunk_end],
+                cppns_transformed[1][chunk_start:chunk_end],
+                cppns_transformed[2][chunk_start:chunk_end],
+                cppns_transformed[3][chunk_start:chunk_end],
+            )
+
+            # Query chunk (double vmap: chunk_pop x positions)
+            # Pass device_id to ensure device-specific traces
+            chunk_weights = query_positions(
+                state, chunk_cppns, source_coord, target_positions,
+                outgoing, cppn_forward, device_id, geometry_seeding_enabled,
+                agent_coord=agent_coord,
+            )
+            # Ensure chunk result is on correct device before appending
+            chunk_weights = jax.device_put(chunk_weights, device)
+            chunk_results.append(chunk_weights)
+
+        # Use numpy concatenate to avoid JAX JIT cache cross-device errors.
+        # jnp.concatenate uses globally cached JIT traces.
+        chunk_results_np = [np.asarray(c) for c in chunk_results]
+        source_weights = np.concatenate(chunk_results_np, axis=0)
+        results_list.append(source_weights)
+
+    # Stack sources: (num_sources, pop_size, num_positions[, num_outputs])
+    # Use numpy for stack/transpose to avoid JAX JIT cache cross-device errors.
+    # jnp.stack and jnp.transpose use globally cached JIT traces that can cause
+    # "Buffer on device cuda:X but replica assigned to cuda:Y" errors.
+    return np.stack(results_list, axis=0), device
 
 
 def batch_query_population_multi_source_chunked(
@@ -1513,63 +1547,12 @@ def batch_query_population_multi_source_chunked(
     Returns:
         (pop_size, num_sources, num_positions) array of CPPN outputs
     """
-    # Get target device for device-consistent operations
-    devices = jax.devices()
-    device = devices[device_id] if device_id < len(devices) else devices[0]
-
-    # Ensure inputs are on correct device
-    source_coords = jax.device_put(source_coords, device)
-    target_positions = jax.device_put(target_positions, device)
-    cppns_transformed = tuple(jax.device_put(arr, device) for arr in cppns_transformed)
-
-    pop_size = cppns_transformed[0].shape[0]
-    num_sources = source_coords.shape[0]
-
-    results_list = []
-
-    # Sequential loop over sources (typically 3-10 for XOR)
-    for source_idx in range(num_sources):
-        source_coord = source_coords[source_idx]
-
-        # Chunked processing over population
-        chunk_results = []
-        for chunk_start in range(0, pop_size, pop_chunk_size):
-            chunk_end = min(chunk_start + pop_chunk_size, pop_size)
-
-            # Extract chunk of CPPNs (already on correct device)
-            chunk_cppns = (
-                cppns_transformed[0][chunk_start:chunk_end],
-                cppns_transformed[1][chunk_start:chunk_end],
-                cppns_transformed[2][chunk_start:chunk_end],
-                cppns_transformed[3][chunk_start:chunk_end],
-            )
-
-            # Query chunk (double vmap: chunk_pop x positions)
-            # Pass device_id to ensure device-specific traces
-            chunk_weights = batch_query_population_positions(
-                state, chunk_cppns, source_coord, target_positions,
-                outgoing, cppn_forward, device_id, geometry_seeding_enabled,
-                agent_coord=agent_coord,
-            )
-            # Ensure chunk result is on correct device before appending
-            chunk_weights = jax.device_put(chunk_weights, device)
-            chunk_results.append(chunk_weights)
-
-        # Use numpy concatenate to avoid JAX JIT cache cross-device errors.
-        # jnp.concatenate uses globally cached JIT traces.
-        chunk_results_np = [np.asarray(c) for c in chunk_results]
-        source_weights = np.concatenate(chunk_results_np, axis=0)
-        results_list.append(source_weights)
-
-    # Stack sources: (num_sources, pop_size, num_positions)
-    # Transpose to: (pop_size, num_sources, num_positions)
-    # Use numpy for stack/transpose to avoid JAX JIT cache cross-device errors.
-    # jnp.stack and jnp.transpose use globally cached JIT traces that can cause
-    # "Buffer on device cuda:X but replica assigned to cuda:Y" errors.
-    results_np = [np.asarray(r) for r in results_list]
-    result_np = np.stack(results_np, axis=0)
-    result_np = np.transpose(result_np, (1, 0, 2))
-    return jax.device_put(result_np, device)
+    # Transposed to (pop_size, num_sources, num_positions) with numpy, then put on the query device
+    stacked, device = _query_sources_in_chunks(
+        state, cppns_transformed, source_coords, target_positions, outgoing, cppn_forward,
+        pop_chunk_size, device_id, geometry_seeding_enabled, agent_coord,
+        batch_query_population_positions)
+    return jax.device_put(np.transpose(stacked, (1, 0, 2)), device)
 
 
 # The CPPN node count the query chunking assumes for the CPPN's forward carry when the caller has
@@ -1682,20 +1665,25 @@ class EMRHyperNEATChunking(BaseAlgorithm):
         if not algo_params:
             algo_params = hierarchical_config
 
-        hmr_config = algo_params.get('emr_hyperneat', {})
-        if not hmr_config and (hierarchical_config.get('algorithm_params', {}).get('hmrhyperneat') is not None
-                               or 'hmr_hyperneat' in algo_params):
-            # An HMR-shaped configuration: EMR reads none of it, and a warning alone (as
-            # below) would let the run go ahead with every setting at its default.
+        emr_block = algo_params.get('emr_hyperneat', {})
+        algorithm_params = hierarchical_config.get('algorithm_params', {})
+        other_blocks = sorted(
+            [f'algorithm_params.{key}' for key in algorithm_params
+             if isinstance(key, str) and key.endswith('hyperneat') and key != 'emrhyperneat']
+            + [key for key in algo_params
+               if isinstance(key, str) and key.endswith('_hyperneat') and key != 'emr_hyperneat'])
+        if not emr_block and other_blocks:
+            # A configuration shaped for another engine (the prototype engine of release 0.1.0
+            # named its blocks so): EMR reads none of it, and a warning alone (as below) would let
+            # the run go ahead with every setting at its default.
             raise ValueError(
-                "this configuration is shaped for the HMR engine (release 0.1.0: "
-                "algorithm_params.hmrhyperneat or hmr_hyperneat); EMR reads "
-                "algorithm_params.emrhyperneat.emr_hyperneat")
-        if not hmr_config:
+                f"this configuration names engine blocks EMR does not read ({', '.join(other_blocks)}); "
+                "EMR reads algorithm_params.emrhyperneat.emr_hyperneat")
+        if not emr_block:
             # Every setting below reads from this block. Absent, they all take their
-            # defaults and the run proceeds looking healthy, which is exactly what an
-            # HMR-shaped or misnested config produces: max_depth 1, canonical variance
-            # rule, standard execution, dynamic functions off.
+            # defaults and the run proceeds looking healthy, which is exactly what a
+            # configuration shaped for another engine or misnested produces: max_depth 1,
+            # canonical variance rule, standard execution, dynamic functions off.
             import warnings
             warnings.warn(
                 "No 'emr_hyperneat' configuration block found under "
@@ -1705,35 +1693,35 @@ class EMRHyperNEATChunking(BaseAlgorithm):
                 UserWarning,
                 stacklevel=2,
             )
-        self.initial_depth = hmr_config.get('initial_depth', 0)
+        self.initial_depth = emr_block.get('initial_depth', 0)
         # Level-0 subdivision variance rule. 'canonical' (default): per-parent variance
         # over the four level-1 children, which is the rule the papers describe, the
         # one every other level uses, and the one streaming/depth_offload always used.
         # 'legacy': the original standard-path rule, one scalar over level 0's own four
         # weights subdividing the level all-or-nothing, which every published
         # standard-path run used; pin it to reproduce those numbers bit for bit.
-        self.variance_rule = hmr_config.get('variance_rule', 'canonical')
+        self.variance_rule = emr_block.get('variance_rule', 'canonical')
         if self.variance_rule not in ('canonical', 'legacy'):
             raise ValueError(
                 f"variance_rule must be 'canonical' or 'legacy', got {self.variance_rule!r}")
         self._legacy_level0_variance = self.variance_rule == 'legacy'
-        if hmr_config.get('verbose', False):
+        if emr_block.get('verbose', False):
             print(f"[EMR-HyperNEAT] variance_rule={self.variance_rule}")
-        self.max_depth = hmr_config.get('max_depth', 1)
-        self.variance_threshold = hmr_config.get('variance_threshold', 0.03)
-        self.division_threshold = hmr_config.get('division_threshold', 0.5)
-        self.band_threshold = hmr_config.get('band_threshold', 0.3)
+        self.max_depth = emr_block.get('max_depth', 1)
+        self.variance_threshold = emr_block.get('variance_threshold', 0.03)
+        self.division_threshold = emr_block.get('division_threshold', 0.5)
+        self.band_threshold = emr_block.get('band_threshold', 0.3)
         if self.band_threshold < 0:
             # A negative band makes every zero cell a connection: the padded slots of the per-genome
             # buckets and the positions outside a genome's active set (1,544 zero-weight duplicates
             # per_genome, 129,684 outside-set connections union, on XOR, depth 3, population 30, at
             # band -0.01).
             raise ValueError(f"band_threshold must be >= 0, got {self.band_threshold}")
-        self.max_weight = hmr_config.get('max_weight', 8.0)
-        self.iteration_level = hmr_config.get('iteration_level', 1)
+        self.max_weight = emr_block.get('max_weight', 8.0)
+        self.iteration_level = emr_block.get('iteration_level', 1)
         # A top-level iteration_level is never read: hidden->hidden discovery and its level are
         # configured in the emr_hyperneat.recurrence block.
-        if 'iteration_level' in hmr_config and hmr_config['iteration_level'] != 1:
+        if 'iteration_level' in emr_block and emr_block['iteration_level'] != 1:
             import warnings
             warnings.warn(
                 f"emr_hyperneat.iteration_level={self.iteration_level} has no effect; "
@@ -1743,7 +1731,7 @@ class EMRHyperNEATChunking(BaseAlgorithm):
                 stacklevel=2
             )
         # See _SUBDIVISION_READS_DIVISION_THRESHOLD: nothing on this path reads it.
-        if ('division_threshold' in hmr_config
+        if ('division_threshold' in emr_block
                 and not self._SUBDIVISION_READS_DIVISION_THRESHOLD):
             import warnings
             warnings.warn(
@@ -1756,38 +1744,38 @@ class EMRHyperNEATChunking(BaseAlgorithm):
                 DeprecationWarning,
                 stacklevel=2
             )
-        self.verbose = hmr_config.get('verbose', False)
-        self.fitness_mode = hmr_config.get('fitness_mode', 'mse')
+        self.verbose = emr_block.get('verbose', False)
+        self.fitness_mode = emr_block.get('fitness_mode', 'mse')
 
-        # HMR's base-engine memory and speed settings: sparse_forward_threshold (-1 dense, 0
-        # sparse, above 0 sparse beyond that many positions), and below fuse_w1_computation and
+        # The prototype's base-engine memory and speed settings: sparse_forward_threshold (-1 dense,
+        # 0 sparse, above 0 sparse beyond that many positions), and below fuse_w1_computation and
         # skip_unused_masks. EMRHyperNEAT.create_config checks them, and nothing reads them: it
         # computes the reached-position mask alone and narrows the evaluation by compaction, so no
         # value changes a result.
-        self.sparse_forward_threshold = hmr_config.get('sparse_forward_threshold', 0)
+        self.sparse_forward_threshold = emr_block.get('sparse_forward_threshold', 0)
 
         # extra_randkey_split: Controls pre-tell() random key splitting behavior
         #   True (default): Adds extra split for different evolutionary trajectories
         #   False: Match EvoX adaptor behavior exactly
-        self.extra_randkey_split = hmr_config.get('extra_randkey_split', True)
+        self.extra_randkey_split = emr_block.get('extra_randkey_split', True)
 
         # fuse_w1_computation and skip_unused_masks: see sparse_forward_threshold above
-        self.fuse_w1_computation = hmr_config.get('fuse_w1_computation', False)
-        self.skip_unused_masks = hmr_config.get('skip_unused_masks', False)
+        self.fuse_w1_computation = emr_block.get('fuse_w1_computation', False)
+        self.skip_unused_masks = emr_block.get('skip_unused_masks', False)
 
         # population_chunk_size: Process population in chunks during CPPN queries
         #   -1: AUTO - chunk only when the query's carry would not fit the shard budget (default)
         #   0: No chunking - vmap entire population at once
         #   >0: Manual override - process in chunks of this size
-        self.population_chunk_size = hmr_config.get('population_chunk_size', -1)  # Default: auto
+        self.population_chunk_size = emr_block.get('population_chunk_size', -1)  # Default: auto
 
         substrate_section = algo_params.get('substrate', {})
         self.substrate_input_coords = substrate_section.get('input_coords', [])
         self.substrate_output_coords = substrate_section.get('output_coords', [])
         default_activate_time = (2 ** self.max_depth) + 1
         self.activate_time = substrate_section.get('activate_time', default_activate_time)
-        # The defaults of dynamic_functions.hidden_activation and output_activation, as in HMR's
-        # dynamic-functions variant (EMRHyperNEAT._parse_dynamic_functions_config).
+        # The defaults of dynamic_functions.hidden_activation and output_activation, as in the
+        # prototype's dynamic-functions variant (EMRHyperNEAT._parse_dynamic_functions_config).
         self.hidden_activation = substrate_section.get('hidden_activation', 'tanh')
         self.output_activation = substrate_section.get('output_activation', 'sigmoid')
 

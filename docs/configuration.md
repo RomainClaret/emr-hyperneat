@@ -26,7 +26,9 @@ level, `algorithm_params`, `algorithm_params.emrhyperneat`, `substrate`, `neat`,
 (with its `genome` and `activation` blocks), where 0.1.0 also ignored such a key without a word.
 `neat.species_size` is accepted
 ([below](#keys-that-parse-but-do-not-act)). A configuration without its `emr_hyperneat` block warns
-that every setting takes its default and is not checked further.
+that every setting takes its default and is not checked further; one that names another engine's
+blocks instead (a key of `algorithm_params` ending in `hyperneat`, or a block ending in
+`_hyperneat`) raises, naming them.
 
 ## `substrate`
 
@@ -35,14 +37,14 @@ that every setting takes its default and is not checked further.
 | `input_coords` | one `(x, y)` per input | Input node positions; **length must equal** `problem.input_shape[0]` (bias included). |
 | `output_coords` | one `(x, y)` per output | Output node positions; length must equal `problem.output_shape[0]`. |
 | `activate_time` | unset | Settling steps of the hidden layer when it has hidden-to-hidden connections: the same count as `recurrence.activate_time` (set one, or both to the same value; see [Feature 2](#feature-2-recurrence-hidden-to-hidden-connections)). No effect without hidden-to-hidden connections. |
-| `hidden_activation`, `output_activation` | `tanh`, `sigmoid` | The defaults of `dynamic_functions.hidden_activation` and `output_activation` ([Feature 1](#feature-1-dynamic_functions-per-node-activation)), as in HMR's dynamic-functions variant; a name outside `ACTIVATION_FUNCTIONS` raises. 0.1.0 read neither key. |
+| `hidden_activation`, `output_activation` | `tanh`, `sigmoid` | The defaults of `dynamic_functions.hidden_activation` and `output_activation` ([Feature 1](#feature-1-dynamic_functions-per-node-activation)), as in the prototype's dynamic-functions variant; a name outside `ACTIVATION_FUNCTIONS` raises. 0.1.0 read neither key. |
 
 > **Activations apply where the evaluation can apply them.** The hidden activation applies in
 > `dynamic_functions` mode `global` only, so another value raises in the other modes. The output
 > activation applies everywhere except the multi-task path, which applies a sigmoid, so a value other
 > than `sigmoid` raises there. On the plain path (no per-node function, aggregation or
 > neuromodulation) a configured output activation runs as mode `global` with a `tanh` hidden
-> activation, which equals the plain evaluation bit for bit, as HMR's dynamic-functions variant
+> activation, which equals the plain evaluation bit for bit, as the prototype's dynamic-functions variant
 > applied it (0.1.0 ignored it on this path and applied a sigmoid). To change the hidden
 > activation of every node: `{"mode": "global", "hidden_activation": "sin"}`.
 
@@ -56,7 +58,7 @@ These control the eager multi-resolution grid and the variance mask.
 | Key | Default | Recommended | Meaning |
 |---|---|---|---|
 | `initial_depth` | `0` | `0` | Force full subdivision through this level: in every execution mode, every level `l <= initial_depth` holds all `4^(l+1)` positions per genome, regardless of variance. `0` forces nothing. Above `0` this is the capacity control: `variance_threshold` alone stops subdividing at level 2-3, and selection favors smoother (lower-variance) CPPNs, so deep levels never populate on their own. |
-| `variance_rule` | `canonical` | `canonical` | Level-0 subdivision variance. `canonical`: per-parent variance over the four level-1 children (the rule every other level uses, the one streaming/depth_offload always used, and the one the papers describe); all three execution modes then compute the same substrate. `legacy`: the original standard-path rule (one scalar over level 0's own four weights, all-or-nothing subdivision of the level), which every published standard-path run used. The six EMR paper runners pin it to reproduce those numbers bit for bit (emr-dynamic-functions E1/E2/E7/E8/E9 and the neuromodulation multihead runner). The runners whose published runs used the frozen HMR module, which hard-wires the legacy rule and takes no flag, run EMR from 0.2.0 and pin it as well, with `extra_randkey_split`, through their paper folder's `scripts/runners/emr_settings.py`. Every execution mode applies either rule; in 0.1.0 streaming and depth_offload ran the canonical rule under `legacy`. |
+| `variance_rule` | `canonical` | `canonical` | Level-0 subdivision variance. `canonical`: per-parent variance over the four level-1 children (the rule every other level uses, the one streaming/depth_offload always used, and the one the papers describe); all three execution modes then compute the same substrate. `legacy`: the original standard-path rule (one scalar over level 0's own four weights, all-or-nothing subdivision of the level), which every published standard-path run used. The six EMR paper runners pin it to reproduce those numbers bit for bit (emr-dynamic-functions E1/E2/E7/E8/E9 and the neuromodulation multihead runner). The runners whose published runs used the frozen prototype engine, which hard-wires the legacy rule and takes no flag, run EMR from 0.2.0 and pin it as well, with `extra_randkey_split`, through their paper folder's `scripts/runners/emr_settings.py`. Every execution mode applies either rule; in 0.1.0 streaming and depth_offload ran the canonical rule under `legacy`. |
 | `max_depth` | `1` | `2` to `3` | Maximum grid depth. Candidate positions grow ~4x per level (depth 2 -> 84, 3 -> 340, 4 -> 1364). Higher depth = larger substrate = slower. |
 | `variance_threshold` | `0.03` | `0.03` | Minimum CPPN-output variance for a region to survive the mask. Lower = denser substrate. |
 | `division_threshold` | - | - | Read by nothing on the eager multi-resolution path (canonical ES-HyperNEAT subdivides on it; the eager path subdivides on `variance_threshold` and `initial_depth`). Supplying it raises a `DeprecationWarning` naming the live controls. |
@@ -69,10 +71,11 @@ These control the eager multi-resolution grid and the variance mask.
 examples omit them and use these defaults; change `max_depth`, `variance_threshold`, and (for deep
 substrates) `initial_depth` first.
 
-`sparse_forward_threshold` (an integer of at least -1), `fuse_w1_computation` and `skip_unused_masks`
-(bools) are HMR's base-engine memory and speed settings. The base class parses them, and nothing
-reads them: this class computes the reached-position mask alone and narrows the evaluation by
-compaction, so no value changes a result. Their values are checked (0.1.0 read them as given).
+`sparse_forward_threshold` (an integer of at least -1), `fuse_w1_computation` and
+`skip_unused_masks` (bools) are the prototype's base-engine memory and speed settings. The base
+class parses them, and nothing reads them: this class computes the reached-position mask alone and
+narrows the evaluation by compaction, so no value changes a result. Their values are checked (0.1.0
+read them as given).
 
 The four feature sub-dicts (`dynamic_functions`, `aggregation`, `neuromodulation`, `recurrence`) also
 live under `emr_hyperneat` and are documented next.
@@ -93,8 +96,8 @@ monotonic functions in none (recurrence changes this).
 | `disabled` | Fixed `tanh` hidden / `sigmoid` output (the baseline). |
 | `global` | All hidden nodes use one activation: set `"hidden_activation": "sin"` (or any name below). |
 | `cppn_output` | The CPPN emits a per-node activation index from a palette: it becomes a multi-output network, one channel for the weight and one for the index. Set `num_activations` (e.g. 4 or 6) or a `palette` (below). |
-| `weight_interpretation` | Per-node activation derived from the incoming weights (`interpretation`: `magnitude_bio`, the default, from their mean magnitude; `sign`; `variance`; and HMR's `magnitude` (`magnitude_bio` inverted), `combined` (magnitude, variance and the sign ratio together), `hierarchical_sparsity`, `sparsity_threshold` and `stp_inspired`, which select the activation as `magnitude_bio` does and add a sparsity or a weight scaling at evaluation (below); another name raises; 0.1.0 ran every other name, HMR's five included, as `magnitude_bio`), from `num_activations` or a `palette`. **Changed in 0.2.0:** with a palette, every node computes a palette function; 0.1.0 left the decoded position unmapped, so a node whose position was not itself a palette member output 0. |
-| `modular` | HMR's three orthogonal layers, set in the `modular` block: `activation_method` (`magnitude_bio`, the default, `magnitude`, `sign`, `variance`, or `none` for `tanh` everywhere), `sparsity_method` (`none`, the default, `hierarchical`, `threshold` or `wta`; feed-forward evaluation only) and `scaling_method` (`none`, the default, or `stp_inspired`). 0.1.0 parsed the mode, warned that it was not implemented and evaluated fixed `tanh`. |
+| `weight_interpretation` | Per-node activation derived from the incoming weights (`interpretation`: `magnitude_bio`, the default, from their mean magnitude; `sign`; `variance`; and the prototype's `magnitude` (`magnitude_bio` inverted), `combined` (magnitude, variance and the sign ratio together), `hierarchical_sparsity`, `sparsity_threshold` and `stp_inspired`, which select the activation as `magnitude_bio` does and add a sparsity or a weight scaling at evaluation (below); another name raises; 0.1.0 ran every other name, the prototype's five included, as `magnitude_bio`), from `num_activations` or a `palette`. **Changed in 0.2.0:** with a palette, every node computes a palette function; 0.1.0 left the decoded position unmapped, so a node whose position was not itself a palette member output 0. |
+| `modular` | The prototype's three orthogonal layers, set in the `modular` block: `activation_method` (`magnitude_bio`, the default, `magnitude`, `sign`, `variance`, or `none` for `tanh` everywhere), `sparsity_method` (`none`, the default, `hierarchical`, `threshold` or `wta`; feed-forward evaluation only) and `scaling_method` (`none`, the default, or `stp_inspired`). 0.1.0 parsed the mode, warned that it was not implemented and evaluated fixed `tanh`. |
 | `random_fixed` / `random_generation` | Random per-node activation, fixed at init / re-rolled each generation (controls/baselines). `random_fixed` keeps a function per population slot and grid position, also when hidden-to-hidden connections narrow the evaluation to each generation's active positions (0.1.0 failed there once the active count changed). `random_scope: genome` (the default) draws each population slot from the run's key, or from `random_seed` when set; `random_scope: shared` is 0.1.0's draw, one assignment for every genome and every run, kept to reproduce such runs. The aggregation block's random modes take the same `random_scope`, and its `random_fixed` keeps a function per slot and position in the same way. |
 
 **The 18 activations** (`ACTIVATION_LIST`, indexable by position):
@@ -129,58 +132,59 @@ feed-forward evaluation. `hh_activation_mode` names the activation of the settli
 |---|---|
 | `every_iteration` (default) | The configured one, at every step. |
 | `tanh` | `tanh`, whatever the mode: 0.1.0's default settling, for runs with no input aggregation. |
-| `initial_only` | Under `recurrence.settling_rule: hmr` only (Feature 2): the configured activation at the first step, `tanh` at the later ones, HMR's mode. |
+| `initial_only` | Under `recurrence.settling_rule: drive_once` only (Feature 2): the configured activation at the first step, `tanh` at the later ones, the prototype's mode. |
 
 **Changed in 0.2.0.** The default was `initial_only`, which settled this path with `tanh`: the
 input drive entered raw, every step was `tanh`, and the per-node indices were computed but not
-applied. `initial_only` is now rejected with an error outside HMR's settling rule, as is
+applied. `initial_only` is now rejected with an error outside the prototype's settling rule, as is
 `global_activation` (the `global` mode reads `hidden_activation`). In 0.1.0 the recurrent path also applied no input aggregation and
 used `mse` whatever the fitness mode.
 
 `cppn_output_indices` places the extra CPPN outputs (`activation`, `aggregation`). The weight is
 always channel 0, and `weight` set to anything else is rejected (0.1.0 accepted it and kept the
 weight on channel 0). The CPPN's output count is `num_cppn_outputs` on the algorithm object
-(`cppn_num_outputs`, HMR's name, reads the same).
+(`cppn_num_outputs`, the prototype's name, reads the same).
 
 The `sparsity` block sets the fraction of each sample's active values a grid level keeps under
-`hierarchical_sparsity` (`level_0` 0.05, `level_1` 0.20, `level_2_plus` 0.40), and `modular.sparsity`
-the same for the `hierarchical` layer, plus `wta_k_percent` (0.10) for `wta`. Each fraction must be
-in (0, 1], and a block the configuration would not read raises (0.1.0 read neither block). The
-sparsity layers count a genome's active nodes only, where HMR counted every position of the
-evaluation axis. The `modular` block's activation, sparsity and scaling settings act under mode
-`modular` only and raise under another; its `aggregation_method` is read by `aggregation.mode:
-modular` (Feature 4).
+`hierarchical_sparsity` (`level_0` 0.05, `level_1` 0.20, `level_2_plus` 0.40), and
+`modular.sparsity` the same for the `hierarchical` layer, plus `wta_k_percent` (0.10) for `wta`.
+Each fraction must be in (0, 1], and a block the configuration would not read raises (0.1.0 read
+neither block). The sparsity layers count a genome's active nodes only, where the prototype counted
+every position of the evaluation axis. The `modular` block's activation, sparsity and scaling
+settings act under mode `modular` only and raise under another; its `aggregation_method` is read by
+`aggregation.mode: modular` (Feature 4).
 
-`cppn_read` and `weight_source` are HMR's reads, opt-ins for runs that reproduce HMR's.
-`cppn_read: input_mean` averages a node's function channel over its input-to-node queries, where
-EMR reads the node's self-connection (`self`, the default); it needs mode `cppn_output`, a
-dedicated channel and the standard execution mode. `weight_source: raw` has the weight
-interpretations read the raw weight channel, where EMR reads `W1`, scaled and thresholded (`w1`,
-the default). The `aggregation` block takes the same two keys.
+`cppn_read` and `weight_source` are the prototype's reads, opt-ins for runs that reproduce the
+prototype's. `cppn_read: input_mean` averages a node's function channel over its input-to-node
+queries, where EMR reads the node's self-connection (`self`, the default); it needs mode
+`cppn_output`, a dedicated channel and the standard execution mode. `weight_source: raw` has the
+weight interpretations read the raw weight channel, where EMR reads `W1`, scaled and thresholded
+(`w1`, the default). The `aggregation` block takes the same two keys.
 
-`palette_evolution` is HMR's random walk on the palette, built in. After `stagnation_generations`
-(5) generations without a new best fitness, every function's bit flips with probability
-`mutation_rate` (0.1), and a result with fewer than `min_active` (2) functions keeps the old mask.
-The walk starts from `initial_mask` (`full`, the default, `default`, or a list of indices or names;
-a `palette` beside it raises) and needs mode `cppn_output`, whose decode it owns: `decode: stable`
-(the default) bins the channel over the whole list and snaps a disabled function to its nearest
-enabled one, so a toggle changes only the nodes of its bin; `rebin`, HMR's, bins over the enabled
-functions, so every toggle remaps a quarter to a half of every genome's nodes. It steps in the
-per-generation loop, so the paths that do not run that loop (`run_generation_multitask`, depth
-offload, the multi-device pipelines) refuse it. 0.1.0 ignored the block.
+`palette_evolution` is the prototype's random walk on the palette, built in. After
+`stagnation_generations` (5) generations without a new best fitness, every function's bit flips with
+probability `mutation_rate` (0.1), and a result with fewer than `min_active` (2) functions keeps the
+old mask. The walk starts from `initial_mask` (`full`, the default, `default`, or a list of indices
+or names; a `palette` beside it raises) and needs mode `cppn_output`, whose decode it owns: `decode:
+stable` (the default) bins the channel over the whole list and snaps a disabled function to its
+nearest enabled one, so a toggle changes only the nodes of its bin; `rebin`, the prototype's, bins
+over the enabled functions, so every toggle remaps a quarter to a half of every genome's nodes. It
+steps in the per-generation loop, so the paths that do not run that loop
+(`run_generation_multitask`, depth offload, the multi-device pipelines) refuse it. 0.1.0 ignored the
+block.
 
-`live_strategy` is HMR's live palette strategy: a runner's strategy object sets the palette after
-each generation. Pass it with `set_palette_strategy(strategy)` before the first generation; the object
-has `get_active_palette()` (`ACTIVATION_LIST` indices) and may have `post_generation_update(...)` and
-`initialize()`. When a later palette is longer, a share of the population (`perturbation_rate`,
-default 0.15) gets `perturbation_strength` (0.3) added to the bias of the CPPN's activation output
-node, which moves the activation channel toward the higher bins; `perturbation_decay` (0) lowers the
-rate as the run goes, to `rate * max(0, 1 - decay * generation / 100)`. HMR added the strength to
-TensorNEAT's node-key column, not
-to a bias, and split the run's key to choose the genomes; here the genomes are drawn from a key folded
-from `state.randkey`, which stays as it is. It needs mode `cppn_output` and refuses
-`palette_evolution`, which also sets the palette. Calling `set_palette_strategy` without the block
-enables HMR's defaults. 0.1.0 ignored the key and had no `set_palette_strategy`.
+`live_strategy` is the prototype's live palette strategy: a runner's strategy object sets the
+palette after each generation. Pass it with `set_palette_strategy(strategy)` before the first
+generation; the object has `get_active_palette()` (`ACTIVATION_LIST` indices) and may have
+`post_generation_update(...)` and `initialize()`. When a later palette is longer, a share of the
+population (`perturbation_rate`, default 0.15) gets `perturbation_strength` (0.3) added to the bias
+of the CPPN's activation output node, which moves the activation channel toward the higher bins;
+`perturbation_decay` (0) lowers the rate as the run goes, to `rate * max(0, 1 - decay * generation /
+100)`. The prototype added the strength to TensorNEAT's node-key column, not to a bias, and split
+the run's key to choose the genomes; here the genomes are drawn from a key folded from
+`state.randkey`, which stays as it is. It needs mode `cppn_output` and refuses `palette_evolution`,
+which also sets the palette. Calling `set_palette_strategy` without the block enables the
+prototype's defaults. 0.1.0 ignored the key and had no `set_palette_strategy`.
 
 `critical_periods: {"enabled": true}` raises: nothing in EMR changes a mutation rate (the palette
 paper's critical periods are part of its strategies,
@@ -205,55 +209,53 @@ starting from a zero hidden state, so no state carries between inputs. Use a pre
 | `with_self` | yes | no | no | yes |
 | `full_recurrent` | yes | yes | yes | yes |
 
-`iteration_level` (default `1`, carried by every recurrent preset since 0.2.0; `2` in 0.1.0) sets how many
-hops the multi-hop expansion adds (the mechanism: [architecture](architecture.md#the-recurrent-path-multi-hop-expansion-and-the-h-h-cache)).
-A pre-registered study of the level (1,650 runs) found level 2 better in one (problem, preset) cell of 25
-and worse in 11 of its 60 tests (Holm p < 0.05), so the presets discover direct connections only; set
-`iteration_level: 2` to compose them, or to reproduce a 0.1.0 run. Level 0 discovers the direct
-connections as level 1 does, on every path (0.1.0's multi-device pipelines and depth offload ran
-it feed-forward).
-`multi_hop_second_factor` (default `masked`) sets the right operand of every multi-hop product.
-`masked` composes the genome's existing direct connections, so composite connections stay within
-its own positions, and the result is intersected with the preset's connection class (a forward edge
-composed with a backward one would otherwise land lateral or on its own source); hop h carries
-decay^(h-1). `raw`, the behavior of
-0.1.0, multiplied by the raw weights over the whole union of active positions (a genome's composite
-connections could end on positions it did not have active, fall outside the class, and depend on
-the other genomes) and carried the decayed product into the next hop. Pass `raw` only to reproduce a
-recorded run; it is refused together with `hh_discovery_mode: per_genome`.
-`hh_discovery_mode` (default `per_genome`; `union` under the `raw` factor) chooses how the
-candidate pairs are queried. `union` runs one
-CPPN query over the population's union of active positions and then restricts each genome to its
-own positions; its cost grows with population times the square of the union size. `per_genome`
-queries each genome over its own active positions only, in static buckets of 8, 16, 32, ...
-positions, each bucket processed in slices of a fixed number of genomes (at most 2^16 position pairs
-per call, short slices padded), the whole population in one call (the union-sized population split of
-the union path does not apply), so one compiled function per bucket size serves the whole run and the
-cost follows the genomes' own active sets. The two modes give the same connections and weights for
-every genome: on a CPU bit for bit at `iteration_level` 1 and, across 36 configurations, at level 2
-(the acceptance criterion stays "same connections, weights within one float32 ulp", because the
-products run over different array shapes). `per_genome` was faster than union at every depth 1 to 7
-on XOR, population 1000, an RTX 2080 Ti. Dense discovery keeps
-the union query whatever the setting; the pmap (multi-GPU) pipeline has its own inline discovery at
-`iteration_level` 1 only and refuses a higher level on entry. A negative `band_threshold` is refused.
-The discovered h->h connections can be cached between generations: `hh_cache_enabled` (default
-`False` since 0.2.0, `True` in 0.1.0) switches the cache, `hh_refresh_interval` (default `5`) forces
-a re-discovery every N generations, and `hh_mask_change_threshold` (default `0.1`) forces one when
-the variance mask moves by more than that fraction. `hh_cache_trigger` (default `time_or_mask`) says
-what refreshes it: `time` refreshes every `hh_refresh_interval` generations only, as HMR's unified
-model did; it is refused when the cache is off, and `hh_mask_change_threshold` is refused beside
-`time`. `initialize` starts a new cache, so an object reused for another run does not score it with
-the last run's connections (0.1.0 kept them until the next refresh). The cache is not a pure
-speed-up: the cached
-set is indexed by population slot, and reproduction moves genomes between slots, so between
-refreshes a genome is scored with the recurrent connections discovered for whichever genome held
-its slot at the last refresh. On seed-paired XOR runs the solve rate did not change, but converged
-runs lost their champion in 124 of 187 cases with the cache against 9 of 196 without it. Leave it
-off unless you are reproducing a cache-on campaign. There is no per-class cache (hidden-to-hidden,
-backward, lateral, self) and none is planned: the classes are masks on one CPPN query over the
-active position pairs, so a cached class would be stale for a changed genome exactly as the whole
-set is. The per-class controls are `allow_hidden_to_hidden`, `allow_backward`, `allow_lateral` and
-`allow_self_loops`, which decide what is discovered.
+`iteration_level` (default `1`, carried by every recurrent preset since 0.2.0; `2` in 0.1.0) sets
+how many hops the multi-hop expansion adds (the mechanism:
+[architecture](architecture.md#the-recurrent-path-multi-hop-expansion-and-the-h-h-cache)). A
+pre-registered study of the level (1,650 runs) found level 2 better in one (problem, preset) cell of
+25 and worse in 11 of its 60 tests (Holm p < 0.05), so the presets discover direct connections only;
+set `iteration_level: 2` to compose them, or to reproduce a 0.1.0 run. Level 0 discovers the direct
+connections as level 1 does, on every path (0.1.0's multi-device pipelines and depth offload ran it
+feed-forward). `multi_hop_second_factor` (default `masked`) sets the right operand of every
+multi-hop product. `masked` composes the genome's existing direct connections, so composite
+connections stay within its own positions, and the result is intersected with the preset's
+connection class (a forward edge composed with a backward one would otherwise land lateral or on its
+own source); hop h carries decay^(h-1). `raw`, the behavior of 0.1.0, multiplied by the raw weights
+over the whole union of active positions (a genome's composite connections could end on positions it
+did not have active, fall outside the class, and depend on the other genomes) and carried the
+decayed product into the next hop. Pass `raw` only to reproduce a recorded run; it is refused
+together with `hh_discovery_mode: per_genome`. `hh_discovery_mode` (default `per_genome`; `union`
+under the `raw` factor) chooses how the candidate pairs are queried. `union` runs one CPPN query
+over the population's union of active positions and then restricts each genome to its own positions;
+its cost grows with population times the square of the union size. `per_genome` queries each genome
+over its own active positions only, in static buckets of 8, 16, 32, ... positions, each bucket
+processed in slices of a fixed number of genomes (at most 2^16 position pairs per call, short slices
+padded), the whole population in one call (the union-sized population split of the union path does
+not apply), so one compiled function per bucket size serves the whole run and the cost follows the
+genomes' own active sets. The two modes give the same connections and weights for every genome: on a
+CPU bit for bit at `iteration_level` 1 and, across 36 configurations, at level 2 (the acceptance
+criterion stays "same connections, weights within one float32 ulp", because the products run over
+different array shapes). `per_genome` was faster than union at every depth 1 to 7 on XOR, population
+1000, an RTX 2080 Ti. Dense discovery keeps the union query whatever the setting; the pmap
+(multi-GPU) pipeline has its own inline discovery at `iteration_level` 1 only and refuses a higher
+level on entry. A negative `band_threshold` is refused. The discovered h->h connections can be
+cached between generations: `hh_cache_enabled` (default `False` since 0.2.0, `True` in 0.1.0)
+switches the cache, `hh_refresh_interval` (default `5`) forces a re-discovery every N generations,
+and `hh_mask_change_threshold` (default `0.1`) forces one when the variance mask moves by more than
+that fraction. `hh_cache_trigger` (default `time_or_mask`) says what refreshes it: `time` refreshes
+every `hh_refresh_interval` generations only, as the prototype's unified model did; it is refused
+when the cache is off, and `hh_mask_change_threshold` is refused beside `time`. `initialize` starts
+a new cache, so an object reused for another run does not score it with the last run's connections
+(0.1.0 kept them until the next refresh). The cache is not a pure speed-up: the cached set is
+indexed by population slot, and reproduction moves genomes between slots, so between refreshes a
+genome is scored with the recurrent connections discovered for whichever genome held its slot at the
+last refresh. On seed-paired XOR runs the solve rate did not change, but converged runs lost their
+champion in 124 of 187 cases with the cache against 9 of 196 without it. Leave it off unless you are
+reproducing a cache-on campaign. There is no per-class cache (hidden-to-hidden, backward, lateral,
+self) and none is planned: the classes are masks on one CPPN query over the active position pairs,
+so a cached class would be stale for a changed genome exactly as the whole set is. The per-class
+controls are `allow_hidden_to_hidden`, `allow_backward`, `allow_lateral` and `allow_self_loops`,
+which decide what is discovered.
 
 **The hidden-to-hidden cap.** `max_sparse_conns` (default 10000) sizes the padded connection
 arrays; it is a memory setting, not a speed setting. `sparse_cap_policy` decides what happens to a
@@ -291,8 +293,8 @@ connections. Set a cap of that order for such runs, for example `max_sparse_conn
 genome still exceeds it, the refusal names the value its generation needed. `sparse_cap_policy:
 grow` finds the cap as the run goes, at the cost of a compilation per growth. The default stays
 10,000 because the slots cost memory in every run, 13 bytes per genome per slot (about 700 MB at
-population 150 for 360,000), and because HMR's settling rule, the additive rule and dynamic
-hidden-to-hidden aggregation also scatter over every slot at each settling step.
+population 150 for 360,000), and because the prototype's settling rule, the additive rule and
+dynamic hidden-to-hidden aggregation also scatter over every slot at each settling step.
 
 **Settling steps.** A recurrent hidden layer settles for `activate_time` steps (the rule under Feature 1).
 Set the count in the `recurrence` block or as `substrate.activate_time`; if both are set they must be
@@ -306,24 +308,26 @@ before `create_config`, when the depth is not known yet, it derives nothing). In
 configuration replaced `substrate.activate_time` with its own count, and `set_recurrence_config`
 kept the previous step count and `iteration_level`.
 
-**Settling rule.** `settling_rule` (default `emr`) chooses the rule. `hmr` is the rule of HMR's
-dynamic-functions variants: `h = f(x W1)`, then `activate_time - 1` steps of `h = g(h + recurrent(h))`,
-where `g` is `tanh` under `hh_activation_mode: initial_only` and the configured function under
-`every_iteration`. The input drive enters at the first step only, and the `h +` term acts as a unit
-self-connection on every hidden node, so the two rules give different networks from generation 0. The
-cross-problem control (GECCO Table 3), the per-node paper's recurrent tables and the PPSN topology
-check ran HMR's rule; `hmr` reproduces it. It needs hidden-to-hidden recurrence, and it is refused
-on the paths that build their own weights (depth offload and the multi-device pipelines). With
-neuromodulation it runs HMR FULL's additive rule, the one HMR's neuromodulation benchmark ran: the
-node of the input drive, then `activate_time` steps of `h = h + update(recurrent(h))`, with the
-recurrent input summed. The update is `tanh(gates * r)` under static and context gating and the node
-rule with `tanh` under true neuromodulation; on the multi-task path it is the node itself, with the
-task's activation. It refuses modulatory neurons (FULL's modulatory recurrence read one mask for the
-whole population, and no runner used it), per-node hidden-to-hidden aggregation, and an
-`every_iteration` activation other than `tanh` (set `hh_activation_mode: initial_only`).
+**Settling rule.** `settling_rule` (default `emr`) chooses the rule. `drive_once` is the rule of the
+prototype's dynamic-functions variants: `h = f(x W1)`, then `activate_time - 1` steps of `h = g(h +
+recurrent(h))`, where `g` is `tanh` under `hh_activation_mode: initial_only` and the configured
+function under `every_iteration`. The input drive enters at the first step only, and the `h +` term
+acts as a unit self-connection on every hidden node, so the two rules give different networks from
+generation 0. The cross-problem control (GECCO Table 3), the per-node paper's recurrent tables and
+the PPSN topology check ran the prototype's rule; `drive_once` reproduces it. It needs
+hidden-to-hidden recurrence, and it is refused on the paths that build their own weights (depth
+offload and the multi-device pipelines). With neuromodulation it runs the additive rule of the
+prototype's FULL variant, the one the prototype's neuromodulation benchmark ran: the node of the input
+drive, then `activate_time` steps of `h = h + update(recurrent(h))`, with the recurrent input
+summed. The update is `tanh(gates * r)` under static and context gating and the node rule with
+`tanh` under true neuromodulation; on the multi-task path it is the node itself, with the task's
+activation. It refuses modulatory neurons (FULL's modulatory recurrence read one mask for the whole
+population, and no runner used it), per-node hidden-to-hidden aggregation, and an `every_iteration`
+activation other than `tanh` (set `hh_activation_mode: initial_only`).
 
-**HMR's unified model (UNI) as a recipe.** UNI discovered direct hidden-to-hidden connections,
-settled them by HMR's rule and refreshed a cache on a timer. EMR runs it with:
+**The prototype's unified model (UNI) as a recipe.** UNI discovered direct hidden-to-hidden
+connections, settled them by the prototype's rule and refreshed a cache on a timer. EMR runs it
+with:
 
 ```python
 "emr_hyperneat": {
@@ -331,7 +335,7 @@ settled them by HMR's rule and refreshed a cache on a timer. EMR runs it with:
     "variance_rule": "legacy",
     "extra_randkey_split": True,
     "recurrence": {
-        "iteration_level": 1, "use_dense_discovery": True, "settling_rule": "hmr",
+        "iteration_level": 1, "use_dense_discovery": True, "settling_rule": "drive_once",
         "hh_cache_enabled": True, "hh_cache_trigger": "time",  # UNI's default cache
     },
 }
@@ -344,10 +348,10 @@ reproduced: padded active indices entered discovery as position 0, discovery ran
 population's union of active positions instead of each genome's own, and a per-chunk cap truncated
 the pairs; the recipe equals UNI where none of them acts.
 
-### HMR's node-list model
+### The prototype's node-list model
 
-HMR's recurrent-network variant discovered each genome's network on the leaves of a complete
-quadtree and settled it as a list of nodes. EMR runs it as a second network model, opt-in:
+The prototype's recurrent-network variant discovered each genome's network on the leaves of a
+complete quadtree and settled it as a list of nodes. EMR runs it as a second network model, opt-in:
 
 ```python
 "emr_hyperneat": {
@@ -357,48 +361,50 @@ quadtree and settled it as a list of nodes. EMR runs it as a second network mode
     "recurrence": {
         "network_model": "node_list",  # "grid" (EMR's model) by default
         "preset": "full_recurrent",    # or the classes with allow_hidden_to_hidden, as on the grid
-        "iteration_level": 2,          # rounds of phase-2 discovery; HMR's presets carried 2
+        "iteration_level": 2,          # rounds of phase-2 discovery; the prototype's presets carried 2
     },
 }
 ```
 
 What a generation computes (`emr_hyperneat/node_list.py`):
 
-- Every leaf of the quadtree at `max_depth` is a candidate: HMR's active-leaf mask was all true, so
-  no variance decided anything. `max_depth` keeps HMR's meaning, the depth of the leaves, so an HMR
-  configuration carries over with the same number (the grid model's finest level lies one deeper).
+- Every leaf of the quadtree at `max_depth` is a candidate: the prototype's active-leaf mask was all
+  true, so no variance decided anything. `max_depth` keeps the prototype's meaning, the depth of the
+  leaves, so a configuration written for the prototype carries over with the same number (the grid
+  model's finest level lies one deeper).
 - The CPPN is queried at (source, point) for every input and leaf as source and every output as
   target; the points are the leaves and their band neighbours, one ring outside [-1, 1]. Each
-  weight is HMR's sparsification (threshold 0.2) and passes when its band, the larger of
+  weight is the prototype's sparsification (threshold 0.2) and passes when its band, the larger of
   `min(top, bottom)` and `min(left, right)` of the differences to its four neighbours, exceeds
   `band_threshold`.
 - Phase 1 connects the inputs to the leaves at or above them. Phase 2 explores from the leaves
   found, `iteration_level` rounds, along the configured connection classes. Phase 3 connects any
   leaf at or below an output to it. Cleaning keeps the connections that lie on a path from an input
   to an output.
-- The forward updates every node at once, as HMR's did: `h_t = tanh(x W_in + h_(t-1) W_hh)` for
-  `t = 1 .. T-1`, then `out = sigmoid(h_(T-1) W_out)`. The outputs read the hidden nodes one step
-  behind, so `activate_time` must be at least 2. The steps follow the rule of the settling steps
-  above (`full_recurrent`: 20, otherwise `2 (2**max_depth + 1)` unless set).
-- The whole population is one compiled call on fixed shapes, three dense blocks per genome (inputs
-  x leaves, leaves x leaves, leaves x outputs), where HMR looped over sources and genomes in Python.
-  From its third generation on, a run compiles nothing new. `population_chunk_size` sets the
+- The forward updates every node at once, as the prototype's did: `h_t = tanh(x W_in + h_(t-1)
+  W_hh)` for `t = 1 .. T-1`, then `out = sigmoid(h_(T-1) W_out)`. The outputs read the hidden nodes
+  one step behind, so `activate_time` must be at least 2. The steps follow the rule of the settling
+  steps above (`full_recurrent`: 20, otherwise `2 (2**max_depth + 1)` unless set).
+- The whole population is one compiled call on fixed shapes, three dense blocks per genome (inputs x
+  leaves, leaves x leaves, leaves x outputs), where the prototype looped over sources and genomes in
+  Python. From its third generation on, a run compiles nothing new. `population_chunk_size` sets the
   genomes per compiled step (-1 a query budget, 0 the whole population); the result does not depend
   on it.
 - The champion record, `evaluate_on_data` and `evaluate_best_all_modes` work as on the grid:
   `total_positions` counts the leaves and `total_connections` the three blocks. Each generation's
   metrics report `method` `node_list`, the hidden nodes after cleaning, the connections per block
-  and `node_list_over_rn_cap`, the genomes HMR would have scored on its first 500 connections only.
+  and `node_list_over_rn_cap`, the genomes the prototype would have scored on its first 500
+  connections only.
 
 There is no `recurrence.node_list` block and no connection cap: the leaves fix the shapes, and
 depths above 5 are refused. Also refused under `network_model: node_list`, every reason in one
 message:
 
 - `variance_threshold`, `division_threshold`, `initial_depth` and `variance_rule` when set (there is
-  no variance step), and `weight_threshold` (the node list sparsifies at HMR's 0.2);
+  no variance step), and `weight_threshold` (the node list sparsifies at the prototype's 0.2);
 - the grid's recurrence keys when set (`max_connections`, `max_sparse_conns`, the multi-hop keys,
   `hh_refresh_interval`, `hh_mask_change_threshold`, `hh_cache_trigger`, `use_dense_discovery`,
-  `hh_discovery_mode`), `hh_cache_enabled: true` and `settling_rule: hmr`;
+  `hh_discovery_mode`), `hh_cache_enabled: true` and `settling_rule: drive_once`;
 - `iteration_level` 0 with hidden-to-hidden connections, or above 0 without them; `activate_time`
   below 2; `max_depth` outside 1 to 5;
 - per-node activation or aggregation (and so palettes and their strategies), hidden or output
@@ -412,28 +418,30 @@ message:
 - a subclass that replaces the generation, `substrate_config`, `set_recurrence_config` and
   `run_generation_multitask`.
 
-Six defects of HMR's variant are fixed, not reproduced. Its band scaled the neighbour weights by the
-default `max_weight` 8 whatever the configuration said; here both ends use `max_weight`, which
-equals HMR at 8. When no input or no output found a connection it invented one at weight 0.5, which
-at its defaults gave 12 to 26% of genomes a network; here such a genome is empty, the constant 0.5
-network. It evaluated each genome's first 500 connections in Python set order; here every
-connection counts. From depth 6 its keys dropped every hidden connection; here depths above 5 are
-refused. Its cleaning stopped after 50 iterations and kept a dangling middle of a longer chain; here
-it runs to its fixpoint. Its sums ran in Python set order, so its fitness depended on hash order;
-here the order is fixed. Compared on HMR's own populations, the networks are equal bit for bit on
-CPU wherever none of these acts, and the fitness agrees within 1e-6 (at most 2.4e-7 measured).
+Six defects of the prototype's variant are fixed, not reproduced. Its band scaled the neighbour
+weights by the default `max_weight` 8 whatever the configuration said; here both ends use
+`max_weight`, which equals the prototype at 8. When no input or no output found a connection it
+invented one at weight 0.5, which at its defaults gave 12 to 26% of genomes a network; here such a
+genome is empty, the constant 0.5 network. It evaluated each genome's first 500 connections in
+Python set order; here every connection counts. From depth 6 its keys dropped every hidden
+connection; here depths above 5 are refused. Its cleaning stopped after 50 iterations and kept a
+dangling middle of a longer chain; here it runs to its fixpoint. Its sums ran in Python set order,
+so its fitness depended on hash order; here the order is fixed. Compared on the prototype's own
+populations, the networks are equal bit for bit on CPU wherever none of these acts, and the fitness
+agrees within 1e-6 (at most 2.4e-7 measured).
 
-To reproduce an HMR node-list run, rename its blocks to EMR's (`emrhyperneat`, `emr_hyperneat`),
-set `network_model: node_list`, write HMR's connection classes out (HMR defaulted them to true, EMR
-to false), give an HMR preset as EMR's preset with `iteration_level: 2`, and drop the keys HMR did
-not read on that path (`max_connections`, `extra_randkey_split`, the variance settings, and the
-substrate's `hidden_activation` and `output_activation`). An HMR preset replaced the whole
-recurrence block; here the keys beside a preset override its values, as on the grid. HMR's
-`enabled: false` or `preset: feedforward` ran HMR's feed-forward grid model, not a node list, so
-its counterpart is EMR's default model.
+To reproduce a node-list run of the prototype, rename its blocks to EMR's (`emrhyperneat`,
+`emr_hyperneat`), set `network_model: node_list`, write the prototype's connection classes out (the
+prototype defaulted them to true, EMR to false), give the prototype's preset as EMR's preset with
+`iteration_level: 2`, and drop the keys the prototype did not read on that path (`max_connections`,
+`extra_randkey_split`, the variance settings, and the substrate's `hidden_activation` and
+`output_activation`). The prototype's presets replaced the whole recurrence block; here the keys beside a
+preset override its values, as on the grid. The prototype's `enabled: false` or `preset:
+feedforward` ran the prototype's feed-forward grid model, not a node list, so its counterpart is
+EMR's default model.
 
-HMR's GPU-resident variant of the same model ran a dense grid model at depth 4 and below and the
-node list above it. Its dense model is EMR's default model with:
+The prototype's GPU-resident variant of the same model ran a dense grid model at depth 4 and below
+and the node list above it. Its dense model is EMR's default model with:
 
 ```python
 "emr_hyperneat": {
@@ -488,8 +496,8 @@ Six more depend on the configuration:
   own count or `2 (2**max_depth + 1)` in its place.
 - **`fitness_mode`** other than `mse` on the recurrent or neuromodulated path: set `mse`, which 0.1.0
   used there whatever the key said.
-- **`true_neuromodulation`** in a single-task run: set `neuromodulation.node_rule: hmr_full`, the rule
-  0.1.0's single-task path computed. Its multi-task path computed the default, `paper`.
+- **`true_neuromodulation`** in a single-task run: set `neuromodulation.node_rule: steep_gate`, the
+  rule 0.1.0's single-task path computed. Its multi-task path computed the default, `paper`.
 
 On a CPU, in the standard execution mode, these settings reproduce 0.1.0's fitness bit for bit. No
 setting restores the rest: the recurrent path applies input aggregation, which 0.1.0 did not apply
@@ -512,25 +520,27 @@ feature is required by `run_generation_multitask`.
 | `mode` | What it does |
 |---|---|
 | `disabled` | No modulation. |
-| `static_gating` | Each hidden node's activity is multiplied by a gate in `[0, 1]`, derived from the node's own input weights: `tanh(2 * mean(abs(w)))`, then `gate_scaling` (`sigmoid` by default, with `gate_hardness` and `gate_threshold`). With `gate_source: cppn` (HMR's Level 1; `gate_from_cppn: true` is HMR's name) the gate is per connection, from a dedicated CPPN output, and scales the weights. 0.1.0 had the weight-derived gate only. |
-| `context_gating` | A task context vector modulates the gates (XdG-style). With `gate_source: cppn` (HMR's Level 2) each case's connections are gated by `sigmoid(logit + context_influence * mean of the case's input statistics)` from a dedicated CPPN output, in a feed-forward pass, so hidden-to-hidden connections are refused there. |
-| `modulatory_neurons` | Some of each genome's own active nodes set a per-case gain for the others: activity modulation, where Soltoggio's modulatory neurons gate plasticity, which EMR does not have. By default (`modulatory_source: weights`) they are `mod_neuron_ratio` (0.1, in (0, 1]; another value raises) of the genome's active positions, at least one, those of highest input-weight variance, and their mean activity, squashed by `tanh` and scaled by `mod_decay` (0.9), scales the nodes through `mod_connection_type` (`multiplicative`, `additive` or `gated`). `modulatory_source: cppn` (HMR's Level 3) takes them from a node-type CPPN output and their signal from a mod-factor output; the options below change one thing at a time between the two. In 0.1.0 every genome took the same positions, that fraction of every grid position. |
-| `true_neuromodulation` | Neurotransmitter vectors `[DA, 5HT, NE, ACh]` + receptor densities. This is the mode the multi-task path uses; `num_nt_types` is usually 4. `receptor_from_weight: false` is HMR's Option B: each NT type's receptor density is a dedicated CPPN output at the node's self-connection, and the base gain comes from the weight output there (0.1.0 raised `NotImplementedError` at the first generation). |
+| `static_gating` | Each hidden node's activity is multiplied by a gate in `[0, 1]`, derived from the node's own input weights: `tanh(2 * mean(abs(w)))`, then `gate_scaling` (`sigmoid` by default, with `gate_hardness` and `gate_threshold`). With `gate_source: cppn` (the prototype's Level 1; `gate_from_cppn: true` is the prototype's name) the gate is per connection, from a dedicated CPPN output, and scales the weights. 0.1.0 had the weight-derived gate only. |
+| `context_gating` | A task context vector modulates the gates (XdG-style). With `gate_source: cppn` (the prototype's Level 2) each case's connections are gated by `sigmoid(logit + context_influence * mean of the case's input statistics)` from a dedicated CPPN output, in a feed-forward pass, so hidden-to-hidden connections are refused there. |
+| `modulatory_neurons` | Some of each genome's own active nodes set a per-case gain for the others: activity modulation, where Soltoggio's modulatory neurons gate plasticity, which EMR does not have. By default (`modulatory_source: weights`) they are `mod_neuron_ratio` (0.1, in (0, 1]; another value raises) of the genome's active positions, at least one, those of highest input-weight variance, and their mean activity, squashed by `tanh` and scaled by `mod_decay` (0.9), scales the nodes through `mod_connection_type` (`multiplicative`, `additive` or `gated`). `modulatory_source: cppn` (the prototype's Level 3) takes them from a node-type CPPN output and their signal from a mod-factor output; the options below change one thing at a time between the two. In 0.1.0 every genome took the same positions, that fraction of every grid position. |
+| `true_neuromodulation` | Neurotransmitter vectors `[DA, 5HT, NE, ACh]` + receptor densities. This is the mode the multi-task path uses; `num_nt_types` is usually 4. `receptor_from_weight: false` is the prototype's Option B: each NT type's receptor density is a dedicated CPPN output at the node's self-connection, and the base gain comes from the weight output there (0.1.0 raised `NotImplementedError` at the first generation). |
 
 Under `true_neuromodulation` the first three channels of the vector modulate a node through its
 receptors, `m = receptors[:3] @ nt[:3]` with strength `s`, and `node_rule` (default `paper`) chooses
 the node: `paper`, the published rule, applies the gain `clip(base_gain + s m, 0.1, 5)` and the bias
-`s m` inside the activation and the gate `sigmoid(m)` after it; `hmr_full`, HMR FULL's rule, which
-0.1.0's single-task path computed, applies the gain `base_gain + s m` with no bias and the gate
-`sigmoid(5 m)`. `modulation_mode: gating_only` applies the gate alone (`sigmoid(s m)` under `paper`)
-and `gain_bias_only` drops the gate. The fourth channel inverts the outputs when
-`use_output_inversion` is set and the vector has four or more channels. `anti`, HMR ANTI's rule (its
-anti-correlated-receptors variant), reads every channel, `m = receptors @ nt`, and applies the gain
-`clip(base_gain + s m, 0.1, 5)` and the gate `sigmoid(m)`, with no bias and no output inversion; it
-takes `modulation_mode: full` only and refuses multi-task branch gating (the routing would replace
-its modulation over every channel). A rule other than `paper` raises outside `true_neuromodulation`.
-The multi-task two-module mode computes the paper's rule
-only and refuses the other two.
+`s m` inside the activation and the gate `sigmoid(m)` after it; `steep_gate`, the rule of the
+prototype's FULL variant, which 0.1.0's single-task path computed, applies the gain `base_gain + s
+m` with no bias and the gate `sigmoid(5 m)`. `modulation_mode: gating_only` applies the gate alone
+(`sigmoid(s m)` under `paper`) and `gain_bias_only` drops the gate. The fourth channel inverts the
+outputs when `use_output_inversion` is set and the vector has four or more channels. `anti`, the
+rule of the prototype's ANTI variant (its anti-correlated-receptors variant), reads every channel,
+`m = receptors @ nt`, and applies the gain `clip(base_gain + s m, 0.1, 5)` and the gate
+`sigmoid(m)`, with no bias and no output inversion; it takes `modulation_mode: full` only, refuses
+multi-task branch gating (the routing would replace its modulation over every channel), and needs
+multi-task above four channels, since the single-task vector has four. An unknown rule raises in
+any block, with any mode; a rule other than `paper` raises under another neuromodulation mode, and
+`modulation_mode` takes the three values above only. The multi-task two-module mode computes the
+paper's rule only and refuses the other two.
 
 **Modulatory options.** `modulatory_source` (`weights`, the default, or `cppn`) is a bundle of five
 options, and an option set in the block overrides its bundle's value:
@@ -543,11 +553,12 @@ options, and an option set in the block overrides its bundle's value:
 | `modulatory_node_weights` | `variance` | `none` | Whether the signal is scaled per node by its input-weight variance. |
 | `modulatory_scope` | `all` | `standard` | Which nodes it modulates: every node, or the standard ones only. |
 
-`modulatory_cppn_read` (`input_mean`, HMR's read, or `self`) says where a CPPN output an option reads is
-taken, `modulatory_cppn_outputs: always` keeps both CPPN outputs even when no option reads them (`read`,
-the default, carries the ones read), and `modulatory_matched_gain` (`none`, `mean` or `shift`), a
-control, replaces each case's signal by its mean over the cases or by the previous case's. A setting
-that no option reads raises, as does an option outside mode `modulatory_neurons`.
+`modulatory_cppn_read` (`input_mean`, the prototype's read, or `self`) says where a CPPN output an
+option reads is taken, `modulatory_cppn_outputs: always` keeps both CPPN outputs even when no option
+reads them (`read`, the default, carries the ones read), and `modulatory_matched_gain` (`none`,
+`mean` or `shift`), a control, replaces each case's signal by its mean over the cases or by the
+previous case's. A setting that no option reads raises, as does an option outside mode
+`modulatory_neurons`.
 
 A `preset` (`static_gating`, `xdg_style`, `modulatory_only`, `true_neuromodulation`,
 `true_neuromodulation_4nt`, `true_neuromodulation_5nt`, or `disabled`) sets the mode of its level
@@ -558,26 +569,27 @@ that combines levels (`full`), an unknown preset or mode, a `mode` that contradi
 and `enabled` that contradicts the mode (true with no mode or preset, false with one) raise. The
 block's other keys raise too: the level flags (`static_gating: true` and the others; one mode is one
 level) and `context_derivation` (never read; context gating takes the current task index) were
-ignored in 0.1.0. `gate_from_cppn: true` is HMR's name of `gate_source: cppn` and raises outside the
-two gating modes. `context_source` accepts only `'task_id'`, its default, which says what context
-gating reads; `'input'` and `'learned'` raise (0.1.0 ignored them).
+ignored in 0.1.0. `gate_from_cppn: true` is the prototype's name of `gate_source: cppn` and raises
+outside the two gating modes. `context_source` accepts only `'task_id'`, its default, which says
+what context gating reads; `'input'` and `'learned'` raise (0.1.0 ignored them).
 
-**HMR's mode names.** HMR's neuromodulation variant used preset names as modes, and they translate
-to EMR's blocks: the Option A names (`true_neuromodulation_4nt_option_a_tanh` and the others of
-`HMR_NEUROMODULATION_MODES`) are `true_neuromodulation` with the name's NT count and receptor
-derivation, read at the self-connection as HMR read them; `true_neuromodulation_4nt` is Option B with
-four NT types; `xdg_style` is `context_gating` and `modulatory_only` is `modulatory_neurons`, both
-from the CPPN. `custom` with HMR's level flags is the level HMR evaluated, the highest of true
-neuromodulation, modulatory neurons, context gating and static gating: `true_neuromodulation` alone is
-Option A or B as its flags say; static or context gating alone is that level with a gate from a
-dedicated CPPN output (`gate_source: cppn`); modulatory neurons alone take theirs from the CPPN
-(`modulatory_source: cppn`); static with context gating is context gating, as `xdg_style` is. Another
-combination raises, naming the level HMR evaluated (its lower levels made the CPPN evolve outputs
-nothing read), and so does `custom` with no level. A key that contradicts the name raises, as does
-`full` (HMR evaluated Level 3 only while its CPPN evolved a gate output nothing read). Two of HMR's
+**The prototype's mode names.** The prototype's neuromodulation variant used preset names as modes,
+and they translate to EMR's blocks: the Option A names (`true_neuromodulation_4nt_option_a_tanh` and
+the others of `PROTOTYPE_NEUROMODULATION_MODES`) are `true_neuromodulation` with the name's NT count
+and receptor derivation, read at the self-connection as the prototype read them;
+`true_neuromodulation_4nt` is Option B with four NT types; `xdg_style` is `context_gating` and
+`modulatory_only` is `modulatory_neurons`, both from the CPPN. `custom` with the prototype's level
+flags is the level the prototype evaluated, the highest of true neuromodulation, modulatory neurons,
+context gating and static gating: `true_neuromodulation` alone is Option A or B as its flags say;
+static or context gating alone is that level with a gate from a dedicated CPPN output (`gate_source:
+cppn`); modulatory neurons alone take theirs from the CPPN (`modulatory_source: cppn`); static with
+context gating is context gating, as `xdg_style` is. Another combination raises, naming the level
+the prototype evaluated (its lower levels made the CPPN evolve outputs nothing read), and so does
+`custom` with no level. A key that contradicts the name raises, as does `full` (the prototype
+evaluated Level 3 only while its CPPN evolved a gate output nothing read). Two of the prototype's
 names are EMR's own and keep EMR's meaning: `true_neuromodulation` and `static_gating`. 0.1.0
-accepted HMR's mode names and failed at the first generation, and ran HMR's presets without
-modulation.
+accepted the prototype's mode names and failed at the first generation, and ran the prototype's
+presets without modulation.
 
 Neuromodulation composes with dynamic functions because they act on different things: dynamic
 functions make a per-node *structural* choice (which activation), neuromodulation applies a
@@ -593,31 +605,31 @@ and `per_task_activation` (names of `ACTIVATION_FUNCTIONS`; 0.1.0 ran `tanh` for
 `modulation_mode` (`full`, `gating_only`, `gain_bias_only`) and `modulation_strength_override`,
 `two_module_mode` (`none`, `parallel`, `sequential`), and the generalist bonus
 (`generalist_bonus_type` ∈ `none`/`min_bonus`/`variance_penalty`/`threshold_bonus`,
-`generalist_bonus_weight`, `generalist_threshold`). In 0.1.0 the parser dropped `softmin_temperature`,
-`modulation_mode`, `modulation_strength_override`, `two_module_mode` and the generalist bonus, which
-acted only when set on a `MultiTaskConfig` object, and two-module mode always fell back to one module.
-Three keys are accepted only at their default: `orthogonality_bonus` and `specialization_bonus`
-(default `0.0`; each adds one constant to every genome, which never changes a rank) and
-`confusion_eval_frequency` (default `0`, read by nothing). The per-genome bonuses are HMR's, with
-its defects fixed: `orthogonality_bonus_weight` adds, per genome, how orthogonal its task
-fingerprints are (its hidden activity averaged over each task's cases;
+`generalist_bonus_weight`, `generalist_threshold`). In 0.1.0 the parser dropped
+`softmin_temperature`, `modulation_mode`, `modulation_strength_override`, `two_module_mode` and the
+generalist bonus, which acted only when set on a `MultiTaskConfig` object, and two-module mode
+always fell back to one module. Three keys are accepted only at their default: `orthogonality_bonus`
+and `specialization_bonus` (default `0.0`; each adds one constant to every genome, which never
+changes a rank) and `confusion_eval_frequency` (default `0`, read by nothing). The per-genome
+bonuses are the prototype's, with its defects fixed: `orthogonality_bonus_weight` adds, per genome,
+how orthogonal its task fingerprints are (its hidden activity averaged over each task's cases;
 `orthogonality_metric`: `cosine_mean`, `cosine_max` or `correlation`), and
 `specialization_bonus_weight` its mean fitness under each task's own NT vector minus its fitness on
 the same data under another task's vector (with two tasks, the other one's; it needs two or more
-tasks). `branch_gating_mode` (`spatial`, by quadrant of the grid, or `hierarchical`, by height) gives
-each region of the grid one receptor channel, in the feed-forward and the recurrent evaluation alike;
-it needs three or more NT types and refuses `two_module_mode`. `modulation_penalty`, a bonus despite
-its name, adds the penalty times the variance over tasks of a genome's mean modulation over its
-active positions; it needs two or more tasks. 0.1.0 accepted both at any value and applied neither.
-`run_generation_multitask(state, MultiTaskConfig(tasks={name: (inputs, targets)}, aggregation=...,
-weights=..., nt_vectors=...))`, HMR's call form, runs the same generation and returns
-`MultiTaskMetrics` keyed by task name; `evaluate_with_neurotransmitter` takes a task name in place
-of the vector for that task's preset NT vector. `run_generation_multitask`
-evaluates each task with one hidden activation (`per_task_activation` or `hidden_activation`) and
-sum aggregation, so it refuses the `dynamic_functions` and `aggregation` modes, and its two-module
-mode, which is feed-forward, refuses recurrence. A worked example is in
-[writing experiments](writing-experiments.md#multi-task-one-substrate-several-tasks); the runners
-under `papers/emr-neuromodulation/scripts/runners/` are the full reference.
+tasks). `branch_gating_mode` (`spatial`, by quadrant of the grid, or `hierarchical`, by height)
+gives each region of the grid one receptor channel, in the feed-forward and the recurrent evaluation
+alike; it needs three or more NT types and refuses `two_module_mode`. `modulation_penalty`, a bonus
+despite its name, adds the penalty times the variance over tasks of a genome's mean modulation over
+its active positions; it needs two or more tasks. 0.1.0 accepted both at any value and applied
+neither. `run_generation_multitask(state, MultiTaskConfig(tasks={name: (inputs, targets)},
+aggregation=..., weights=..., nt_vectors=...))`, the prototype's call form, runs the same generation
+and returns `MultiTaskMetrics` keyed by task name; `evaluate_with_neurotransmitter` takes a task
+name in place of the vector for that task's preset NT vector. `run_generation_multitask` evaluates
+each task with one hidden activation (`per_task_activation` or `hidden_activation`) and sum
+aggregation, so it refuses the `dynamic_functions` and `aggregation` modes, and its two-module mode,
+which is feed-forward, refuses recurrence. A worked example is in [writing
+experiments](writing-experiments.md#multi-task-one-substrate-several-tasks); the runners under
+`papers/emr-neuromodulation/scripts/runners/` are the full reference.
 
 ## Feature 4: `aggregation`
 
@@ -675,22 +687,22 @@ exists, apart from its weight:
 |---|---|---|
 | `enabled` | `False` | Adds LEO's output, CPPN channel 1 (`LEO_CHANNEL`); the per-node function channels follow it. |
 | `threshold` | `0.2` | The LEO value (after `tanh`) above which a connection is expressed. |
-| `mode` | `compound` | `compound`: a connection needs its weight above the weight threshold and LEO above `threshold`. `replacement`: LEO alone decides, and the weight is used unthresholded. `hmr_compound`: HMR's LEO gate, the weight scaled to `W = tanh(w) * max_weight` and kept where `abs(W)` exceeds the weight threshold and LEO exceeds `threshold`, with no rescaling of the kept range; refused with `locality_radius` (HMR penalized the scaled weight, EMR's LEO paths the tanh-normalized one). |
+| `mode` | `compound` | `compound`: a connection needs its weight above the weight threshold and LEO above `threshold`. `replacement`: LEO alone decides, and the weight is used unthresholded. `compound_unrescaled`: the prototype's LEO gate, the weight scaled to `W = tanh(w) * max_weight` and kept where `abs(W)` exceeds the weight threshold and LEO exceeds `threshold`, with no rescaling of the kept range; refused with `locality_radius` (the prototype penalized the scaled weight, EMR's LEO paths the tanh-normalized one). |
 | `output_index` | `1` | Must be `1`: LEO is read from that channel on every path. |
 
 Input-to-hidden, hidden-to-output and hidden-to-hidden connections are gated by the same rule in the
 standard and streaming modes. Depth offload and the multi-device pipelines, which build their own
 weights, refuse LEO, and so does the substrate API. Under the multi-hop expansion a direct
-connection that LEO's replacement mode expressed below the weight band stays a connection. HMR's LEO
-variant returned a population without the LEO output, so its runs evaluated empty networks; a run
-with `hmr_compound` computes HMR's gate on networks that have one, and does not reproduce those
-numbers.
+connection that LEO's replacement mode expressed below the weight band stays a connection. The
+prototype's LEO variant returned a population without the LEO output, so its runs evaluated empty
+networks; a run with `compound_unrescaled` computes the prototype's gate on networks that have one,
+and does not reproduce those numbers.
 
 ## Continual learning
 
-Methods of `EMRHyperNEAT`, from HMR's dynamic-functions variant, with its defects fixed (the
-champion read from the right population, injection that spares the champion's slot, a freeze its
-tests can see, an evaluator that reproduces the training fitness):
+Methods of `EMRHyperNEAT`, from the prototype's dynamic-functions variant, with its defects fixed
+(the champion read from the right population, injection that spares the champion's slot, a freeze
+its tests can see, an evaluator that reproduces the training fitness):
 
 | Method | What it does |
 |---|---|
@@ -726,14 +738,14 @@ it** (see the scope note in the README).
 |---|---|---|
 | `fitness_mode` | `'mse'` | Fitness computation: `mse`, `accuracy`, `soft_accuracy`, `bce`, `hybrid`, `acc_mse` (accuracy plus 0.01 of 1 - MSE), `accuracy_confident` (accuracy plus 0.1 of the outputs' mean distance from 0.5) or `ce` (cross-entropy over softmax outputs), on every single-task evaluation path (in 0.1.0 the recurrent and neuromodulated paths always used `mse`). An unknown name raises; 0.1.0 scored it, and `acc_mse` and `accuracy_confident`, as MSE. Classification problems use the accuracy-style modes; `mse` is what the golden tests lock. A NaN fitness, from an overflowing network or a NaN target, becomes `-inf` before selection, and the generation's metrics report `nan_fitness_count`. |
 | `multi_gpu_strategy` | unset (`single_gpu`) | Case-insensitive string selecting the multi-GPU strategy: `"single_gpu"`, `"full_pipeline_parallel"`, `"streaming"`, `"eval_only_parallel"`, `"population_parallel_process"`, the split routes `"population_pmap"`, `"position_sharding"` and `"hybrid"`, or the island model `"island_model"`; the split routes read the `parallel` block and the island model the `islands` block ([below](#multi-device-routes-parallel-and-islands)). Thirteen older alias names are accepted and mapped onto those nine, here and in the constructor's `strategy` argument alike; an unknown value raises (0.1.0 warned and kept the default). `population_parallel_process` is not recommended: it is the least exercised path, and in development runs at population 1000 every worker ran out of GPU memory; a worker that fails raises. `eval_only_parallel` and `population_parallel_process` evaluate `tanh` nodes with sum aggregation and no neuromodulation, so they refuse dynamic functions, aggregation and neuromodulation. What each one parallelizes, and the fact that it engages only through `run_until_threshold`: [architecture](architecture.md#what-the-multi-gpu-strategies-parallelize). |
-| `extra_randkey_split` | `False` | `True` reproduces the per-generation PRNG split of the HMR engine (release 0.1.0 ships it), for bit-exact replication of the results recorded on it. Details: `papers/emr-dynamic-functions/REPRODUCIBILITY.md`. |
+| `extra_randkey_split` | `False` | `True` reproduces the per-generation PRNG split of the prototype engine (release 0.1.0 ships it), for bit-exact replication of the results recorded on it. Details: `papers/emr-dynamic-functions/REPRODUCIBILITY.md`. |
 | `locality_radius` | unset | Scales each input-to-hidden and hidden-to-output weight by `min(1, radius / distance)` between its endpoints, so distant connections are weakened. |
 | `fitness_rescale_variance` | unset | Scores `max(0, 1 - MSE / variance)` instead of `1 - MSE`, which spreads the fitness of targets with a small variance; must be positive (0.1.0 ignored a value that is not). |
 
 Depth offload, `population_parallel_process`, `eval_only_parallel` and the `full_pipeline_parallel`
 pipelines score `1 - MSE` on weights they build themselves, so they refuse a `fitness_mode` other
 than `mse`, `locality_radius`, `fitness_rescale_variance` (0.1.0 ignored them there), LEO and
-`recurrence.settling_rule: hmr`.
+`recurrence.settling_rule: drive_once`.
 
 ## Multi-device routes: `parallel` and `islands`
 
@@ -801,9 +813,9 @@ emr_hyperneat:
 
 - **An island is a `single_gpu` run** at its own population, initialized with the seed
   `island_seed(seed, i)` (`emr_hyperneat.emrhyperneat`): the run's seed for island 0, and for island
-  i a seed drawn from `(seed, i)` by numpy's `SeedSequence`. The HMR engine's `seed + i` made island
-  1 of seed 42 island 0 of seed 43. The state passed to `run_until_threshold` is not evolved: each
-  island starts from its own.
+  i a seed drawn from `(seed, i)` by numpy's `SeedSequence`. The prototype engine's `seed + i` made
+  island 1 of seed 42 island 0 of seed 43. The state passed to `run_until_threshold` is not evolved:
+  each island starts from its own.
 - **Lockstep.** Every island runs a generation, in index order and from one thread, before any runs
   the next; the run stops at the end of the generation in which an island reaches the target.
 - **Migration.** After generation M, a multiple of `migration_interval`, each island sends copies of
@@ -898,7 +910,7 @@ would OOM. Per-genome query results are independent, so chunking never changes v
 generations on one device:
 
 - `"python"`: one generation call per generation; every feature.
-- `"while_loop"`: the HMR engine's GPU loop (release 0.1.0) over the plain feed-forward
+- `"while_loop"`: the prototype engine's GPU loop (release 0.1.0) over the plain feed-forward
   generation, compiled once inside `jax.lax.while_loop`, with the results read back once. The
   compiled loop is kept per `max_generations` until `create_config`, `initialize` or a topology
   freeze, so a second call with the same shapes compiles nothing.
@@ -922,12 +934,12 @@ Its result has the one-device route's keys, with `sparse_hh_stats` None, `nan_fi
 per-generation record: `evaluate_on_data` raises after it, and the per-generation mean, species,
 topology and step timings need `"python"`.
 
-The HMR engine's defects are fixed rather than reproduced: its per-node variants evaluated plain
-tanh/sigmoid networks in this loop (here those settings are refused); it ignored the Python path's
-memory settings (here the loop runs the default path's own generation); it compiled again on
+The prototype engine's defects are fixed rather than reproduced: its per-node variants evaluated
+plain tanh/sigmoid networks in this loop (here those settings are refused); it ignored the Python
+path's memory settings (here the loop runs the default path's own generation); it compiled again on
 every call (here the loop is cached); it compared the best with the target cast to float32, which
 stops a generation early when the two meet below the target; and a NaN CPPN output at an inactive
-position made a genome NaN (here the weights are masked with `jnp.where`). Against the HMR
+position made a genome NaN (here the weights are masked with `jnp.where`). Against the prototype
 engine's own loop (its level-0 rule and key split, depth 2, population 60) it gives the same
 generations and final key, and the same best of every generation to 1e-6
 (`emr_hyperneat/tests/test_generation_loop.py`).
@@ -971,21 +983,22 @@ runners carry and which is accepted.
 These settings used to be accepted and then ignored, so a run did something other than its
 configuration said. Each now raises a `ValueError` that names the setting and what to do instead:
 
-- **A level flag against an HMR mode name.** HMR merged a block's `static_gating`, `context_gating`,
-  `modulatory_neurons` and `true_neuromodulation` into the preset its mode named and evaluated the
-  highest level set, so `xdg_style` with `modulatory_neurons: true` ran modulatory neurons, while
-  the translation dropped the flag and ran context gating. A flag whose value differs from the
-  named preset's raises (use mode `custom`); a flag that repeats it is accepted.
+- **A level flag against one of the prototype's mode names.** The prototype merged a block's
+  `static_gating`, `context_gating`, `modulatory_neurons` and `true_neuromodulation` into the preset
+  its mode named
+  and evaluated the highest level set, so `xdg_style` with `modulatory_neurons: true` ran modulatory
+  neurons, while the translation dropped the flag and ran context gating. A flag whose value differs
+  from the named preset's raises (use mode `custom`); a flag that repeats it is accepted.
 - **A connection class without hidden-to-hidden connections.** With `enabled: true` and
   `allow_hidden_to_hidden: false` the network is feed-forward, and `allow_backward`,
   `allow_lateral` or `allow_self_loops` was kept and ignored.
 - **`dynamic_functions.modular.aggregation_method` without `aggregation.mode: modular`**, the only
   setting that reads it.
 - **`run_generation_multitask`'s other call forms.** On a configuration object set by hand, or by
-  HMR's `MultiTaskConfig` call form, `create_config`'s checks never ran: a constant
+  the prototype's `MultiTaskConfig` call form, `create_config`'s checks never ran: a constant
   `orthogonality_bonus` or `specialization_bonus` above 0, a `confusion_eval_frequency` other than 0
-  (HMR's default was 1 and nothing ever read it) and an unknown `generalist_bonus_type` were
-  ignored. Per-node functions or aggregation are refused on every call, not only with
+  (the prototype's default was 1 and nothing ever read it) and an unknown `generalist_bonus_type`
+  were ignored. Per-node functions or aggregation are refused on every call, not only with
   `multitask.enabled`.
 
 A non-sigmoid output activation on the plain path with `aggregation.mode: modular` and
@@ -1007,10 +1020,10 @@ them use this format.
 | `critical_periods` (`phase1_end`, `phase2_end`, `min_plasticity`), `enabled: false` | `dynamic_functions` | Parsed and stored, read by nothing; `enabled: true` raises. The critical periods of the palette paper are part of its strategies (`papers/emr-dynamic-functions-bio-inspired/scripts/palette_strategies/`). |
 | `division_threshold` | `emr_hyperneat` | Warns (`DeprecationWarning`) and names the live controls. |
 | `iteration_level: 1` | `emr_hyperneat` | The multi-hop level is `recurrence.iteration_level`; another value raises. |
-| `sparse_forward_threshold`, `fuse_w1_computation`, `skip_unused_masks` | `emr_hyperneat` | HMR's base-engine settings: checked, and no value changes a result ([above](#emr_hyperneat-substrate-discovery)). |
+| `sparse_forward_threshold`, `fuse_w1_computation`, `skip_unused_masks` | `emr_hyperneat` | The prototype's base-engine settings: checked, and no value changes a result ([above](#emr_hyperneat-substrate-discovery)). |
 | `seed_weight` | `geometry_seeding` | Read by nothing ([above](#geometry_seeding-shipped-not-part-of-any-published-paper)). |
 | `use_vectorized_discovery` | `recurrence` | Retired: it was stored and never consulted. |
-| `max_connections` | `recurrence` | Checked (100 or more) and never read; it warns (`UserWarning`). The cap on each genome's hidden-to-hidden connections is `max_sparse_conns`: a run that reproduces an HMR unified-model run sets it at least to the run's largest set, since a genome over it raises. Refused under `network_model: node_list` ([above](#hmrs-node-list-model)). |
+| `max_connections` | `recurrence` | Checked (100 or more) and never read; it warns (`UserWarning`). The cap on each genome's hidden-to-hidden connections is `max_sparse_conns`: a run that reproduces a run of the prototype's unified model sets it at least to the run's largest set, since a genome over it raises. Refused under `network_model: node_list` ([above](#the-prototypes-node-list-model)). |
 | `orthogonality_bonus`, `specialization_bonus`, `confusion_eval_frequency` | `multitask` | Accepted at their defaults only ([Feature 3](#feature-3-neuromodulation-multi-task)). |
 
 Next: [reproducing the paper experiments](reproducing-experiments.md), or back to

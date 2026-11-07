@@ -42,8 +42,8 @@ class TestStreamingVerbose:
         )
 
         # Explicitly ensure streaming_verbose is not set
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr.get('streaming_verbose', False) is False
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        assert emr_block.get('streaming_verbose', False) is False
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
@@ -54,8 +54,8 @@ class TestStreamingVerbose:
             enable_streaming=True,
             population_chunk_size=50,
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['streaming_verbose'] = True
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['streaming_verbose'] = True
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
@@ -67,8 +67,8 @@ class TestStreamingVerbose:
             enable_streaming=True,
             population_chunk_size=20,  # Very small chunks
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['streaming_verbose'] = True
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['streaming_verbose'] = True
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
         assert_no_errors(result)
@@ -77,8 +77,8 @@ class TestStreamingVerbose:
 # Critical Periods Tests
 
 class TestCriticalPeriods:
-    """dynamic_functions.critical_periods is not implemented (HMR prints a line and changes no
-    mutation rate), so `enabled: True` raises; disabled is the default."""
+    """dynamic_functions.critical_periods is not implemented (the prototype prints a line and
+    changes no mutation rate), so `enabled: True` raises; disabled is the default."""
 
     def test_critical_periods_disabled_by_default(self, algorithm, xor_problem):
         """Verify critical periods are disabled by default."""
@@ -93,8 +93,8 @@ class TestCriticalPeriods:
     @pytest.mark.parametrize("phases", [{'phase1_end': 0.2, 'phase2_end': 0.5, 'min_plasticity': 0.3}, {}])
     def test_critical_periods_enabled_raises(self, algorithm, phases):
         config = create_config_with_dynamic_functions('cppn_output_4')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions']['critical_periods'] = dict(enabled=True, **phases)
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions']['critical_periods'] = dict(enabled=True, **phases)
         with pytest.raises(ValueError, match='critical_periods is not implemented'):
             algorithm.create_config(config)
 
@@ -115,8 +115,8 @@ class TestTwoModuleMode:
         )
 
         # By default, two_module_mode should be 'none'
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr['multitask'].get('two_module_mode', 'none') == 'none'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        assert emr_block['multitask'].get('two_module_mode', 'none') == 'none'
 
     def test_two_module_mode_parallel(self, algorithm, two_task_problems):
         """Verify two_module_mode='parallel' runs without errors."""
@@ -126,8 +126,8 @@ class TestTwoModuleMode:
             fitness_aggregation='mean',
             recurrence_preset='feedforward',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['two_module_mode'] = 'parallel'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['two_module_mode'] = 'parallel'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -146,8 +146,8 @@ class TestTwoModuleMode:
             fitness_aggregation='mean',
             recurrence_preset='feedforward',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['two_module_mode'] = 'sequential'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['two_module_mode'] = 'sequential'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -167,8 +167,8 @@ class TestTwoModuleMode:
             fitness_aggregation='mean',
             recurrence_preset='feedforward',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['two_module_mode'] = mode
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['two_module_mode'] = mode
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -193,8 +193,8 @@ class TestGeneralistBonusType:
             fitness_aggregation='mean',
         )
 
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr['multitask'].get('generalist_bonus_type', 'none') == 'none'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        assert emr_block['multitask'].get('generalist_bonus_type', 'none') == 'none'
 
     def test_generalist_bonus_min_bonus(self, algorithm, two_task_problems):
         """Verify generalist_bonus_type='min_bonus' works."""
@@ -203,9 +203,9 @@ class TestGeneralistBonusType:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['generalist_bonus_type'] = 'min_bonus'
-        hmr['multitask']['generalist_bonus_weight'] = 0.5
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['generalist_bonus_type'] = 'min_bonus'
+        emr_block['multitask']['generalist_bonus_weight'] = 0.5
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -223,9 +223,9 @@ class TestGeneralistBonusType:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['generalist_bonus_type'] = 'variance_penalty'
-        hmr['multitask']['generalist_bonus_weight'] = 0.3
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['generalist_bonus_type'] = 'variance_penalty'
+        emr_block['multitask']['generalist_bonus_weight'] = 0.3
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -243,9 +243,9 @@ class TestGeneralistBonusType:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['generalist_bonus_type'] = 'threshold_bonus'
-        hmr['multitask']['generalist_bonus_weight'] = 0.4
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['generalist_bonus_type'] = 'threshold_bonus'
+        emr_block['multitask']['generalist_bonus_weight'] = 0.4
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -264,9 +264,9 @@ class TestGeneralistBonusType:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['generalist_bonus_type'] = bonus_type
-        hmr['multitask']['generalist_bonus_weight'] = 0.25 if bonus_type != 'none' else 0.0
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['generalist_bonus_type'] = bonus_type
+        emr_block['multitask']['generalist_bonus_weight'] = 0.25 if bonus_type != 'none' else 0.0
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -285,9 +285,9 @@ class TestGeneralistBonusType:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['generalist_bonus_type'] = 'min_bonus'
-        hmr['multitask']['generalist_bonus_weight'] = weight
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['generalist_bonus_type'] = 'min_bonus'
+        emr_block['multitask']['generalist_bonus_weight'] = weight
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -335,8 +335,8 @@ class TestFitnessMode:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['fitness_mode'] = fitness_mode
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['fitness_mode'] = fitness_mode
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -355,9 +355,9 @@ class TestFitnessMode:
             fitness_aggregation='mean',
         )
 
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         # Default should be 'mse'
-        assert hmr['multitask'].get('fitness_mode', 'mse') == 'mse'
+        assert emr_block['multitask'].get('fitness_mode', 'mse') == 'mse'
 
     def test_fitness_mode_accuracy_for_classification(self, algorithm, two_task_problems):
         """Verify accuracy fitness mode works for classification tasks."""
@@ -366,8 +366,8 @@ class TestFitnessMode:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['fitness_mode'] = 'accuracy'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['fitness_mode'] = 'accuracy'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -386,8 +386,8 @@ class TestFitnessMode:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['fitness_mode'] = 'bce'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['fitness_mode'] = 'bce'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -405,8 +405,8 @@ class TestFitnessMode:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['fitness_mode'] = 'hybrid'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['fitness_mode'] = 'hybrid'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -424,8 +424,8 @@ class TestFitnessMode:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['fitness_mode'] = 'soft_accuracy'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['fitness_mode'] = 'soft_accuracy'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -443,8 +443,8 @@ class TestFitnessMode:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['fitness_mode'] = 'acc_mse'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['fitness_mode'] = 'acc_mse'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -565,9 +565,9 @@ class TestCombinedExperimentalFeatures:
             enable_streaming=True,
             population_chunk_size=50,
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['streaming_verbose'] = True
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['streaming_verbose'] = True
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
             'critical_periods': {
@@ -588,10 +588,10 @@ class TestCombinedExperimentalFeatures:
             neuromod_mode='true_neuromodulation_4nt',
             fitness_aggregation='mean',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['generalist_bonus_type'] = 'min_bonus'
-        hmr['multitask']['generalist_bonus_weight'] = 0.3
-        hmr['multitask']['fitness_mode'] = 'accuracy'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['generalist_bonus_type'] = 'min_bonus'
+        emr_block['multitask']['generalist_bonus_weight'] = 0.3
+        emr_block['multitask']['fitness_mode'] = 'accuracy'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -610,10 +610,10 @@ class TestCombinedExperimentalFeatures:
             fitness_aggregation='mean',
             recurrence_preset='feedforward',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multitask']['two_module_mode'] = 'parallel'
-        hmr['multitask']['generalist_bonus_type'] = 'variance_penalty'
-        hmr['multitask']['generalist_bonus_weight'] = 0.25
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multitask']['two_module_mode'] = 'parallel'
+        emr_block['multitask']['generalist_bonus_type'] = 'variance_penalty'
+        emr_block['multitask']['generalist_bonus_weight'] = 0.25
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -633,13 +633,13 @@ class TestCombinedExperimentalFeatures:
             fitness_aggregation='mean',
             recurrence_preset='feedforward',
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
         # Enable all experimental multi-task features
-        hmr['multitask']['two_module_mode'] = 'sequential'
-        hmr['multitask']['generalist_bonus_type'] = 'threshold_bonus'
-        hmr['multitask']['generalist_bonus_weight'] = 0.2
-        hmr['multitask']['fitness_mode'] = 'hybrid'
+        emr_block['multitask']['two_module_mode'] = 'sequential'
+        emr_block['multitask']['generalist_bonus_type'] = 'threshold_bonus'
+        emr_block['multitask']['generalist_bonus_weight'] = 0.2
+        emr_block['multitask']['fitness_mode'] = 'hybrid'
 
         result = run_multitask_evolution(
             algorithm, config,
@@ -770,8 +770,8 @@ class TestEdgeCaseCombinations:
             population_chunk_size=50,
         )
         # Add neuromodulation
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['neuromodulation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['neuromodulation'] = {
             'mode': 'static_gating',
             'gate_threshold': 0.3,
         }
@@ -793,16 +793,16 @@ class TestEdgeCaseCombinations:
         """Verify dynamic functions + aggregation + neuromodulation together."""
         algorithm = EMRHyperNEAT()
         config = create_config_with_dynamic_functions('cppn_output_4')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
         # Add dynamic aggregation
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'mean',
         }
 
         # Add neuromodulation
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'mode': 'static_gating',
             'gate_threshold': 0.3,
         }
@@ -818,17 +818,17 @@ class TestEdgeCaseCombinations:
             enable_streaming=True,
             population_chunk_size=50,
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
         # Add dynamic functions
-        hmr['dynamic_functions'] = {
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': 'tanh',
             'output_activation': 'tanh',
         }
 
         # Add recurrence (the block is `recurrence`; EMR refuses `extended`)
-        hmr['recurrence'] = {
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
         }
 
@@ -844,23 +844,23 @@ class TestEdgeCaseCombinations:
             enable_streaming=True,
             population_chunk_size=50,
         )
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
         # Add all features
-        hmr['dynamic_functions'] = {
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': 'sin',
             'output_activation': 'tanh',
         }
-        hmr['aggregation'] = {
+        emr_block['aggregation'] = {
             'mode': 'global',
             'global_function': 'sum',
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'mode': 'static_gating',
             'gate_threshold': 0.2,
         }
-        hmr['recurrence'] = {
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'iteration_level': 2,
         }

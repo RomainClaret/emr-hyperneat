@@ -95,9 +95,9 @@ LEO_CHANNEL = 1
 
 #: `leo.mode` values. 'compound': a connection needs |weight| above the weight threshold
 #: and LEO above the LEO threshold. 'replacement' (Verbancsics & Stanley 2011): LEO alone
-#: decides, and the weight is used unthresholded. 'hmr_compound': HMR's LEO gate
-#: (:func:`leo_sparsification_hmr_compound`).
-LEO_MODES = ('compound', 'replacement', 'hmr_compound')
+#: decides, and the weight is used unthresholded. 'compound_unrescaled': the prototype's LEO gate
+#: (:func:`leo_sparsification_compound_unrescaled`).
+LEO_MODES = ('compound', 'replacement', 'compound_unrescaled')
 
 
 def compute_leo_validity_mask_replacement(
@@ -148,21 +148,21 @@ def vectorized_weight_sparsification_leo_replacement(
     return jnp.where(leo_valid, clipped, 0.0)
 
 
-def leo_sparsification_hmr_compound(
+def leo_sparsification_compound_unrescaled(
     weights: jnp.ndarray,
     leo_outputs: jnp.ndarray,
     weight_threshold: float,
     leo_threshold: float,
     max_weight: float,
 ) -> jnp.ndarray:
-    """HMR's LEO gate (its LEO variant): the weight scaled, W = tanh(w) * max_weight, kept where |W|
-    > weight_threshold and the LEO value exceeds its threshold. EMR's 'compound' thresholds the
-    tanh-normalized weight and rescales the kept range linearly onto [0, max_weight].
+    """The prototype's LEO gate (its LEO variant): the weight scaled, W = tanh(w) * max_weight, kept
+    where |W| > weight_threshold and the LEO value exceeds its threshold. EMR's 'compound'
+    thresholds the tanh-normalized weight and rescales the kept range linearly onto [0, max_weight].
 
     Args:
         weights: tanh-normalized weights (any shape).
         leo_outputs: tanh-normalized LEO values, same shape.
-        weight_threshold: The threshold on |W| (HMR's 0.1).
+        weight_threshold: The threshold on |W| (the prototype's 0.1).
         leo_threshold: The LEO threshold.
         max_weight: Maximum weight magnitude.
 
@@ -188,7 +188,7 @@ def leo_sparsify(
     Args:
         weights: tanh-normalized weights (any shape).
         leo_outputs: tanh-normalized LEO values, same shape.
-        leo_mode: 'compound', 'replacement' or 'hmr_compound' (see LEO_MODES).
+        leo_mode: 'compound', 'replacement' or 'compound_unrescaled' (see LEO_MODES).
         weight_threshold: The weight threshold of 'compound' mode.
         leo_threshold: The LEO threshold.
         max_weight: Maximum weight magnitude.
@@ -199,8 +199,8 @@ def leo_sparsify(
     if leo_mode == 'replacement':
         return vectorized_weight_sparsification_leo_replacement(
             weights, leo_outputs, leo_threshold, max_weight)
-    if leo_mode == 'hmr_compound':
-        return leo_sparsification_hmr_compound(
+    if leo_mode == 'compound_unrescaled':
+        return leo_sparsification_compound_unrescaled(
             weights, leo_outputs, weight_threshold, leo_threshold, max_weight
         )
     return vectorized_weight_sparsification_with_leo(

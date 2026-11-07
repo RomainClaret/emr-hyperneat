@@ -15,7 +15,7 @@ Conditions to run:
 Note: 2-task data already exists at n=30 from ablation_schema_a/b_uniform experiments.
 
 Results saved to: papers/emr-neuromodulation/results/benchmark_n30_emr/ (this script runs the shared
-runner, which runs EMR; the published 630 runs, on the HMR engine, are the data release's
+runner, which runs EMR; the published 630 runs, on the prototype engine, are the data release's
 results/benchmark_n30/, which a run here never reads or overwrites)
 
 Usage:

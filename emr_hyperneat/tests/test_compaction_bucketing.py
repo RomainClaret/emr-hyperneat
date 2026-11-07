@@ -101,15 +101,15 @@ def _run(bucket, preset, level, act_mode='disabled', discovery='union', depth=3,
          generations=2):
     cfg = create_config_with_recurrence(preset, max_depth=depth, population_size=population,
                                         iteration_level=level, hh_cache_enabled=False)
-    hmr = cfg['algorithm_params']['emrhyperneat']['emr_hyperneat']
-    hmr['recurrence']['hh_discovery_mode'] = discovery
-    hmr.setdefault('execution', {})['compaction_bucket'] = bucket
+    emr_block = cfg['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block['recurrence']['hh_discovery_mode'] = discovery
+    emr_block.setdefault('execution', {})['compaction_bucket'] = bucket
     if act_mode == 'cppn_output':
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
     elif act_mode == 'random_generation':
-        hmr['dynamic_functions'] = {'mode': 'random_generation', 'num_activations': 4}
+        emr_block['dynamic_functions'] = {'mode': 'random_generation', 'num_activations': 4}
     elif act_mode == 'agg_cppn4':
-        hmr['aggregation'] = {'mode': 'cppn_output', 'num_aggregations': 4}
+        emr_block['aggregation'] = {'mode': 'cppn_output', 'num_aggregations': 4}
     sizes = []
     original = compaction.bucket_active_set
 
@@ -206,9 +206,9 @@ class TestAutoCompilesOncePerBucket:
         _watch()
         cfg = create_config_with_recurrence('hidden_only', max_depth=3, population_size=100,
                                             iteration_level=1, hh_cache_enabled=False)
-        hmr = cfg['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_discovery_mode'] = 'per_genome'
-        hmr.setdefault('execution', {})['compaction_bucket'] = 'auto'
+        emr_block = cfg['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_discovery_mode'] = 'per_genome'
+        emr_block.setdefault('execution', {})['compaction_bucket'] = 'auto'
         lengths, seen, new_size, compiles = [], set(), [], []
         original_bucket = compaction.bucket_active_set
         original_discover = engine.discover_sparse_hh_vectorized_multi_hop

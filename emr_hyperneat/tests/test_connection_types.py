@@ -282,8 +282,8 @@ class TestMultiHopAlgorithms:
     def test_multi_hop_algorithms(self, algorithm, xor_problem, algorithm_type):
         """Verify both multi-hop algorithms work."""
         config = create_config_with_recurrence('with_backward', iteration_level=2)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['multi_hop_algorithm'] = algorithm_type
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['multi_hop_algorithm'] = algorithm_type
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -351,8 +351,8 @@ class TestHopDecayFactor:
     def test_hop_decay_factor_values(self, algorithm, xor_problem, decay_factor):
         """Verify different hop_decay_factor values work."""
         config = create_config_with_recurrence('hidden_only', iteration_level=2)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hop_decay_factor'] = decay_factor
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hop_decay_factor'] = decay_factor
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -365,8 +365,8 @@ class TestHopDecayFactor:
         as it would completely eliminate multi-hop propagation.
         """
         config = create_config_with_recurrence('hidden_only', iteration_level=2)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hop_decay_factor'] = 0.01
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hop_decay_factor'] = 0.01
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -375,8 +375,8 @@ class TestHopDecayFactor:
     def test_hop_decay_factor_one(self, algorithm, xor_problem):
         """Verify hop_decay_factor=1.0 (no decay) works."""
         config = create_config_with_recurrence('hidden_only', iteration_level=2)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hop_decay_factor'] = 1.0
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hop_decay_factor'] = 1.0
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -386,8 +386,8 @@ class TestHopDecayFactor:
     def test_hop_decay_with_backward(self, algorithm, xor_problem):
         """Verify hop_decay_factor works with backward connections."""
         config = create_config_with_recurrence('with_backward', iteration_level=2)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hop_decay_factor'] = 0.8
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hop_decay_factor'] = 0.8
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -396,8 +396,8 @@ class TestHopDecayFactor:
     def test_hop_decay_with_full_recurrent(self, algorithm, xor_problem):
         """Verify hop_decay_factor works with full recurrence."""
         config = create_config_with_recurrence('full_recurrent', iteration_level=2)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hop_decay_factor'] = 0.9
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hop_decay_factor'] = 0.9
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 

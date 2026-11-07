@@ -11,20 +11,20 @@ band_pass+integrate palette is inherently sufficient?
 - If strategies converge BACK to oscillatory: the oscillatory barrier reasserts
 - If strategies stay non-oscillatory: the pathway is more general than GRN
 
-From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the prototype engine's
 aggregation variant, which release 0.1.0 ships: from the repository root,
 `python scripts/replicate.py run emr-dynamic-functions-bio-inspired --release 0.1.0 --` followed
 by a command of Usage without its `papers/emr-dynamic-functions-bio-inspired/` prefix runs the
 original on 0.1.0. The EMR version runs the experiment as it ran, on EMR's defaults except where
 noted:
-    - Population 150, whatever the pop_size argument says: the HMR variant read population_size
-      (default 150) and ignored the neat.pop_size this runner passed. The argument is kept and
-      ignored.
+    - Population 150, whatever the pop_size argument says: the prototype variant read
+      population_size (default 150) and ignored the neat.pop_size this runner passed. The argument
+      is kept and ignored.
     - Each node's activation and aggregation come from CPPN outputs of their own (EMR's
       aggregation block sits beside dynamic_functions), read from the node's self-connection
-      query; HMR averaged them over the node's input-to-node queries.
-    - HMR's level-0 variance rule and random key stream, as the published runs had them:
-      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+      query; the prototype averaged them over the node's input-to-node queries.
+    - The prototype's level-0 variance rule and random key stream, as the published runs had them:
+      USE_PROTOTYPE_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
       extra_randkey_split (False gives EMR's defaults).
     - Results go to results/non_osc_init_emr/, apart from the published runs in
       results/non_osc_init/.
@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classification_problems import ParityProblem
 from emr_hyperneat.emrhyperneat import EMRHyperNEAT
-from emr_settings import hmr_rule_and_split
+from emr_settings import prototype_rule_and_split
 from palette_strategies.strategy_52_circadian_rhythm_dual import CircadianRhythmDualStrategy
 from palette_strategies.strategy_29_clonal_selection_dual import ClonalSelectionDualStrategy
 from palette_strategies.strategy_16_stdp_dual import STDPDualStrategy
@@ -64,7 +64,7 @@ from palette_strategies.strategy_63_adult_neurogenesis_dual import AdultNeurogen
 
 OSCILLATORY_INDICES = {4, 11, 12, 13, 15}
 
-# The population of every published run: HMR's aggregation variant read population_size
+# The population of every published run: the prototype's aggregation variant read population_size
 # (default 150) and ignored the neat.pop_size this runner passed, so the pop_size argument never
 # took effect. The EMR version runs 150 and ignores the argument the same way.
 POPULATION = 150
@@ -130,7 +130,7 @@ def run_single_trial(
                     'initial_depth': 0,
                     'max_depth': max_depth,
                     'variance_threshold': 0.03,
-                    **hmr_rule_and_split(),
+                    **prototype_rule_and_split(),
                     'dynamic_functions': {
                         'mode': 'cppn_output',
                         'palette': current_act_palette,

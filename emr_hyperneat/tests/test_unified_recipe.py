@@ -1,10 +1,12 @@
-"""HMR's unified model (UNI) as an EMR recipe.
+"""The prototype's unified model (UNI) as an EMR recipe.
 
-UNI (HMR's unified model) discovered direct hidden-to-hidden connections and settled them by HMR's
-older rule, with a cache refreshed on a timer. Nothing in it needs a new model: EMR runs it with
+UNI (the prototype's unified model) discovered direct hidden-to-hidden connections and settled them
+by the prototype's older rule, with a cache refreshed on a timer. Nothing in it needs a new model:
+EMR runs it with
 
 emr_hyperneat: weight_threshold = band_threshold, variance_rule 'legacy', extra_randkey_split true
-recurrence: iteration_level 1, use_dense_discovery true, settling_rule 'hmr', hh_cache_trigger
+recurrence: iteration_level 1, use_dense_discovery true, settling_rule 'drive_once',
+    hh_cache_trigger
 'time' (with the cache on, as UNI's default was)
 
 and, for UNI's default block (allow_hidden_to_hidden alone, enabled false), enabled true with
@@ -14,7 +16,7 @@ reproduced: padded active indices entered discovery as position 0, discovery ran
 population's union of active positions instead of each genome's own, and a per-chunk cap truncated
 the pairs. The recipe equals UNI where none of them acts (every position active, 84 positions, so
 one chunk below the cap), checked against UNI as recorded in the research repository
-(hmr_reference.py). Two additions make the recipe possible: the weight_threshold key (UNI pruned W1
+(prototype_reference.py). Two additions make the recipe possible: the weight_threshold key (UNI pruned W1
 and W2 at band_threshold, EMR at a fixed 0.1) and the 'time' trigger. initialize starts a new h->h
 cache (0.1.0, like UNI, scored a reused object's first generations with the last run's connections).
 """
@@ -34,7 +36,7 @@ from emr_hyperneat.emrhyperneat import (
     EMRRecurrenceMetrics,
     HHCacheManager,
 )
-from hmr_reference import hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import prototype_value, live  # type: ignore[import-not-found]
 
 DEPTH, POP, SEED = 2, 20, 42
 
@@ -58,13 +60,13 @@ def _uni_config(recurrence, variance_threshold=0.0, population=POP, **settings):
     act."""
     return {
         'algorithm_params': {
-            'hmrhyperneat': {
+            'emrhyperneat': {
                 'population_size': population,
                 'substrate': {
                     'input_coords': [[-1.0, 0.0], [1.0, 0.0]],
                     'output_coords': [[0.0, 1.0]],
                 },
-                'hmr_hyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': DEPTH,
                     'variance_threshold': variance_threshold,
@@ -80,14 +82,14 @@ def _uni_config(recurrence, variance_threshold=0.0, population=POP, **settings):
 def uni_recipe(config, emr_overrides=None, recurrence_overrides=None):
     """The EMR configuration of a UNI configuration (the recipe in the module docstring)."""
     params = copy.deepcopy(config['algorithm_params'])
-    block = params.pop('hmrhyperneat')
-    emr = block.pop('hmr_hyperneat')
+    block = params.pop('emrhyperneat')
+    emr = block.pop('emr_hyperneat')
     recurrence = emr['recurrence']
     if recurrence.get('allow_hidden_to_hidden') and not recurrence.get('enabled', False):
         recurrence.update(enabled=True, allow_lateral=True)
     cache_on = recurrence.get('hh_cache_enabled', True)
     recurrence.update(
-        iteration_level=1, use_dense_discovery=True, settling_rule='hmr', hh_cache_enabled=cache_on
+        iteration_level=1, use_dense_discovery=True, settling_rule='drive_once', hh_cache_enabled=cache_on
     )
     if cache_on:
         recurrence['hh_cache_trigger'] = 'time'
@@ -101,9 +103,10 @@ def uni_recipe(config, emr_overrides=None, recurrence_overrides=None):
 
 
 def _run_uni(config, generations):
-    """UNI's fitness vector, h->h count and cache status of each generation (hmr_reference.py)."""
+    """UNI's fitness vector, h->h count and cache status of each generation
+    (prototype_reference.py)."""
     args = (config, _TwoInputXOR(), SEED, generations)
-    return hmr_value('unified_recipe.run_uni', lambda: live('uni_run', *args), inputs=args)
+    return prototype_value('unified_recipe.run_uni', lambda: live('uni_run', *args), inputs=args)
 
 
 def _generations(algorithm, state, problem, generations):
@@ -396,7 +399,7 @@ class TestUniNames:
         """
         config = _uni_config(recurrence)
         assert (
-            hmr_value(
+            prototype_value(
                 'unified_recipe.uni_flags', lambda: live('uni_flags', config), inputs=(config,)
             )
             == flags
@@ -432,5 +435,5 @@ class TestUniNames:
     def test_the_record_carries_unis_fields(self):
         ours = {field.name for field in dataclasses.fields(EMRRecurrenceMetrics)}
         assert (
-            hmr_value('unified_recipe.uni_record_fields', lambda: live('uni_record_fields')) <= ours
+            prototype_value('unified_recipe.uni_record_fields', lambda: live('uni_record_fields')) <= ours
         )

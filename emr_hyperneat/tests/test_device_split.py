@@ -167,10 +167,10 @@ class TestParallelBlock:
             EMRHyperNEAT(strategy=MultiGPUStrategy.HYBRID).create_config(
                 create_base_config(max_depth=2, population_size=8))
 
-    def test_hmr_names(self):
-        """HMR's names for the split routes (STRATEGY_NAME_MAP). HMR ran CPPN_CHUNKED and
-        POSITION_SHARDING_CHUNKED as a CPPN query split by position; 0.1.0's configuration key ran
-        them as STREAMING and FULL_PIPELINE_PARALLEL."""
+    def test_aliases(self):
+        """The prototype's names for the split routes (STRATEGY_NAME_MAP). The prototype ran
+        CPPN_CHUNKED and POSITION_SHARDING_CHUNKED as a CPPN query split by position; 0.1.0's
+        configuration key ran them as STREAMING and FULL_PIPELINE_PARALLEL."""
         expected = {'POPULATION_PMAP': 'POPULATION_PMAP', 'POPULATION_PARALLEL': 'POPULATION_PMAP',
                     'POSITION_SHARDING': 'POSITION_SHARDING', 'POSITION_PMAP': 'POSITION_SHARDING',
                     'SHARD_MAP': 'POSITION_SHARDING', 'CPPN_CHUNKED': 'POSITION_SHARDING',

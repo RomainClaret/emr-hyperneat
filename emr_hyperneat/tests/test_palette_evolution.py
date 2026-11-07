@@ -1,11 +1,12 @@
-"""Built-in palette evolution, from HMR's dynamic-functions variant.
+"""Built-in palette evolution, from the prototype's dynamic-functions variant.
 
-HMR's random walk on a palette mask: after a number of generations without a new best fitness, every
-function's bit flips with a probability. Fixed rather than reproduced: the decode (HMR rebinned the
-channel over the enabled functions, so every toggle remapped a quarter to a half of every genome's
-nodes; the stable decode bins over the whole list and snaps a disabled function to its nearest
-enabled one, and HMR's is the 'rebin' opt-in), the best fitness under skip_metrics, the state an
-object kept across initialize, the palette metric, and the silent configuration.
+The prototype's random walk on a palette mask: after a number of generations without a new best
+fitness, every function's bit flips with a probability. Fixed rather than reproduced: the decode
+(the prototype rebinned the channel over the enabled functions, so every toggle remapped a quarter
+to a half of every genome's nodes; the stable decode bins over the whole list and snaps a disabled
+function to its nearest enabled one, and the prototype's is the 'rebin' opt-in), the best fitness
+under skip_metrics, the state an object kept across initialize, the palette metric, and the silent
+configuration.
 """
 
 import jax.numpy as jnp
@@ -125,9 +126,9 @@ class TestTheWalk:
         assert [int(i) for i in np.asarray(algo.df_palette)] == list(range(len(ACTIVATION_LIST)))
         assert algo._palette_best is None and algo._palette_stagnation == 0
 
-    def test_hmr_counts_the_first_generation_as_stagnant(self):
+    def test_prototype_counts_the_first_generation_as_stagnant(self):
         """With stagnation_generations 1 the mask is mutated after the first generation already, as
-        in HMR."""
+        in the prototype."""
         algo, _, records = _run(
             _config(stagnation_generations=1, mutation_rate=1.0, initial_mask="default"), 1
         )

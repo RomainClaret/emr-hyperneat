@@ -43,7 +43,7 @@ MODES = ['standard', 'streaming', 'depth_offload']
 def _make_config(mode='depth_offload', variance_threshold=0.03, initial_depth=None,
                  division_threshold=None, execution_extra=None):
     """Config with only the knobs under test; execution mode explicit."""
-    hmr = {
+    emr_block = {
         'max_depth': MAX_DEPTH,
         'variance_threshold': variance_threshold,
         'band_threshold': 0.3,
@@ -56,14 +56,14 @@ def _make_config(mode='depth_offload', variance_threshold=0.03, initial_depth=No
         'execution': {'mode': mode, **(execution_extra or {})},
     }
     if initial_depth is not None:
-        hmr['initial_depth'] = initial_depth
+        emr_block['initial_depth'] = initial_depth
     if division_threshold is not None:
-        hmr['division_threshold'] = division_threshold
+        emr_block['division_threshold'] = division_threshold
     return {
         'algorithm_params': {
             'emrhyperneat': {
                 'population_size': POPULATION,
-                'emr_hyperneat': hmr,
+                'emr_hyperneat': emr_block,
                 'substrate': {
                     'input_coords': [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0)],
                     'output_coords': [(0.0, 1.0)],

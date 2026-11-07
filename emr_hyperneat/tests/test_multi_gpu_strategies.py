@@ -469,8 +469,8 @@ class TestStrategyWithFeatures:
             strategy=strategy
         )
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -484,14 +484,14 @@ class TestStrategyWithFeatures:
             strategy=strategy
         )
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -512,8 +512,8 @@ class TestStrategyStringParsing:
         constructor's STREAMING (`emr_hyperneat.strategy` is refused)."""
         algorithm = EMRHyperNEAT(strategy=MultiGPUStrategy.STREAMING)
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multi_gpu_strategy'] = 'SINGLE_GPU'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multi_gpu_strategy'] = 'SINGLE_GPU'
 
         config_obj = algorithm.create_config(config)
         assert algorithm.strategy == MultiGPUStrategy.SINGLE_GPU
@@ -524,8 +524,8 @@ class TestStrategyStringParsing:
         refused)."""
         algorithm = EMRHyperNEAT()
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multi_gpu_strategy'] = 'STREAMING'
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multi_gpu_strategy'] = 'STREAMING'
 
         config_obj = algorithm.create_config(config)
         assert algorithm.strategy == MultiGPUStrategy.STREAMING
@@ -1321,11 +1321,11 @@ for label, key, constructed, problem, mode in (
         ('full_pipeline_64_auto', 'FULL_PIPELINE_PARALLEL', None, ShardableProblem(), 'auto')):
     algorithm = EMRHyperNEAT() if constructed is None else EMRHyperNEAT(strategy=MultiGPUStrategy[constructed])
     config = create_base_config(population_size=8)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
     if key is not None:
-        hmr['multi_gpu_strategy'] = key
+        emr_block['multi_gpu_strategy'] = key
     if mode is not None:
-        hmr['execution'] = {{'mode': mode}}
+        emr_block['execution'] = {{'mode': mode}}
     state = algorithm.initialize(algorithm.create_config(config), problem, seed=42)
     if mode == 'auto':
         # AUTO escalated to depth offload (as on an 11 GB GPU at depth 7, population 1000): the multi-device
@@ -1371,9 +1371,9 @@ print('ROUTES', json.dumps(found))
         import warnings
         algorithm = EMRHyperNEAT()
         config = create_base_config(population_size=8)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['multi_gpu_strategy'] = 'STREAMING'
-        hmr['execution'] = {'mode': 'depth_offload'}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['multi_gpu_strategy'] = 'STREAMING'
+        emr_block['execution'] = {'mode': 'depth_offload'}
         problem = XORProblem()
         state = algorithm.initialize(algorithm.create_config(config), problem, seed=DEFAULT_SEED)
         with warnings.catch_warnings():

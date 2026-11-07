@@ -286,7 +286,7 @@ class TestShardingConfiguration:
     def test_disk_offload_custom_path(self, depth_offload_algorithm, xor_problem):
         """Verify custom disk offload path can be set."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            custom_path = os.path.join(tmpdir, 'hmr_test_offload')
+            custom_path = os.path.join(tmpdir, 'prototype_test_offload')
             depth_offload_algorithm.configure_sharding(
                 enable_disk_offload=True,
                 disk_offload_path=custom_path,
@@ -304,7 +304,7 @@ class TestShardingConfiguration:
     def test_configure_sharding_all_params(self, depth_offload_algorithm, xor_problem):
         """Verify all sharding params can be configured together."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            custom_path = os.path.join(tmpdir, 'hmr_combined_test')
+            custom_path = os.path.join(tmpdir, 'prototype_combined_test')
             depth_offload_algorithm.configure_sharding(
                 target_shard_gb=0.3,
                 target_eval_shard_gb=0.5,
@@ -481,7 +481,7 @@ class TestDiskOffloadFileIO:
     def test_disk_offload_with_temp_directory(self, depth_offload_algorithm, xor_problem):
         """Verify disk offload works with temporary directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            offload_path = os.path.join(tmpdir, 'hmr_offload')
+            offload_path = os.path.join(tmpdir, 'prototype_offload')
 
             depth_offload_algorithm.configure_sharding(
                 enable_disk_offload=True,
@@ -543,11 +543,11 @@ class TestOffloadWithStreaming:
     def test_offload_config_with_streaming_enabled(self, depth_offload_algorithm, xor_problem):
         """Verify offload configuration works when streaming is enabled."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
         # Enable streaming mode in config
-        hmr['enable_streaming'] = True
-        hmr['population_chunk_size'] = 25
+        emr_block['enable_streaming'] = True
+        emr_block['population_chunk_size'] = 25
 
         depth_offload_algorithm.configure_offloading(
             depth_threshold=2,
@@ -563,9 +563,9 @@ class TestOffloadWithStreaming:
     def test_high_depth_with_streaming(self, depth_offload_algorithm, xor_problem):
         """Verify high depth (offload-worthy) works with streaming."""
         config = create_depth_offload_config(max_depth=4)  # Higher depth
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['enable_streaming'] = True
-        hmr['population_chunk_size'] = 25
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['enable_streaming'] = True
+        emr_block['population_chunk_size'] = 25
 
         depth_offload_algorithm.configure_offloading(
             depth_threshold=3,  # Should trigger offloading at depth 4
@@ -580,10 +580,10 @@ class TestOffloadWithStreaming:
     def test_offload_and_streaming_with_recurrence(self, depth_offload_algorithm, xor_problem):
         """Verify offload and streaming work together with recurrence."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['enable_streaming'] = True
-        hmr['population_chunk_size'] = 25
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['enable_streaming'] = True
+        emr_block['population_chunk_size'] = 25
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -669,8 +669,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_with_hidden_only_recurrence(self, depth_offload_algorithm, xor_problem):
         """Verify depth offload works with hidden_only recurrence preset."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -687,8 +687,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_with_backward_recurrence(self, depth_offload_algorithm, xor_problem):
         """Verify depth offload works with backward connections enabled."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'with_backward',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -706,8 +706,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_with_full_recurrent(self, depth_offload_algorithm, xor_problem):
         """Verify depth offload works with full recurrent connections."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'full_recurrent',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -727,8 +727,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_hh_with_cpu_grid_mode(self, depth_offload_algorithm, xor_problem):
         """Verify h->h works with CPU-resident grid mode enabled."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -748,8 +748,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_hh_with_sharding(self, depth_offload_algorithm, xor_problem):
         """Verify h->h works with sharding configuration."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -771,8 +771,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_hh_at_various_thresholds(self, depth_offload_algorithm, xor_problem, depth_threshold):
         """Verify h->h works with different depth thresholds."""
         config = create_depth_offload_config(max_depth=depth_threshold)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -789,8 +789,8 @@ class TestDepthOffloadWithRecurrence:
     def test_depth_offload_hh_metrics_tracking(self, depth_offload_algorithm, xor_problem):
         """Verify h->h connection metrics are tracked correctly."""
         config = create_depth_offload_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
@@ -856,7 +856,7 @@ class TestChunkedMetricAccumulation:
 
 
 class TestOffloadCacheParity:
-    """run_generation_offload takes HMR's cached_sparse_hh pass-through and consults the
+    """run_generation_offload takes the prototype's cached_sparse_hh pass-through and consults the
     cache manager, rather than re-discovering every generation."""
 
     def test_manager_cache_hits_after_first_generation(self):
@@ -888,7 +888,7 @@ class TestOffloadCacheParity:
         from emr_hyperneat.execution.offload import (
             run_generation_offload,
         )
-        # The unified entry must take HMR's cached_sparse_hh parameter.
+        # The unified entry must take the prototype's cached_sparse_hh parameter.
         assert "cached_sparse_hh" in inspect.signature(run_generation_offload).parameters
 
 

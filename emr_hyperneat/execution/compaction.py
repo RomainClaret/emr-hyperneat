@@ -7,7 +7,7 @@ position:
 
 That is `O(N^2)` in the substrate ceiling, and the ceiling is enormous while the
 realized substrate is tiny. At depth 7, `N = 87,380`, so `Whh` alone is 30.5 GB per
-genome; the measured realized substrate on XOR is about 4-7 positions. HMR measured
+genome; the measured realized substrate on XOR is about 4-7 positions. The prototype measured
 ~51 active of 5,592,404 at depth 10, i.e. the dense buffers were ~10^5x larger than
 the data they carried.
 

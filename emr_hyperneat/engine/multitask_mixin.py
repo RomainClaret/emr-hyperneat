@@ -1,5 +1,6 @@
 """Multi-task and neuromodulated evaluation: the evaluator factories, the multi-task generation, and the
 methods that evaluate with given neurotransmitters."""
+import functools
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import jax
@@ -68,8 +69,8 @@ class MultiTaskMixin:
                 activity W2 reads (the per-genome orthogonality bonus).
             branch_mode: multitask.branch_gating_mode: each position's modulation from the receptor
                 channel its region selects (compute_modulation_with_branch_gating), in the
-                feed-forward and the recurrent evaluation alike (HMR's branch-gated evaluator was
-                feed-forward and tanh only).
+                feed-forward and the recurrent evaluation alike (the prototype's branch-gated
+                evaluator was feed-forward and tanh only).
             positions: (positions, 2) grid coordinates of the evaluated positions, which a branch
                 mode needs.
 
@@ -100,7 +101,7 @@ class MultiTaskMixin:
         if branch_mode != 'none' and positions is None:
             raise ValueError("a branch gating mode needs the evaluated positions' grid coordinates")
         settles = bool(has_hh and activate_time > 0)
-        additive = settles and self._settling_rule == 'hmr'
+        additive = settles and self._settling_rule == 'drive_once'
         key = (settles, int(activate_time) if settles else 0, act_fn, node_rule, mod_strength,
                use_output_inversion, bool(return_hidden), additive)
         # Kept without branch gating (whose positions are an array) and for an activation made once
@@ -157,8 +158,9 @@ class MultiTaskMixin:
                                                         modulation_mode,
                                                         modulation_strength_override)
                 if additive:
-                    # HMR FULL's multi-task rule (recurrence.settling_rule 'hmr'): the node of the
-                    # drive, then activate_time steps of h + node(recurrent(h))
+                    # The multi-task rule of the prototype's FULL variant (recurrence.settling_rule
+                    # 'drive_once'): the node of the drive, then activate_time steps of h +
+                    # node(recurrent(h))
                     hidden = settle_hidden_additive(
                         node_fn(inputs @ W1_single, *node_operands),
                         from_idx,
@@ -217,7 +219,7 @@ class MultiTaskMixin:
     ):
         """Create vmapped two-module evaluation function (PFC/Sensorimotor separation).
 
-        This creates a JIT-compiled vmapped function that evaluates networks using
+        This creates vmapped functions, run eagerly, that evaluate networks using
         the two-module architecture from Liu & Wang (2024):
         - PFC module (x < 0): Rule maintenance, uses NT[0:2]
         - Sensorimotor module (x >= 0): Task execution, uses NT[1:3]
@@ -227,10 +229,11 @@ class MultiTaskMixin:
             hidden_act_fn: Optional activation function for hidden layer.
 
         Returns:
-            A vmapped function with signature:
+            Two vmapped functions with signature:
             (W1, W2, receptor_densities, base_gains, NT_vector, inputs, targets,
              fitness_mode, modulation_mode, modulation_strength_override, two_module_mode)
-            -> fitness_array of shape (pop_size,)
+            -> fitness_array of shape (pop_size,); the second also returns the hidden
+            activity, shape (pop_size, num_cases, total_positions)
         """
         # Capture neuromodulation config in closure
         mod_strength = self.neuromod_config.modulation_strength if self.neuromod_config else 5.0
@@ -249,7 +252,7 @@ class MultiTaskMixin:
             W1_single, W2_single, receptor_densities_single, base_gains_single,
             neurotransmitter, inputs, targets,
             fitness_mode='mse', modulation_mode='full', modulation_strength_override=None,
-            two_module_mode='parallel'
+            two_module_mode='parallel', return_hidden=False
         ):
             """Evaluate network with two-module architecture.
 
@@ -275,9 +278,11 @@ class MultiTaskMixin:
                 modulation_mode: 'full', 'gating_only', 'gain_bias_only'
                 modulation_strength_override: Override default modulation strength
                 two_module_mode: 'parallel' or 'sequential'
+                return_hidden: Also return the hidden activity, both modules' at their grid
+                    positions, shape (num_cases, total_positions), for the orthogonality bonus
 
             Returns:
-                Fitness score based on fitness_mode
+                Fitness score based on fitness_mode, and the hidden activity with return_hidden
             """
             strength = modulation_strength_override if modulation_strength_override is not None else mod_strength
 
@@ -353,85 +358,9 @@ class MultiTaskMixin:
             outputs = invert_outputs(outputs, neurotransmitter, use_output_inversion,
                                      neurotransmitter.shape[-1])
 
-            return compute_fitness(outputs, targets, fitness_mode)
-
-        def eval_single_network_two_module_with_hidden(
-            W1_single, W2_single, receptor_densities_single, base_gains_single,
-            neurotransmitter, inputs, targets,
-            fitness_mode='mse', modulation_mode='full', modulation_strength_override=None,
-            two_module_mode='parallel'
-        ):
-            """Two-module evaluation that also returns hidden activations."""
-            strength = modulation_strength_override if modulation_strength_override is not None else mod_strength
-
-            # PFC module
-            W1_pfc = W1_single[:, pfc_mask]
-            rd_pfc = receptor_densities_single[pfc_mask, :]
-            bg_pfc = base_gains_single[pfc_mask]
-            W2_pfc = W2_single[pfc_mask, :]
-
-            pre_hidden_pfc = inputs @ W1_pfc
-            mod_pfc = rd_pfc[:, :2] @ neurotransmitter[:2]
-
-            if modulation_mode == 'gating_only':
-                gates_pfc = jax.nn.sigmoid(mod_pfc * strength)
-                hidden_pfc = act_fn(pre_hidden_pfc) * gates_pfc
-            elif modulation_mode == 'gain_bias_only':
-                effective_gains_pfc = bg_pfc + strength * mod_pfc
-                effective_gains_pfc = jnp.clip(effective_gains_pfc, 0.1, 5.0)
-                effective_gains_pfc = jnp.where(jnp.isnan(effective_gains_pfc), 1.0, effective_gains_pfc)
-                modulation_bias_pfc = mod_pfc * strength
-                hidden_pfc = act_fn(effective_gains_pfc * pre_hidden_pfc + modulation_bias_pfc)
-            else:
-                effective_gains_pfc = bg_pfc + strength * mod_pfc
-                effective_gains_pfc = jnp.clip(effective_gains_pfc, 0.1, 5.0)
-                effective_gains_pfc = jnp.where(jnp.isnan(effective_gains_pfc), 1.0, effective_gains_pfc)
-                gates_pfc = jax.nn.sigmoid(mod_pfc)
-                modulation_bias_pfc = mod_pfc * strength
-                hidden_pfc = act_fn(effective_gains_pfc * pre_hidden_pfc + modulation_bias_pfc)
-                hidden_pfc = hidden_pfc * gates_pfc
-
-            # Sensorimotor module
-            W1_sm = W1_single[:, sm_mask]
-            rd_sm = receptor_densities_single[sm_mask, :]
-            bg_sm = base_gains_single[sm_mask]
-            W2_sm = W2_single[sm_mask, :]
-
-            pre_hidden_sm = inputs @ W1_sm
-            if two_module_mode == 'sequential':
-                pfc_mean = jnp.mean(hidden_pfc, axis=-1, keepdims=True)
-                pre_hidden_sm = pre_hidden_sm + pfc_mean
-
-            mod_sm = rd_sm[:, 1:3] @ neurotransmitter[1:3]
-
-            if modulation_mode == 'gating_only':
-                gates_sm = jax.nn.sigmoid(mod_sm * strength)
-                hidden_sm = act_fn(pre_hidden_sm) * gates_sm
-            elif modulation_mode == 'gain_bias_only':
-                effective_gains_sm = bg_sm + strength * mod_sm
-                effective_gains_sm = jnp.clip(effective_gains_sm, 0.1, 5.0)
-                effective_gains_sm = jnp.where(jnp.isnan(effective_gains_sm), 1.0, effective_gains_sm)
-                modulation_bias_sm = mod_sm * strength
-                hidden_sm = act_fn(effective_gains_sm * pre_hidden_sm + modulation_bias_sm)
-            else:
-                effective_gains_sm = bg_sm + strength * mod_sm
-                effective_gains_sm = jnp.clip(effective_gains_sm, 0.1, 5.0)
-                effective_gains_sm = jnp.where(jnp.isnan(effective_gains_sm), 1.0, effective_gains_sm)
-                gates_sm = jax.nn.sigmoid(mod_sm)
-                modulation_bias_sm = mod_sm * strength
-                hidden_sm = act_fn(effective_gains_sm * pre_hidden_sm + modulation_bias_sm)
-                hidden_sm = hidden_sm * gates_sm
-
-            # Combine outputs
-            output_pfc = hidden_pfc @ W2_pfc
-            output_sm = hidden_sm @ W2_sm
-            outputs = jax.nn.sigmoid(output_pfc + output_sm)
-
-            # Output inversion by NT[3], only with four or more channels and use_output_inversion
-            outputs = invert_outputs(outputs, neurotransmitter, use_output_inversion,
-                                     neurotransmitter.shape[-1])
-
             fitness = compute_fitness(outputs, targets, fitness_mode)
+            if not return_hidden:
+                return fitness
 
             # Combine hidden for orthogonality computation - pad to total_positions
             total_positions = all_positions.shape[0]
@@ -449,7 +378,7 @@ class MultiTaskMixin:
         )
 
         eval_population_two_module_with_hidden = jax.vmap(
-            eval_single_network_two_module_with_hidden,
+            functools.partial(eval_single_network_two_module, return_hidden=True),
             in_axes=(0, 0, 0, 0, None, None, None, None, None, None, None)
         )
 
@@ -474,7 +403,8 @@ class MultiTaskMixin:
         4. Aggregated multi-task fitness is used for NEAT selection
         5. Same network architecture solves multiple tasks
 
-        The approach mirrors the implementation in HMR's neuromodulation variant (release 0.1.0).
+        The approach mirrors the implementation in the prototype's neuromodulation variant (release
+        0.1.0).
 
         Args:
             state: Current algorithm state
@@ -514,8 +444,8 @@ class MultiTaskMixin:
                              "(run_generation)")
 
         if isinstance(problems, MultiTaskConfig):
-            # HMR's call form: run_generation_multitask(state, MultiTaskConfig(tasks={name: (inputs,
-            # targets)}, ...))
+            # The prototype's call form: run_generation_multitask(state,
+            # MultiTaskConfig(tasks={name: (inputs, targets)}, ...))
             return self._run_generation_multitask_tasks(state, problems)
 
         total_start = time_module.perf_counter()
@@ -528,9 +458,9 @@ class MultiTaskMixin:
                                  f"never changes a rank within it; the per-genome bonuses are "
                                  f"multitask.orthogonality_bonus_weight and "
                                  f"specialization_bonus_weight")
-        # The same settings on a configuration object set by hand or by HMR's call form, where
-        # create_config's checks never ran (0.1.0 ignored them), and the per-node features 0.1.0
-        # dropped on a direct call without the multitask block
+        # The same settings on a configuration object set by hand or by the prototype's call form,
+        # where create_config's checks never ran (0.1.0 ignored them), and the per-node features
+        # 0.1.0 dropped on a direct call without the multitask block
         _set = getattr(self, 'multitask_config', None)
         if _set is not None:
             for name in ('orthogonality_bonus', 'specialization_bonus'):
@@ -544,8 +474,8 @@ class MultiTaskMixin:
             if getattr(_set, 'confusion_eval_frequency', 0):
                 raise ValueError(
                     f"MultiTaskConfig.confusion_eval_frequency="
-                    f"{_set.confusion_eval_frequency!r} is never read (HMR's default was 1 and HMR "
-                    f"never read it either); pass 0"
+                    f"{_set.confusion_eval_frequency!r} is never read (the prototype's default was 1 "
+                    f"and the prototype never read it either); pass 0"
                 )
             if getattr(_set, 'generalist_bonus_type', 'none') not in GENERALIST_BONUS_TYPES:
                 raise ValueError(
@@ -557,7 +487,7 @@ class MultiTaskMixin:
             [
                 feature
                 for feature in self._features_a_tanh_sum_path_drops()
-                if feature not in ("neuromodulation", "recurrence.settling_rule='hmr'")
+                if feature not in ("neuromodulation", "recurrence.settling_rule='drive_once'")
             ]
         )
 
@@ -576,7 +506,8 @@ class MultiTaskMixin:
             )
 
         num_tasks = len(problems)
-        # Branch gating and the modulation penalty (HMR's), checked before the generation runs
+        # Branch gating and the modulation penalty (the prototype's), checked before the generation
+        # runs
         _configured = getattr(self, 'multitask_config', None)
         cfg_branch_gating_mode = (
             getattr(_configured, 'branch_gating_mode', 'none') if _configured else 'none'
@@ -890,8 +821,8 @@ class MultiTaskMixin:
                     task_act_name, nt_vector, inputs, targets, with_hidden=True
                 )
                 # A genome's fingerprint counts its own active positions only: elsewhere W1 and W2
-                # are zero, but the node's NT-dependent bias makes the activity nonzero (HMR's
-                # counted it, rewarding receptors on positions that reach no output)
+                # are zero, but the node's NT-dependent bias makes the activity nonzero (the
+                # prototype's counted it, rewarding receptors on positions that reach no output)
                 per_task_hidden[task_idx] = hidden * active
             else:
                 fitness = evaluate_task(task_act_name, nt_vector, inputs, targets)
@@ -915,9 +846,9 @@ class MultiTaskMixin:
             log_fitness = jnp.sum(jnp.log(stacked_fitnesses + eps), axis=0)
             aggregated_fitness = jnp.exp(log_fitness / num_tasks)
         elif aggregation_method == 'raw_product':
-            # HMR's 'product' (its MultiTaskConfig call form): the plain product of the task
-            # fitnesses. It ranks genomes like the geometric mean except that genomes with a zero
-            # task score tie, and a bonus weighs differently.
+            # The prototype's 'product' (its MultiTaskConfig call form): the plain product of the
+            # task fitnesses. It ranks genomes like the geometric mean except that genomes with a
+            # zero task score tie, and a bonus weighs differently.
             aggregated_fitness = jnp.prod(stacked_fitnesses, axis=0)
         elif aggregation_method == 'softmin':
             # Softmin: weighted average where smaller values get more weight
@@ -933,7 +864,7 @@ class MultiTaskMixin:
         else:
             raise ValueError(f"Unknown aggregation method: {aggregation_method}")
 
-        # Per-genome bonuses (HMR's mechanisms). The constant bonuses (from the tasks' NT
+        # Per-genome bonuses (the prototype's mechanisms). The constant bonuses (from the tasks' NT
         # vectors, from the population's mean fitness variance) give every genome the same value,
         # which selection never sees, and raise.
         effective_orthogonality_bonus = cfg_orthogonality_bonus_weight
@@ -948,10 +879,10 @@ class MultiTaskMixin:
             aggregated_fitness = aggregated_fitness + effective_orthogonality_bonus * orthogonality
         if cfg_specialization_bonus_weight > 0.0:
             # A genome's fitness under each task's own NT vector minus its fitness on the same data
-            # under other tasks' vectors, with the same evaluator: HMR's used tasks (t+1)%T and
-            # (t+2)%T, so with two tasks one of its "wrong" vectors was the right one, and evaluated
-            # them without the two-module or branch mode the right one used. Two tasks: the other
-            # task's vector; three or more: the next two.
+            # under other tasks' vectors, with the same evaluator: the prototype's used tasks
+            # (t+1)%T and (t+2)%T, so with two tasks one of its "wrong" vectors was the right one,
+            # and evaluated them without the two-module or branch mode the right one used. Two
+            # tasks: the other task's vector; three or more: the next two.
             wrong = []
             for t, (task_act_name, inputs, targets) in enumerate(per_task_data):
                 for k in (
@@ -972,13 +903,13 @@ class MultiTaskMixin:
             )
         modulation_variance = None
         if cfg_modulation_penalty > 0.0:
-            # HMR's modulation_penalty, a bonus despite its name: penalty times the variance over
-            # tasks of a genome's mean modulation, so a genome whose receptors answer the tasks' NT
-            # vectors differently scores higher. The mean is over the genome's own active positions,
-            # of the modulation its nodes receive (routed under branch gating): HMR averaged the
-            # receptors over every position of the grid, those that reach no output included, and
-            # multiplied them with every channel of the NT vectors, the inversion channel nt[3]
-            # included, whatever the branch mode.
+            # The prototype's modulation_penalty, a bonus despite its name: penalty times the
+            # variance over tasks of a genome's mean modulation, so a genome whose receptors answer
+            # the tasks' NT vectors differently scores higher. The mean is over the genome's own
+            # active positions, of the modulation its nodes receive (routed under branch gating):
+            # the prototype averaged the receptors over every position of the grid, those that reach
+            # no output included, and multiplied them with every channel of the NT vectors, the
+            # inversion channel nt[3] included, whatever the branch mode.
             active = jnp.asarray(self._cached_masks_A, dtype=bool)
             count = jnp.maximum(jnp.sum(active, axis=1), 1)
             k = min(3, self.neuromod_config.num_nt_types)
@@ -1115,16 +1046,16 @@ class MultiTaskMixin:
     def _run_generation_multitask_tasks(
         self, state: Any, config: 'MultiTaskConfig'
     ) -> Tuple[Any, MultiTaskMetrics]:
-        """One multi-task generation in HMR's call form, through the list form.
+        """One multi-task generation in the prototype's call form, through the list form.
 
-        HMR's runners pass a MultiTaskConfig whose ``tasks`` maps task names to (inputs, targets),
-        with the NT vector of each task from ``nt_vectors`` or, by name, from the NT presets
-        (get_nt_for_task, HMR's lookup), weights by name for 'weighted' (a missing name weighs 1.0,
-        as in HMR), and HMR's 'product', the plain product of the task fitnesses (EMR's list form
-        names that 'raw_product'; its 'product' is the geometric mean). The configuration is the
-        call's: it replaces the model's multi-task configuration for the generation, which also
-        keeps the evaluation on the whole grid (compaction would narrow the receptors and not the
-        cached weights).
+        The prototype's runners pass a MultiTaskConfig whose ``tasks`` maps task names to (inputs,
+        targets), with the NT vector of each task from ``nt_vectors`` or, by name, from the NT
+        presets (get_nt_for_task, the prototype's lookup), weights by name for 'weighted' (a missing
+        name weighs 1.0, as in the prototype), and the prototype's 'product', the plain product of
+        the task fitnesses (EMR's list form names that 'raw_product'; its 'product' is the geometric
+        mean). The configuration is the call's: it replaces the model's multi-task configuration for
+        the generation, which also keeps the evaluation on the whole grid (compaction would narrow
+        the receptors and not the cached weights).
 
         Returns:
             ``(new_state, MultiTaskMetrics)`` keyed by task name.
@@ -1144,10 +1075,11 @@ class MultiTaskMixin:
             raise ValueError("MultiTaskConfig.orthogonality_metric applies only with "
                              "orthogonality_bonus_weight above 0")
         if config.confusion_eval_frequency:
-            # 0 only, as in the configuration's multitask block (HMR's default was 1)
+            # 0 only, as in the configuration's multitask block (the prototype's default was 1)
             raise ValueError(
                 f"MultiTaskConfig.confusion_eval_frequency={config.confusion_eval_frequency!r} "
-                f"is never read (HMR's default was 1 and HMR never read it either); pass 0"
+                f"is never read (the prototype's default was 1 and the prototype never read it "
+                f"either); pass 0"
             )
         names = list(config.tasks)
         problems = [SimpleNamespace(name=name, inputs=np.asarray(data[0], dtype=np.float32),
@@ -1219,9 +1151,10 @@ class MultiTaskMixin:
         modulation_mode: str = 'full',
         modulation_strength_override: Optional[float] = None,
     ) -> jnp.ndarray:
-        """HMR's name for the feed-forward population evaluator under true neuromodulation (its
-        runners call it with the cached weights and receptors after a generation): the evaluator
-        run_generation_multitask uses, tanh hidden nodes. The arguments are HMR's, in its order.
+        """The prototype's name for the feed-forward population evaluator under true neuromodulation
+        (its runners call it with the cached weights and receptors after a generation): the
+        evaluator run_generation_multitask uses, tanh hidden nodes. The arguments are the
+        prototype's, in its order.
 
         Returns:
             (pop_size,) fitness.
@@ -1247,8 +1180,8 @@ class MultiTaskMixin:
         modulation_mode: str = 'full',
         modulation_strength_override: Optional[float] = None,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-        """HMR's name: _eval_population_true_neuromodulated that also returns each genome's hidden
-        activity.
+        """The prototype's name: _eval_population_true_neuromodulated that also returns each
+        genome's hidden activity.
 
         Returns:
             (pop_size,) fitness and (pop_size, cases, positions) hidden activity.
@@ -1274,9 +1207,9 @@ class MultiTaskMixin:
         modulation_mode: str = 'full',
         modulation_strength_override: Optional[float] = None,
     ) -> jnp.ndarray:
-        """HMR's name (its neuromodulation variant): one network's fitness under true
-        neuromodulation, the population evaluator on a population of one. The arguments are HMR's,
-        in its order."""
+        """The prototype's name (its neuromodulation variant): one network's fitness under true
+        neuromodulation, the population evaluator on a population of one. The arguments are the
+        prototype's, in its order."""
         return self._eval_population_true_neuromodulated(
             W1_single[None],
             W2_single[None],
@@ -1303,8 +1236,8 @@ class MultiTaskMixin:
         modulation_mode: str = 'full',
         modulation_strength_override: Optional[float] = None,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-        """HMR's name: _eval_single_network_true_neuromodulated that also returns the network's
-        hidden activity, (cases, positions)."""
+        """The prototype's name: _eval_single_network_true_neuromodulated that also returns the
+        network's hidden activity, (cases, positions)."""
         fitness, hidden = self._eval_population_true_neuromodulated_with_hidden(
             W1_single[None],
             W2_single[None],
@@ -1329,8 +1262,8 @@ class MultiTaskMixin:
         task_inputs_list: Sequence[jnp.ndarray],
         task_targets_list: Sequence[jnp.ndarray],
     ) -> jnp.ndarray:
-        """HMR's name: one network's mean fitness over tasks, each task under its NT vector (a row
-        of task_nts), with HMR's settings for it (MSE, full modulation)."""
+        """The prototype's name: one network's mean fitness over tasks, each task under its NT
+        vector (a row of task_nts), with the prototype's settings for it (MSE, full modulation)."""
         total = 0.0
         for nt, inputs, targets in zip(task_nts, task_inputs_list, task_targets_list):
             total = total + self._eval_single_network_true_neuromodulated(
@@ -1347,9 +1280,9 @@ class MultiTaskMixin:
     def evaluate_with_custom_nt(
         self, custom_nt_vector: Any, inputs: Any, targets: Any
     ) -> jnp.ndarray:
-        """HMR's name: the population's fitness on (inputs, targets) under an NT vector, with its
-        settings (MSE, full modulation, tanh), from the weights and receptors the last generation
-        cached.
+        """The prototype's name: the population's fitness on (inputs, targets) under an NT vector,
+        with its settings (MSE, full modulation, tanh), from the weights and receptors the last
+        generation cached.
 
         Raises:
             ValueError: an NT vector of the wrong size.
@@ -1362,8 +1295,9 @@ class MultiTaskMixin:
 
     def evaluate_multi_task_true_neuromodulated(self, tasks: Dict[str, Tuple[Any, Any]],
                                                 aggregation: str = 'mean') -> jnp.ndarray:
-        """HMR's: the population's aggregated fitness over tasks by name, each under its NT vector
-        by name, from the cached weights; no selection. 'product' is the plain product, as in HMR.
+        """The prototype's: the population's aggregated fitness over tasks by name, each under its
+        NT vector by name, from the cached weights; no selection. 'product' is the plain product, as
+        in the prototype.
 
         Raises:
             ValueError: an aggregation other than 'mean', 'min' or 'product'.
@@ -1444,7 +1378,7 @@ class MultiTaskMixin:
             RuntimeError: If weight matrices not cached (run_generation_verbose first)
 
         A task name in place of the vector stands for that task's preset NT vector
-        (get_nt_for_task), as in HMR's version of this method.
+        (get_nt_for_task), as in the prototype's version of this method.
 
         Example:
             >>> algo.run_generation_verbose(state, xor_problem)  # Cache weights

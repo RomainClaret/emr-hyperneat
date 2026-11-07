@@ -55,7 +55,7 @@ map.
 ## Re-running the experiments
 
 From release 0.2.0 the 10 experiment runners (`scripts/runners/benchmark_bio_*.py`) apply the
-palette strategies on EMR-HyperNEAT. The published runs used the HMR engine (its aggregation
+palette strategies on EMR-HyperNEAT. The published runs used the prototype engine (its aggregation
 variant, and its full variant for `benchmark_bio_topology_full.py`), which release 0.1.0
 ships; from the repository root, a runner's published version runs on 0.1.0 with
 
@@ -65,25 +65,25 @@ python scripts/replicate.py run emr-dynamic-functions-bio-inspired --release 0.1
 ```
 
 Each EMR version runs its experiment as it ran, on EMR's defaults except where its docstring says:
-population 150 where the HMR variant ignored the population argument (the argument is kept and
-ignored), iteration level 2 for the recurrent topology runs, and HMR's level-0 variance rule and
-random key split, which `scripts/runners/emr_settings.py` pins in every runner (set to False, it
-runs EMR's defaults). Its docstring says what differs from the published runs, and it writes to
-`results/<dir>_emr/`, apart from the published runs in `results/<dir>/`. Run e.g.
-`python scripts/runners/benchmark_bio_grn_p5.py`; the analysis and figure regeneration above does
-not require them.
+population 150 where the prototype variant ignored the population argument (the argument is kept and
+ignored), iteration level 2 for the recurrent topology runs, and the prototype's level-0 variance
+rule and random key split, which `scripts/runners/emr_settings.py` pins in every runner (set to
+False, it runs EMR's defaults). Its docstring says what differs from the published runs, and it
+writes to `results/<dir>_emr/`, apart from the published runs in `results/<dir>/`. Run e.g. `python
+scripts/runners/benchmark_bio_grn_p5.py`; the analysis and figure regeneration above does not
+require them.
 
 At the validation configuration, one seed per configuration (42 where the row names none) with full
 generation budgets, both engines on one x86 server (two Intel Xeon E5-2683 v4, one CPU per run,
 `XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`, jax 0.6.1), EMR in release 0.2.0 gives the
-right-hand column where the HMR engine of release 0.1.0 gave the left. A cell is the generation of
-the first solve, or not solved, with the best fitness; one seed shows where the two engines agree
-and differ, not a solve rate. Every run differs from the published one: EMR reads each node's
-function channels at its self-connection, where HMR averaged them over the node's input queries. The
-two population labels of `benchmark_bio_pop_sensitivity_p5.py` give one run on each engine, as both
-run at population 150.
+right-hand column where the prototype engine of release 0.1.0 gave the left. A cell is the
+generation of the first solve, or not solved, with the best fitness; one seed shows where the two
+engines agree and differ, not a solve rate. Every run differs from the published one: EMR reads each
+node's function channels at its self-connection, where the prototype averaged them over the node's
+input queries. The two population labels of `benchmark_bio_pop_sensitivity_p5.py` give one run on
+each engine, as both run at population 150.
 
-| Run | HMR engine (release 0.1.0) | EMR (release 0.2.0) |
+| Run | Prototype engine (release 0.1.0) | EMR (release 0.2.0) |
 |---|---|---|
 | `benchmark_bio_agg_oracle.py`, TestAggregationOraclePaper's call (15 generations) | not solved (0.767838) | not solved (0.765859) |
 | `benchmark_bio_agg_oracle.py --condition monotonic_min` | not solved (0.780973) | not solved (0.766666) |

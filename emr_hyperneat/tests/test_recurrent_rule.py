@@ -33,7 +33,7 @@ from conftest import (  # type: ignore[import-not-found]
     exact_backend,
 )
 from emr_hyperneat import EMRHyperNEAT
-from hmr_reference import hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import prototype_value, live  # type: ignore[import-not-found]
 
 DEPTH, POP, SEED = 3, 20, 42
 KW = dict(max_depth=DEPTH, population_size=POP)
@@ -53,7 +53,7 @@ def _agree(actual, expected, exact=True):
         np.testing.assert_allclose(actual, expected, rtol=rtol, atol=0)
 
 
-def _hmr(config):
+def _emr(config):
     return config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
 
 
@@ -74,7 +74,7 @@ def _run(config, generations=1, problem=None):
 
 def _df(preset, rec="feedforward", **fields):
     config = create_config_with_dynamic_functions(preset, recurrence_preset=rec, **KW)
-    _hmr(config)["dynamic_functions"].update(fields)
+    _emr(config)["dynamic_functions"].update(fields)
     return config
 
 
@@ -98,7 +98,7 @@ def test_input_aggregation_applies_on_the_recurrent_path():
     configs = {}
     for fn in ("sum", "max"):
         config = create_config_with_recurrence("hidden_only", **KW)
-        _hmr(config)["aggregation"] = {"mode": "global", "global_function": fn}
+        _emr(config)["aggregation"] = {"mode": "global", "global_function": fn}
         configs[fn] = _run(config)[2][0]
     assert not np.allclose(configs["sum"], configs["max"])
 
@@ -121,7 +121,7 @@ def _neuromod(mode, rec):
 
 def _agg_cppn(rec):
     config = create_config_with_recurrence(rec, **KW)
-    _hmr(config)["aggregation"] = {"mode": "cppn_output", "num_aggregations": 4}
+    _emr(config)["aggregation"] = {"mode": "cppn_output", "num_aggregations": 4}
     return config
 
 
@@ -235,7 +235,7 @@ def test_global_max_is_not_sum():
                                           ("dynamic_functions", "global_activation")])
 def test_misspelled_keys_are_rejected(section, key):
     config = create_config_with_recurrence("feedforward", **KW)
-    _hmr(config)[section] = {"mode": "global", key: "max" if section == "aggregation" else "sin"}
+    _emr(config)[section] = {"mode": "global", key: "max" if section == "aggregation" else "sin"}
     with pytest.raises(ValueError, match="is not a setting"):
         EMRHyperNEAT().create_config(config)
 
@@ -250,14 +250,14 @@ def test_weight_channel_must_be_zero():
 
 def test_depth_offload_refuses_per_node_features():
     config = _df("cppn_output_4")
-    _hmr(config)["execution"] = {"mode": "depth_offload"}
+    _emr(config)["execution"] = {"mode": "depth_offload"}
     with pytest.raises(ValueError, match="depth_offload"):
         EMRHyperNEAT().create_config(config)
 
 
 def test_eval_only_parallel_refuses_per_node_features():
     config = _df("cppn_output_4")
-    _hmr(config)["multi_gpu_strategy"] = "EVAL_ONLY_PARALLEL"
+    _emr(config)["multi_gpu_strategy"] = "EVAL_ONLY_PARALLEL"
     with pytest.raises(ValueError, match="EVAL_ONLY_PARALLEL"):
         EMRHyperNEAT().create_config(config)
 
@@ -266,19 +266,19 @@ def test_eval_only_parallel_refuses_per_node_features():
 
 def _rescaled(variance=0.5):
     config = _df("cppn_output_4")
-    _hmr(config)["fitness_rescale_variance"] = variance
+    _emr(config)["fitness_rescale_variance"] = variance
     return config
 
 
 def _accuracy():
     config = _df("cppn_output_4")
-    _hmr(config)["fitness_mode"] = "accuracy"
+    _emr(config)["fitness_mode"] = "accuracy"
     return config
 
 
 def _agg_max(rec="feedforward"):
     config = _df("cppn_output_4", rec)
-    _hmr(config)["aggregation"] = {"mode": "global", "global_function": "max"}
+    _emr(config)["aggregation"] = {"mode": "global", "global_function": "max"}
     return config
 
 
@@ -339,7 +339,7 @@ def test_evaluate_on_data_needs_a_generation():
 
 def test_depth_offload_records_no_champion():
     config = create_config_with_recurrence("feedforward", **KW)
-    _hmr(config)["execution"] = {"mode": "depth_offload"}
+    _emr(config)["execution"] = {"mode": "depth_offload"}
     algo = EMRHyperNEAT()
     problem = XORProblem()
     state = algo.initialize(algo.create_config(config), problem, seed=SEED)
@@ -412,10 +412,10 @@ def test_evaluate_best_all_modes_uses_the_evolved_forward():
     assert list(modes) == ["mse", "accuracy", "acc_mse", "hybrid", "bce", "soft_accuracy"]
 
 
-def _hmr_settled(settling_rule, dynamic_functions=None):
+def _prototype_settled(settling_rule, dynamic_functions=None):
     """One generation of hidden_only (depth 3, population 30, cache off) under the given rule, and
-    the fitness HMR's own forward (the frozen dynamic-functions variant, through hmr_reference.py)
-    gives the same networks.
+    the fitness the prototype's own forward (the frozen dynamic-functions variant, through
+    prototype_reference.py) gives the same networks.
     """
     config = create_config_with_recurrence(
         'hidden_only', max_depth=3, population_size=30, hh_cache_enabled=False
@@ -454,21 +454,22 @@ def _hmr_settled(settling_rule, dynamic_functions=None):
         full[:, active] = compact[:, :active.shape[0]]
         functions = dict(dynamic_functions=dynamic_functions, act_indices=full,
                          num_activations=algorithm.df_num_activations, palette=algorithm.df_palette)
-    hmr_fitness = hmr_value(
-        'recurrent_rule.hmr_settled',
+    prototype_fitness = prototype_value(
+        'recurrent_rule.prototype_settled',
         lambda: live('settled_fitness', *networks, **functions),
         inputs=(networks, functions),
     )
-    return np.asarray(algorithm._cached_fitnesses), hmr_fitness
+    return np.asarray(algorithm._cached_fitnesses), prototype_fitness
 
 
-class TestHmrSettlingRule:
-    """recurrence.settling_rule 'hmr': HMR's dynamic-functions variants settle h = f(x W1), then
-    activate_time - 1 steps of h = g(h + recurrent(h)), where EMR settles h = f(x W1 + recurrent(h))
-    from zero. The cross-problem control (GECCO Table 3), the per-node paper's recurrent tables and
-    the PPSN topology check ran HMR's rule; this opt-in reproduces it for runs that reproduce them.
-    Checked against HMR's own forward on the same networks, as recorded in the research repository
-    (hmr_reference.py), and the configurations it refuses.
+class TestPrototypeSettlingRule:
+    """recurrence.settling_rule 'drive_once': the prototype's dynamic-functions variants settle h =
+    f(x W1), then activate_time - 1 steps of h = g(h + recurrent(h)), where EMR settles h = f(x W1 +
+    recurrent(h)) from zero. The cross-problem control (GECCO Table 3), the per-node paper's
+    recurrent tables and the PPSN topology check ran the prototype's rule; this opt-in reproduces it
+    for runs that reproduce them. Checked against the prototype's own forward on the same networks,
+    as recorded in the research repository (prototype_reference.py), and the configurations it
+    refuses.
     """
 
     @pytest.mark.parametrize('dynamic_functions', [
@@ -476,39 +477,39 @@ class TestHmrSettlingRule:
         {'mode': 'cppn_output', 'num_activations': 4, 'hh_activation_mode': 'initial_only'},
         {'mode': 'cppn_output', 'num_activations': 4, 'hh_activation_mode': 'every_iteration'},
     ])
-    def test_matches_hmrs_forward(self, dynamic_functions):
-        emr_fitness, hmr_fitness = _hmr_settled('hmr', dynamic_functions)
+    def test_matches_the_prototype_forward(self, dynamic_functions):
+        emr_fitness, prototype_fitness = _prototype_settled('drive_once', dynamic_functions)
         if exact_backend():
-            np.testing.assert_array_equal(emr_fitness, hmr_fitness)
+            np.testing.assert_array_equal(emr_fitness, prototype_fitness)
         else:
             np.testing.assert_allclose(
-                emr_fitness, hmr_fitness, rtol=GPU_TRAJECTORY_RTOL, atol=1e-6
+                emr_fitness, prototype_fitness, rtol=GPU_TRAJECTORY_RTOL, atol=1e-6
             )
 
     def test_emrs_rule_is_a_different_network(self):
         """The negative control: the same check fails under EMR's rule."""
-        emr_fitness, hmr_fitness = _hmr_settled('emr')
-        assert np.max(np.abs(emr_fitness - hmr_fitness)) > 1e-2
+        emr_fitness, prototype_fitness = _prototype_settled('emr')
+        assert np.max(np.abs(emr_fitness - prototype_fitness)) > 1e-2
 
     @pytest.mark.parametrize(
         'recurrence, extra, match',
         [
             (
-                {'preset': 'feedforward', 'settling_rule': 'hmr'},
+                {'preset': 'feedforward', 'settling_rule': 'drive_once'},
                 {},
                 'needs hidden-to-hidden recurrence',
             ),
-            # Neuromodulation runs HMR FULL's additive rule (test_additive_settling.py); modulatory
-            # neurons stay refused there
+            # Neuromodulation runs the additive rule of the prototype's FULL variant
+            # (test_additive_settling.py); modulatory neurons stay refused there
             (
-                {'preset': 'hidden_only', 'settling_rule': 'hmr'},
+                {'preset': 'hidden_only', 'settling_rule': 'drive_once'},
                 {'neuromodulation': {'mode': 'modulatory_neurons'}},
-                "'hmr' with modulatory neurons is refused",
+                "'drive_once' with modulatory neurons is refused",
             ),
             (
-                {'preset': 'hidden_only', 'settling_rule': 'hmr'},
+                {'preset': 'hidden_only', 'settling_rule': 'drive_once'},
                 {'execution': {'mode': 'depth_offload'}},
-                "would ignore .*settling_rule='hmr'",
+                "would ignore .*settling_rule='drive_once'",
             ),
             (
                 {'preset': 'hidden_only', 'settling_rule': 'frozen'},
@@ -663,8 +664,8 @@ EVALUATION_CONFIGS = {
         "enabled": True, "mode": "modulatory_neurons", "mod_neuron_ratio": 0.1,
         "mod_connection_type": "multiplicative", "mod_decay": 0.9}},
     "true_neuromodulation": {"neuromodulation": _TRUE_NEUROMODULATION},
-    "true_neuromodulation_hmr_full_gating": {"neuromodulation": dict(
-        _TRUE_NEUROMODULATION, node_rule="hmr_full", modulation_mode="gating_only")},
+    "true_neuromodulation_steep_gate_gating": {"neuromodulation": dict(
+        _TRUE_NEUROMODULATION, node_rule="steep_gate", modulation_mode="gating_only")},
     "static_gating_per_node": {
         "neuromodulation": {"enabled": True, "mode": "static_gating", "gate_scaling": "sigmoid"},
         "dynamic_functions": {"mode": "cppn_output", "num_activations": 4}},
@@ -712,8 +713,8 @@ def test_a_recurrent_generation_compiles_nothing_in_its_evaluation(name, monkeyp
     config = create_config_with_recurrence("hidden_only", max_depth=2, population_size=POP,
                                            iteration_level=1, hh_cache_enabled=False)
     overrides = copy.deepcopy(EVALUATION_CONFIGS[name])
-    _hmr(config)["recurrence"].update(overrides.pop("recurrence", {}))
-    _hmr(config).update(overrides)
+    _emr(config)["recurrence"].update(overrides.pop("recurrence", {}))
+    _emr(config).update(overrides)
     algo = EMRHyperNEAT()
     problem = XORProblem()
     state = algo.initialize(algo.create_config(config), problem, seed=SEED)
@@ -853,7 +854,7 @@ def _tnm_node_closure(act_fn, receptors, base_gains, nt, s, num_nt, mode, rule):
     """The true-neuromodulation node as a closure over its terms: the reference."""
     k = min(3, num_nt)
     m = receptors[:, :k] @ nt[:k]
-    if rule == "hmr_full":
+    if rule == "steep_gate":
         gains, gates = base_gains + s * m, jax.nn.sigmoid(m * 5.0)
         if mode == "gating_only":
             return lambda pre: act_fn(pre) * gates
@@ -917,7 +918,7 @@ def _modulated_options_closure(
 
 
 NEUROMODULATED_CASES = (["gated"] + [f"modulatory_{t}" for t in ("multiplicative", "additive", "gated")]
-                        + [f"tnm_{rule}_{mode}" for rule in ("paper", "hmr_full")
+                        + [f"tnm_{rule}_{mode}" for rule in ("paper", "steep_gate")
                            for mode in ("full", "gating_only", "gain_bias_only")])
 
 
@@ -958,7 +959,7 @@ def test_a_neuromodulated_rule_settles_as_the_closure_it_replaces(case, per_node
                                                            case.split("_")[1], mod_decay=0.9)
             else:
                 rule, mode = case[4:].split("_", 1) if case.startswith("tnm_paper") else \
-                    ("hmr_full", case[len("tnm_hmr_full_"):])
+                    ("steep_gate", case[len("tnm_steep_gate_"):])
                 node_fn, operands = E.true_neuromodulation_node_rule(
                     act, a["receptors"], a["gains"], nt, 2.0, 4, mode, rule)
         else:
@@ -970,7 +971,7 @@ def test_a_neuromodulated_rule_settles_as_the_closure_it_replaces(case, per_node
                 node_fn = _modulated_closure(act_fn, a["mod_w"], a["mask"], case.split("_")[1], 0.9)
             else:
                 rule, mode = case[4:].split("_", 1) if case.startswith("tnm_paper") else \
-                    ("hmr_full", case[len("tnm_hmr_full_"):])
+                    ("steep_gate", case[len("tnm_steep_gate_"):])
                 node_fn = _tnm_node_closure(act_fn, a["receptors"], a["gains"], nt, 2.0, 4, mode,
                                             rule)
         return E.settle_hidden(a["drive"], a["frm"], a["to"], a["w"], a["valid"], 9, node_fn,
@@ -1076,10 +1077,10 @@ def test_a_multitask_generation_compiles_nothing(per_task_activation):
     _watch_compiles()
     tasks = ["xor", "and"]
     config = create_config_with_multi_task(tasks, max_depth=2, population_size=POP)
-    rec = _hmr(config)["recurrence"]
+    rec = _emr(config)["recurrence"]
     rec.update(iteration_level=1, hh_cache_enabled=False)
     if per_task_activation:
-        _hmr(config)["multitask"]["per_task_activation"] = {"xor": "sin", "and": "tanh"}
+        _emr(config)["multitask"]["per_task_activation"] = {"xor": "sin", "and": "tanh"}
     algo = EMRHyperNEAT()
     problems = [MultiTaskProblem(t) for t in tasks]
     nts = [jnp.array(E.NT_TASK_PRESETS[t]) for t in tasks]
@@ -1154,7 +1155,7 @@ def test_a_union_discovery_compiles_nothing_for_a_union_seen_before(second_facto
     monkeypatch.setattr(E, "discover_sparse_hh_vectorized_multi_hop", spy)
     config = create_config_with_recurrence("hidden_only", max_depth=3, population_size=POP,
                                            iteration_level=2, hh_cache_enabled=False)
-    _hmr(config)["recurrence"].update(hh_discovery_mode="union",
+    _emr(config)["recurrence"].update(hh_discovery_mode="union",
                                       multi_hop_second_factor=second_factor)
     algo = EMRHyperNEAT()
     problem = XORProblem()

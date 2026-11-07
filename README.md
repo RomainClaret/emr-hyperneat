@@ -115,7 +115,9 @@ A complete runnable XOR example (a global `sin` activation solves it in the firs
 the `Problem` interface, and multi-task usage: [docs/writing-experiments.md](docs/writing-experiments.md).
 To inspect what evolved, `algo.population_substrates(state)` returns each genome's feed-forward
 substrate exactly as the generation loop builds it
-([the substrate on its own](docs/architecture.md#the-substrate-on-its-own)).
+([the substrate on its own](docs/architecture.md#the-substrate-on-its-own)); what a node can
+compute (the activation and aggregation functions, the neuromodulated node rule) is importable
+without TensorNEAT from `emr_hyperneat.vocabulary`.
 
 ## Testing
 
@@ -124,11 +126,10 @@ pip install -e ".[dev]"
 JAX_PLATFORMS=cpu pytest emr_hyperneat/tests -m "not slow" -q   # the non-slow suite (what the nightly runs)
 ```
 
-The suite covers every published feature plus isolation, determinism, and EMR-vs-HMR
-equivalence guards (against values recorded from HMR), and includes paper-validation tests that
-re-run each paper's simplest experiment. Full commands, markers, the Linux `vm.max_map_count` note,
-and local-CI instructions:
-[docs/testing.md](docs/testing.md).
+The suite covers every published feature plus isolation, determinism, and EMR-versus-prototype
+equivalence guards (against values recorded from the prototype), and includes paper-validation tests
+that re-run each paper's simplest experiment. Full commands, markers, the Linux `vm.max_map_count`
+note, and local-CI instructions: [docs/testing.md](docs/testing.md).
 
 ## The papers
 
@@ -151,24 +152,26 @@ python scripts/replicate.py run emr-dynamic-functions -- python scripts/runners/
 ```
 
 `--release <version>` picks another release, and `--release current` this checkout. On a CPU,
-0.2.0 gives the per-node paper's runners the same results as 0.1.0; the neuromodulation paper's
-runner departs from 0.1.0's default EMR backend, since 0.2.0 applies its species settings (the
-paper's numbers come from the HMR engine, which release 0.1.0 ships and 0.2.0 does not).
+0.2.0 and 0.3.0 give the per-node paper's runners the same results as 0.1.0; the neuromodulation
+paper's runner departs from 0.1.0's default EMR backend, since they apply its species settings (the
+paper's numbers come from the prototype engine, which release 0.1.0 ships and they do not).
 The tables and figures regenerate from the data release with any release. Details, and the
 plain-git route:
 [docs/reproducing-experiments.md](docs/reproducing-experiments.md#choosing-a-release).
 
-The repository ships **code only**; result data is a separate Zenodo release fetched with
-`python scripts/fetch_results.py`. How to reproduce each paper, and which published numbers came
-from the current EMR class or the HMR engine: [docs/reproducing-experiments.md](docs/reproducing-experiments.md).
+The repository ships **code only**; result data is a separate Zenodo release fetched with `python
+scripts/fetch_results.py`. How to reproduce each paper, and which published numbers came from the
+current EMR class or the prototype engine:
+[docs/reproducing-experiments.md](docs/reproducing-experiments.md).
 
 Data archive (all papers' result JSON), on Zenodo: [![Data release DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21383893.svg)](https://doi.org/10.5281/zenodo.21383893)
 
-Some published tables came from the **HMR engine**, a frozen module of release 0.1.0, which
-reproduces them exactly; 0.2.0 does not ship it. In 0.2.0 their runners are EMR versions,
-and the tests and the per-node paper's validator compare EMR with values recorded from HMR. HMR
-is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned to `variance_rule: legacy`
-(the package default is `canonical`) and is given no `neat_*` settings.
+Some published tables came from the **prototype engine**, a frozen module of release 0.1.0,
+which reproduces them exactly. 0.2.0 and 0.3.0 do not ship it: their runners for those tables are
+EMR versions, and the tests and the per-node paper's validator compare EMR with values recorded
+from the prototype. The prototype is bit-for-bit equivalent to EMR on the shared paths when EMR is
+pinned to `variance_rule: legacy` (the package default is `canonical`) and is given no `neat_*`
+settings.
 
 ### Scope
 
@@ -186,7 +189,7 @@ is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned to `vari
 ## Repository layout
 
 ```
-emr_hyperneat/        installable algorithm package (public API: EMRHyperNEAT, substrate)
+emr_hyperneat/        installable algorithm package (public API: EMRHyperNEAT, substrate, vocabulary)
   engine/             the engine's code by concern (internal; emrhyperneat.py re-exports it)
   _compat/            vendored compatibility shim (internal; lets EMR run standalone)
   tests/              test suite incl. paper-validation

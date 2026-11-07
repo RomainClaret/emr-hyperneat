@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from emr_hyperneat.engine.settling import _stable_settle_step, settle_hidden, settle_hidden_hmr
+from emr_hyperneat.engine.settling import _stable_settle_step, settle_hidden, settle_hidden_drive_once
 
 
 def _eval_single_fitness(outputs, targets_batch, mode):
@@ -66,8 +66,8 @@ def _eval_single_fitness(outputs, targets_batch, mode):
         ce = -jnp.mean(jnp.sum(targets_batch * jnp.log(outputs_safe), axis=-1))
         return jnp.exp(-ce)
     elif mode == 'acc_mse':
-        # Accuracy with 0.01 of (1 - MSE) as a tie-break, as the multi-task evaluators and HMR's
-        # neuromodulation variant define it
+        # Accuracy with 0.01 of (1 - MSE) as a tie-break, as the multi-task evaluators and the
+        # prototype's neuromodulation variant define it
         return (_eval_single_fitness(outputs, targets_batch, 'accuracy')
                 + 0.01 * _eval_single_fitness(outputs, targets_batch, 'mse'))
     elif mode == 'accuracy_confident':
@@ -214,12 +214,12 @@ def _plain_recurrent_forward(activate_time: int, settling_rule: str = 'emr') -> 
     the same object every generation, so :func:`chunked_forward_eval` compiles its evaluation once
     per shape.
 
-    'emr': :func:`forward_hybrid_vmapped`. 'hmr': HMR's plain recurrent forward, tanh(x W1), tanh
-    settling steps (:func:`settle_hidden_hmr`), sigmoid output.
+    'emr': :func:`forward_hybrid_vmapped`. 'drive_once': the prototype's plain recurrent forward,
+    tanh(x W1), tanh settling steps (:func:`settle_hidden_drive_once`), sigmoid output.
     """
-    if settling_rule == 'hmr':
+    if settling_rule == 'drive_once':
         def forward_one(inputs, W1, W2, from_indices, to_indices, hh_weights, valid_mask):
-            h = settle_hidden_hmr(
+            h = settle_hidden_drive_once(
                 inputs @ W1,
                 from_indices,
                 to_indices,
@@ -243,14 +243,15 @@ def _node_list_forward(activate_time: int) -> Callable:
     """The node-list model's per-genome forward, made once per step count, so the evaluation
     compiles once per shape.
 
-    HMR's node list updated every node at once from the last step's values, inputs clamped, hidden
-    nodes tanh and outputs linear, and took the sigmoid of the outputs after ``activate_time``
+    The prototype's node list updated every node at once from the last step's values, inputs
+    clamped, hidden nodes tanh and outputs linear, and took the sigmoid of the outputs after
+    ``activate_time``
     steps. The outputs therefore read the hidden nodes one step behind:
-    ``h_t = tanh(x W_in + h_(t-1) W_hh)`` for ``t = 1 .. T-1``, then ``sigmoid(h_(T-1) W_out)``.
-    The hidden steps are the engine's settling step for tanh nodes (:func:`_stable_settle_step`),
-    so the scan is the plain recurrent path's. HMR summed each node's inputs in its connection
-    list's order, Python set order; the sums here run in a fixed order, so the outputs equal HMR's
-    up to float32 rounding.
+    ``h_t = tanh(x W_in + h_(t-1) W_hh)`` for ``t = 1 .. T-1``, then ``sigmoid(h_(T-1) W_out)``. The
+    hidden steps are the engine's settling step for tanh nodes (:func:`_stable_settle_step`), so the
+    scan is the plain recurrent path's. The prototype summed each node's inputs in its connection
+    list's order, Python set order; the sums here run in a fixed order, so the outputs equal the
+    prototype's up to float32 rounding.
 
     Args:
         activate_time: Steps T, at least 2 (the configuration checks it).
@@ -399,5 +400,4 @@ def eval_single_network_hybrid(
         from_indices, to_indices, hh_weights, valid_mask,
         activate_time
     )
-    errors = jnp.mean((outputs - targets) ** 2, axis=1)
-    return jnp.maximum(0.0, 1.0 - jnp.mean(errors))
+    return _eval_single_fitness(outputs, targets, 'mse')

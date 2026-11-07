@@ -1,8 +1,8 @@
 # Testing
 
 The repository ships a test suite (over 1,900 tests) covering every published feature plus
-isolation, determinism, and EMR-vs-HMR equivalence guards (against
-[HMR's recorded values](#hmrs-recorded-values)). Run it from the installed
+isolation, determinism, and EMR-versus-prototype equivalence guards (against
+[the prototype's recorded values](#the-prototypes-recorded-values)). Run it from the installed
 environment (see [installation](installation.md)); do not rely on `PYTHONPATH`.
 
 Install the test dependency once (pytest is in the `dev` extra, not the base install):
@@ -120,45 +120,48 @@ pytest emr_hyperneat/tests -m "not slow and not multi_gpu"   # exactly what the 
 pytest emr_hyperneat/tests -m "not slow and not golden_cpu"  # when intentionally changing JAX
 ```
 
-## HMR's recorded values
+## The prototype's recorded values
 
-Some tests compare EMR against HMR, the engine of the published results that EMR replaced:
-`test_hmr_reference.py` (EMR reproduces HMR's dynamic-functions variant, every generation's best
-fitness and the final random key) and the HMR-compatibility tests of `test_recurrent_rule.py`,
-`test_hmr_names.py`, `test_unified_recipe.py`, `test_live_palette_strategy.py`,
-`test_anti_node_rule.py`, `test_leo_hmr_compound.py` and `test_additive_settling.py`, and the
-comparisons of `test_node_list.py` with HMR's recurrent-network variant and its GPU-resident variant
-(the networks, fitness and populations of their runs, their cleaning and forward). In the research
-repository, where HMR lives, these tests run it. Here they do not run HMR: they read
-HMR's side from `emr_hyperneat/tests/hmr_reference_values.py` through `hmr_reference.hmr_value`.
+Some tests compare EMR against the prototype, the engine of the published results that EMR replaced:
+`test_prototype_reference.py` (EMR reproduces the prototype's dynamic-functions variant, every
+generation's best fitness and the final random key) and the prototype-compatibility tests of
+`test_recurrent_rule.py`, `test_aliases.py`, `test_unified_recipe.py`,
+`test_live_palette_strategy.py`, `test_anti_node_rule.py`, `test_leo_compound_unrescaled.py` and
+`test_additive_settling.py`, and the comparisons of `test_node_list.py` with the prototype's
+recurrent-network variant and its GPU-resident variant (the networks, fitness and populations of
+their runs, their cleaning and forward). In the research repository, where the prototype lives,
+these tests run it. Here they do not run the prototype: they read the prototype's side from
+`emr_hyperneat/tests/prototype_reference_values.py` through `prototype_reference.prototype_value`.
 The values were recorded in the research repository, on the CPU, and only after every one of those
-tests had passed there against HMR itself. Each value is kept with the sha256 of the inputs it was
-computed from (configurations, problems, seeds and, where HMR ran on EMR's networks, the arrays EMR
-built), the CPU architecture, the JAX version and the research commit. Each architecture was
-recorded twice, with `XLA_FLAGS` unset and under `--xla_cpu_multi_thread_eigen=false` (the nightly
-job's), and the two recordings are merged: on x86-64, single-threaded Eigen rounds some of EMR's
-arithmetic differently, so a comparison whose inputs include arrays EMR computed hashes differently
-under each. Under other `XLA_FLAGS` such a test can miss its recorded inputs; its failure then names
-the conditions the values were recorded under.
+tests had passed there against the prototype itself. Each value is kept with the sha256 of the
+inputs it was computed from (configurations, problems, seeds and, where the prototype ran on EMR's
+networks, the arrays EMR built), the CPU architecture, the JAX version and the research commit. Each
+architecture was recorded twice, with `XLA_FLAGS` unset and under
+`--xla_cpu_multi_thread_eigen=false` (the nightly job's), and the two recordings are merged: on
+x86-64, single-threaded Eigen rounds some of EMR's arithmetic differently, so a comparison whose
+inputs include arrays EMR computed hashes differently under each. Under other `XLA_FLAGS` such a
+test can miss its recorded inputs; its failure then names the conditions the values were recorded
+under.
 
 A recorded value is weaker than a live check, in three ways:
 
 - It holds only for the inputs it was recorded for. When EMR's side of a comparison changes, the
-  test fails on the inputs' hash instead of comparing, and only a new recording against HMR, in the
-  research repository, can tell whether EMR still matches HMR.
+  test fails on the inputs' hash instead of comparing, and only a new recording against the
+  prototype, in the research repository, can tell whether EMR still matches the prototype.
 - It holds only where it was recorded. Values are kept per CPU architecture (`arm64`, `x86_64`, and
   each case says whether the two agree); on an architecture with no record, on another JAX version,
-  or off the CPU, the test skips instead of checking. On a GPU, `test_hmr_reference.py` runs itself
-  in a CPU subprocess, as the goldens do.
-- It shows that EMR computes what HMR computed when the value was recorded. The tests cannot run
-  HMR again, so they cannot catch an error in the recording itself; the recording's own check,
-  every test passing against HMR before anything is written, is the guard.
+  or off the CPU, the test skips instead of checking. On a GPU, `test_prototype_reference.py` runs
+  itself in a CPU subprocess, as the goldens do.
+- It shows that EMR computes what the prototype computed when the value was recorded. The tests
+  cannot run the prototype again, so they cannot catch an error in the recording itself; the
+  recording's own check, every test passing against the prototype before anything is written, is the
+  guard.
 
 ## What runs where
 
 | Tier | When | What |
 |---|---|---|
-| Push gate (`ci.yml`, job `smoke`) | every push and pull request | the XOR smoke script, then the isolation, configuration, execution-mode, compaction, recurrence, recorded-HMR, data-release, golden, text-style, multi-GPU worker, paper-import and pytest-configuration files |
+| Push gate (`ci.yml`, job `smoke`) | every push and pull request | the XOR smoke script, then the isolation, configuration, execution-mode, compaction, recurrence, prototype-reference, data-release, golden, text-style, multi-GPU worker, paper-import and pytest-configuration files |
 | Nightly (`ci.yml`, job `full-suite`) | 04:00 UTC daily, or `workflow_dispatch` | the whole non-slow, non-GPU suite, split into shards that run in parallel; each test file is assigned to exactly one shard, and a step fails the job if a new file is not assigned. It includes `test_multi_device_parity.py`, which runs every multi-device route on two, three and four forced CPU devices and checks that each hands NEAT the generation-0 fitness and draws the random keys a single-device run does. The longer harnesses on forced CPU devices are marked `slow`: the split routes' runs and backends against `single_gpu`, bit for bit (`test_multi_device_parity.py`, `test_device_split.py`), and the island placements (`test_islands.py`) |
 | Paper validation (`paper-validation.yml`) | every push and pull request (fast); dispatch (slow, and `replicate`) | the paper-validation tests below; on dispatch, also each paper's own release, through `scripts/replicate.py` |
 | Local only | on a machine with 2+ GPUs | `-m multi_gpu` (26 tests) and `-m slow` |
@@ -191,14 +194,14 @@ JAX_PLATFORMS=cpu pytest emr_hyperneat/tests/test_paper_validation.py -m "paper 
 
 Their golden values were recorded on each paper's own release, so they check that the current
 release still gives a paper's results. The exception is the bio-inspired paper's golden
-(`TestBioInspiredPaper`): its runner ran the HMR engine in 0.1.0 and is an EMR version from 0.2.0,
-where the golden was recorded again. The `replicate` job (manual dispatch) checks the other
-direction: it builds every release that `papers/releases.json` names with `scripts/replicate.py`
-and runs that release's own fast paper findings in its checkout
-([choosing a release](reproducing-experiments.md#choosing-a-release)), then release 0.1.0's
-`TestBioInspiredPaper` and `TestAggregationOraclePaper`, whose runners ran the HMR engine there. `test_replicate.py` checks
-the script without network or installs: the release map against `papers/` and the READMEs, and
-its git steps in a temporary repository with a tag.
+(`TestBioInspiredPaper`): its runner ran the prototype engine in 0.1.0 and is an EMR version from
+0.2.0, where the golden was recorded again. The `replicate` job (manual dispatch) checks the other
+direction: it builds every release that `papers/releases.json` names with `scripts/replicate.py` and
+runs that release's own fast paper findings in its checkout ([choosing a
+release](reproducing-experiments.md#choosing-a-release)), then release 0.1.0's
+`TestBioInspiredPaper` and `TestAggregationOraclePaper`, whose runners ran the prototype engine
+there. `test_replicate.py` checks the script without network or installs: the release map against
+`papers/` and the READMEs, and its git steps in a temporary repository with a tag.
 
 ## Validating the GitHub Actions locally with `act`
 

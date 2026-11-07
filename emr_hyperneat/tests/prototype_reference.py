@@ -1,23 +1,23 @@
-"""Recorded values of the frozen HMR engine, for the tests that compare EMR against it.
+"""Recorded values of the frozen prototype engine, for the tests that compare EMR against it.
 
-A test that compares EMR against HMR asks for HMR's side with
-``hmr_value(case, compute, inputs=...)``: ``case`` names the place in the tests, ``compute`` would
-return the value, and ``inputs`` are what it is computed from (arrays, configurations, problems,
-seeds). In the research repository, where the frozen HMR engine lives, the same call runs HMR.
-Here the call returns the value recorded for the case and for the sha256 of ``inputs`` in
-hmr_reference_values.py, and never calls ``compute``: the tests of this package do not run HMR.
+A test that compares EMR against the prototype asks for the prototype's side with
+``prototype_value(case, compute, inputs=...)``: ``case`` names the place in the tests, ``compute``
+would return the value, and ``inputs`` are what it is computed from (arrays, configurations,
+problems, seeds). In the research repository, where the frozen prototype engine lives, the same call
+runs the prototype. Here the call returns the value recorded for the case and for the sha256 of
+``inputs`` in prototype_reference_values.py, and never calls ``compute``: the tests of this package
+do not run the prototype.
 
 A recorded value is weaker than a live check. It holds for the inputs it was recorded with, on the
-CPU architecture and the JAX version it was recorded with, and nothing here can tell whether HMR
-itself would still compute it. So the call fails when the inputs no longer hash to a recorded value
-(EMR's side of the comparison changed, or the test did), and skips where no value applies: off the
-CPU, on another JAX version, or on an architecture with no record.
+CPU architecture and the JAX version it was recorded with, and nothing here can tell whether the
+prototype itself would still compute it. So the call fails when the inputs no longer hash to a
+recorded value (EMR's side of the comparison changed, or the test did), and skips where no value
+applies: off the CPU, on another JAX version, or on an architecture with no record.
 
 The encoding and the hash are the research module's, function by function (its recorder refuses to
-write otherwise): arrays by dtype, shape and bytes (zlib-compressed, in base64), floats by
+write otherwise): arrays by dtype, shape and bytes (zlib-compressed, in hex), floats by
 ``float.hex``, a problem by its class name, its data and its other plain attributes.
 """
-import base64
 import hashlib
 import json
 import os
@@ -37,7 +37,7 @@ def platform_key() -> str:
 
 def encode(value: Any) -> Any:
     """A value as an exact literal of Python's basic types: arrays by dtype, shape and
-    zlib-compressed bytes (base64), floats by ``float.hex``."""
+    zlib-compressed bytes (in hex), floats by ``float.hex``."""
     return _literal(value, compress=True)
 
 
@@ -67,7 +67,7 @@ def _literal(value: Any, compress: bool) -> Any:
     data = np.ascontiguousarray(array).tobytes()
     if compress:
         return {'array': array.dtype.str, 'shape': list(array.shape),
-                'zlib64': base64.b64encode(zlib.compress(data, 9)).decode('ascii')}
+                'zlib16': zlib.compress(data, 9).hex()}
     return {'array': array.dtype.str, 'shape': list(array.shape), 'hex': data.hex()}
 
 
@@ -82,7 +82,7 @@ def decode(literal: Any) -> Any:
     if 'scalar' in literal:
         return np.frombuffer(bytes.fromhex(literal['hex']), dtype=literal['scalar'])[0]
     if 'array' in literal:
-        data = zlib.decompress(base64.b64decode(literal['zlib64'])) if 'zlib64' in literal else \
+        data = zlib.decompress(bytes.fromhex(literal['zlib16'])) if 'zlib16' in literal else \
             bytes.fromhex(literal['hex'])
         return np.frombuffer(data, dtype=literal['array']).reshape(literal['shape']).copy()
     if 'tuple' in literal:
@@ -129,33 +129,35 @@ def _problem(problem: Any) -> dict:
 
 
 def live(name: str, *args: Any, **kwargs: Any) -> Any:
-    """The research repository's live computation of HMR's value; the tests here do not run HMR."""
-    raise RuntimeError(f'live({name!r}): the tests of this package do not run HMR; hmr_value '
-                       f'returns the recorded value')
+    """The research repository's live computation of the prototype's value; the tests here do not
+    run the prototype."""
+    raise RuntimeError(f'live({name!r}): the tests of this package do not run the prototype; '
+                       f'prototype_value returns the recorded value')
 
 
-def hmr_value(case: str, compute: Callable[[], Any], *, inputs: Any = ()) -> Any:
-    """HMR's side of a comparison: the value recorded for ``case`` and these inputs.
+def prototype_value(case: str, compute: Callable[[], Any], *, inputs: Any = ()) -> Any:
+    """The prototype's side of a comparison: the value recorded for ``case`` and these inputs.
 
     ``compute`` is research's live computation and is never called here.
     """
     import jax
 
-    from hmr_reference_values import RECORDED  # type: ignore[import-not-found]
+    from prototype_reference_values import RECORDED  # type: ignore[import-not-found]
 
     if case not in RECORDED:
-        pytest.fail(f'no HMR value is recorded for {case!r}; record it with the research '
-                    f'repository\'s scripts/release/record_hmr_reference.py')
+        pytest.fail(f'no prototype value is recorded for {case!r}; record it with the research '
+                    f'repository\'s recorder of these values')
     platforms = RECORDED[case]['platforms']
     machine = platform_key()
     if machine not in platforms:
-        pytest.skip(f'{case}: HMR values are recorded on {", ".join(platforms)}, not on {machine}')
+        pytest.skip(f'{case}: the values of the prototype engine are recorded on {", ".join(platforms)}, '
+                    f'not on {machine}')
     record = platforms[machine]
     if jax.__version__ != record['jax']:
-        pytest.skip(f'{case}: HMR values are recorded with jax {record["jax"]}, this is '
-                    f'{jax.__version__}')
+        pytest.skip(f'{case}: the values of the prototype engine are recorded with jax '
+                    f'{record["jax"]}, this is {jax.__version__}')
     if jax.default_backend() != 'cpu':
-        pytest.skip(f'{case}: HMR values are recorded on the CPU; EMR on the '
+        pytest.skip(f'{case}: the values of the prototype engine are recorded on the CPU; EMR on the '
                     f'{jax.default_backend()} backend rounds otherwise')
     sha = digest(inputs)
     if sha not in record['values']:
@@ -166,7 +168,8 @@ def hmr_value(case: str, compute: Callable[[], Any], *, inputs: Any = ()) -> Any
         conditions = [recorded] if isinstance(recorded, str) else list(recorded)
         hint = '' if flags in conditions else (
             f' (XLA_FLAGS here {flags!r}, the values were recorded under {conditions!r})')
-        pytest.fail(f'{case}: the inputs (sha256 {sha}) are not the ones HMR values were recorded '
-                    f'for ({", ".join(sorted(record["values"]))}): EMR\'s side of the comparison '
+        pytest.fail(f'{case}: the inputs (sha256 {sha}) are not the ones the values of the prototype '
+                    f'engine were recorded for ({", ".join(sorted(record["values"]))}): EMR\'s side '
+                    f'of the comparison '
                     f'changed, or the test did, so no recorded value applies; record again{hint}')
     return decode(record['values'][sha]['value'])

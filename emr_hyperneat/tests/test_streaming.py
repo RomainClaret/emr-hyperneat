@@ -192,10 +192,10 @@ class TestStreamingWithFeatures:
     def test_streaming_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify streaming works with dynamic functions."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['enable_streaming'] = True
-        hmr['population_chunk_size'] = 50
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['enable_streaming'] = True
+        emr_block['population_chunk_size'] = 50
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -205,16 +205,16 @@ class TestStreamingWithFeatures:
     def test_streaming_with_neuromodulation(self, algorithm, xor_problem):
         """Verify streaming works with neuromodulation."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['enable_streaming'] = True
-        hmr['population_chunk_size'] = 50
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['enable_streaming'] = True
+        emr_block['population_chunk_size'] = 50
+        emr_block['recurrence'] = {
             'preset': 'hidden_only',
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'iteration_level': 2,
         }
-        hmr['neuromodulation'] = {
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -245,8 +245,8 @@ class TestStreamingConfigParsing:
     def test_chunk_size_parsed(self, algorithm, xor_problem):
         """Verify chunk size config is parsed correctly."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['population_chunk_size'] = 75
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['population_chunk_size'] = 75
 
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)

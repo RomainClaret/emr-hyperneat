@@ -65,7 +65,7 @@ from emr_hyperneat.engine.settling import (
     node_activation_rule,
     settle_hidden,
     settle_hidden_additive,
-    settle_hidden_hmr,
+    settle_hidden_drive_once,
 )
 from emr_hyperneat.engine.substrate_build import (
     apply_locality_penalty_to_weights,
@@ -229,13 +229,13 @@ class GenerationMixin:
             # A settling step applies hh_activation_mode's activation; a dense pass the
             # configured one.
             if recurrent and hh_mode == 'initial_only':
-                return jnp.tanh, ()  # HMR's later steps (settling_rule 'hmr' only)
+                return jnp.tanh, ()  # The prototype's later steps (settling_rule 'drive_once' only)
             return node_activation_rule(hh_mode if recurrent else 'every_iteration', act_idx,
                                         hidden_fn, palette, num_activations)
 
         def first_activation(act_idx):
-            # HMR's rule applies the configured activation at its first step ('tanh' mode: tanh
-            # there too)
+            # The prototype's rule applies the configured activation at its first step ('tanh' mode:
+            # tanh there too)
             if hh_mode == 'tanh':
                 return jnp.tanh, ()
             return node_activation_rule(
@@ -250,9 +250,10 @@ class GenerationMixin:
             if not recurrent:
                 return node_fn(drive, *node_operands)
             from_idx, to_idx, hh_w, valid, hh_agg_idx = hh
-            if settling_rule == 'hmr' and update is not None:
-                # HMR FULL's neuromodulated rule: the node of the drive with the configured
-                # activation (first), then activate_time steps of h + update(recurrent(h))
+            if settling_rule == 'drive_once' and update is not None:
+                # The neuromodulated rule of the prototype's FULL variant: the node of the drive
+                # with the configured activation (first), then activate_time steps of h +
+                # update(recurrent(h))
                 first_fn, first_operands = first
                 update_fn, update_operands = update
                 return settle_hidden_additive(
@@ -265,38 +266,44 @@ class GenerationMixin:
                     update_fn,
                     update_operands,
                 )
-            if settling_rule == 'hmr':
-                # HMR's rule: the first step applies the configured activation (first), the later
-                # ones the settling activation (node: tanh under 'initial_only' or 'tanh')
+            if settling_rule == 'drive_once':
+                # The prototype's rule: the first step applies the configured activation (first),
+                # the later ones the settling activation (node: tanh under 'initial_only' or 'tanh')
                 first_fn, first_operands = first if first is not None else node
-                return settle_hidden_hmr(drive, from_idx, to_idx, hh_w, valid, activate_time,
-                                         first_fn, node_fn, hh_agg_idx, hh_agg_mode, num_hh_agg,
-                                         first_operands=first_operands, step_operands=node_operands)
+                return settle_hidden_drive_once(drive, from_idx, to_idx, hh_w, valid, activate_time,
+                                                first_fn, node_fn, hh_agg_idx, hh_agg_mode, num_hh_agg,
+                                                first_operands=first_operands, step_operands=node_operands)
             return settle_hidden(drive, from_idx, to_idx, hh_w, valid, activate_time, node_fn,
                                  hh_agg_idx, hh_agg_mode, num_hh_agg, node_operands=node_operands)
 
         if neuromod_data is not None:
             mode = neuromod_data['mode']
+
+            def gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh):
+                """The forward under per-node gates: static gating's, and context gating's once its
+                gates are known."""
+                node = gated_node_rule(activation(act_idx), gates)
+                first, update = (
+                    (
+                        gated_node_rule(first_activation(act_idx), gates),
+                        (_neuromodulated_rule('gain', jnp.tanh), (gates,)),
+                    )
+                    if recurrent and settling_rule == 'drive_once'
+                    else (None, None)
+                )
+                h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update)
+                return output_fn(h @ W2_i)
+
             if mode == 'static_gating':
                 def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, gates, *hh):
-                    node = gated_node_rule(activation(act_idx), gates)
-                    first, update = (
-                        (
-                            gated_node_rule(first_activation(act_idx), gates),
-                            (_neuromodulated_rule('gain', jnp.tanh), (gates,)),
-                        )
-                        if recurrent and settling_rule == 'hmr'
-                        else (None, None)
-                    )
-                    h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update)
-                    return output_fn(h @ W2_i)
+                    return gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh)
                 return forward_one, (W1, W2, act_indices, agg_args,
                                      neuromod_data['static_gates']) + hh_args, False
 
             if mode == 'context_gating' and neuromod_data.get('gate_source') == 'cppn':
-                # HMR's Level 2: each case gates every connection with sigmoid(logit + influence *
-                # mean of the case's input statistics), the context HMR derived (mean, std, min, max
-                # of the input vector)
+                # The prototype's Level 2: each case gates every connection with sigmoid(logit +
+                # influence * mean of the case's input statistics), the context the prototype
+                # derived (mean, std, min, max of the input vector)
                 context_influence = neuromod_data['context_influence']
 
                 def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, logit_1, logit_2):
@@ -320,17 +327,7 @@ class GenerationMixin:
 
                 def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, base_g, ctx_mod, *hh):
                     gates = jax.nn.sigmoid(base_g + context_influence * ctx_mod[context_idx])
-                    node = gated_node_rule(activation(act_idx), gates)
-                    first, update = (
-                        (
-                            gated_node_rule(first_activation(act_idx), gates),
-                            (_neuromodulated_rule('gain', jnp.tanh), (gates,)),
-                        )
-                        if recurrent and settling_rule == 'hmr'
-                        else (None, None)
-                    )
-                    h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update)
-                    return output_fn(h @ W2_i)
+                    return gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh)
                 return forward_one, (W1, W2, act_indices, agg_args,
                                      neuromod_data['base_gates'],
                                      neuromod_data['context_modulation']) + hh_args, False
@@ -339,7 +336,7 @@ class GenerationMixin:
                 # One node rule for every combination of the modulatory options: the static values
                 # in its key, the genome's arrays carried (the per-node weights, the factors, then
                 # the mask; the two sources' genome arguments are unchanged). The signal is each
-                # case's own (HMR used the first case's activity for every case) unless a
+                # case's own (the prototype used the first case's activity for every case) unless a
                 # matched-gain control replaces it.
                 mod_type = neuromod_data['mod_connection_type']
                 signal, node_weights, scope, matched_gain = neuromod_data['modulatory_options']
@@ -405,7 +402,7 @@ class GenerationMixin:
                                 node_rule,
                             ),
                         )
-                        if recurrent and settling_rule == 'hmr'
+                        if recurrent and settling_rule == 'drive_once'
                         else (None, None)
                     )
                     h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update)
@@ -459,8 +456,8 @@ class GenerationMixin:
                                                output_act_fn=jax.nn.sigmoid)
             return forward_one, (W1, W2), False
 
-        # The plain recurrent forward (HMR's under settling_rule 'hmr'), the same object every
-        # generation, so the scan-chunked evaluation compiles once per shape
+        # The plain recurrent forward (the prototype's under settling_rule 'drive_once'), the same
+        # object every generation, so the scan-chunked evaluation compiles once per shape
         return _plain_recurrent_forward(activate_time, settling_rule), (W1, W2) + hh_args[:4], True
 
     def _record_evaluation(
@@ -534,10 +531,10 @@ class GenerationMixin:
         """Why this configuration's generation is not the plain feed-forward one of
         `_feedforward_generation`.
 
-        Empty when the generation is HMR's loop's scope: grid substrate, a one-output CPPN, no
-        hidden-to-hidden connections, LEO, neuromodulation, multi-task or streaming, activation and
-        aggregation 'disabled' or 'global'. Each entry names a setting that needs the general path
-        of run_generation_verbose.
+        Empty when the generation lies within the scope of the prototype's loop: grid substrate, a
+        one-output CPPN, no hidden-to-hidden connections, LEO, neuromodulation, multi-task or streaming,
+        activation and aggregation 'disabled' or 'global'. Each entry names a setting that needs the
+        general path of run_generation_verbose.
         """
         blockers = []
         if self.network_model != 'grid':
@@ -658,6 +655,17 @@ class GenerationMixin:
             for lv in range(h_grid.num_levels)
         ]
 
+    def _pre_ask_key_split(self, state: Any) -> Any:
+        """The prototype's opt-in pre-ask key split (extra_randkey_split, default off; see
+        create_config), with which EMR reproduces the per-seed results of the prototype's
+        dynamic-functions variant bit for bit. Every generation path calls it before its ask, so a
+        run draws the same keys on every route and in every execution mode;
+        execution.generation_loop 'while_loop' traces it within _feedforward_generation."""
+        if getattr(self, '_repro_extra_randkey_split', False):
+            _, randkey = jax.random.split(state.randkey)
+            state = state.update(randkey=randkey)
+        return state
+
     def _feedforward_generation(
         self,
         state: Any,
@@ -697,11 +705,7 @@ class GenerationMixin:
             step_times[name] = now - start
             return now
 
-        # Opt-in reproduction of HMR's pre-ask key split, as the general path does (see
-        # create_config)
-        if self._repro_extra_randkey_split:
-            _, randkey = jax.random.split(state.randkey)
-            state = state.update(randkey=randkey)
+        state = self._pre_ask_key_split(state)
 
         start = time.perf_counter() if step_times is not None else 0.0
         cppn_population = self._compiled_ask(state)
@@ -828,7 +832,7 @@ class GenerationMixin:
     def _finish_generation(self, gen: EvaluatedGeneration, step_times: Dict[str, Any],
                            total_start: float) -> Tuple[Any, AlgorithmMetrics]:
         """The host side of a told generation, shared by every configuration: the champion record,
-        HMR's live palette strategy, the counters, the metrics and palette evolution.
+        the prototype's live palette strategy, the counters, the metrics and palette evolution.
 
         Args:
             gen: The evaluated generation's arrays and the facts its metrics report.
@@ -860,8 +864,8 @@ class GenerationMixin:
             masks_full, masks_A, eval_positions, act_indices, ih_agg_indices, new_state,
         )
 
-        # HMR's live palette strategy: after the tell, as in HMR, and after the record above, whose
-        # tie resolution reads the next population's first genome unmutated
+        # The prototype's live palette strategy: after the tell, as in the prototype, and after the
+        # record above, whose tie resolution reads the next population's first genome unmutated
         if self._live_strategy is not None or self._palette_strategy is not None:
             start = time.perf_counter()
             new_state = self.update_palette_from_strategy(new_state, float(jnp.max(fitnesses)))
@@ -897,8 +901,8 @@ class GenerationMixin:
         if sparse_hh is not None:
             custom_metrics['total_hh_connections'] = int(jnp.sum(sparse_hh.num_valid))
             custom_metrics['avg_hh_connections'] = float(jnp.mean(sparse_hh.num_valid))
-            # HMR's unified model's names: the population's h->h count, and whether the cache served
-            # the generation
+            # The names of the prototype's unified model: the population's h->h count, and whether the
+            # cache served the generation
             custom_metrics['sparse_hh_count'] = custom_metrics['total_hh_connections']
             step_times['hh_cache_status'] = 'cached' if cache_hit else 'refresh'
             truncated = _last_discovery_stats.get('truncated_per_genome')
@@ -938,7 +942,7 @@ class GenerationMixin:
         custom_metrics['min_hidden_nodes'] = active_positions_min
         custom_metrics['max_hidden_nodes'] = active_positions_max
         custom_metrics['position_utilization'] = position_utilization
-        # HMR's keys, under the same names and meanings.
+        # The prototype's keys, under the same names and meanings.
         custom_metrics['variance_threshold'] = self.variance_threshold
         custom_metrics['num_levels'] = num_levels
 
@@ -1060,18 +1064,13 @@ class GenerationMixin:
         step_times = {}
         total_start = time.perf_counter()
 
-        # The plain feed-forward generation (HMR's loop's scope) runs through its traceable core,
-        # the one execution.generation_loop 'while_loop' compiles.
-        # Verbose runs keep the general path's diagnostics.
+        # The plain feed-forward generation (the scope of the prototype's loop) runs through its
+        # traceable core, the one execution.generation_loop 'while_loop' compiles. Verbose runs keep
+        # the general path's diagnostics.
         if not self.verbose and not self._feedforward_core_blockers():
             return self._run_generation_feedforward(state, step_times, total_start, device_id)
 
-        # Opt-in reproduction of HMR's pre-ask key split (default off; see create_config).
-        # Mirrors the run_generation_verbose of HMR's dynamic-functions variant so that
-        # extra_randkey_split=True reproduces the published per-seed results bit-for-bit.
-        if getattr(self, '_repro_extra_randkey_split', False):
-            _, randkey = jax.random.split(state.randkey)
-            state = state.update(randkey=randkey)
+        state = self._pre_ask_key_split(state)
 
         # Step 0: CPPN ask + transform
         start = time.perf_counter()
@@ -1090,8 +1089,8 @@ class GenerationMixin:
         h_grid = get_hierarchical_grid(self.max_depth)
         total_positions = h_grid.total_positions
         # The CPPN's raw outputs for the input-to-node queries, (pop, inputs, positions, outputs),
-        # kept on the standard path for HMR's reads (cppn_read 'input_mean', weight_source 'raw');
-        # None on the streaming path.
+        # kept on the standard path for the prototype's reads (cppn_read 'input_mean', weight_source
+        # 'raw'); None on the streaming path.
         input_query_raw = None
         # The same for the node-to-output queries (the CPPN gate of neuromodulation.gate_source
         # 'cppn'), standard path
@@ -1301,12 +1300,13 @@ class GenerationMixin:
 
             step_times['step4_build_matrices'] = time.perf_counter() - start
 
-        # Neuromodulation from dedicated CPPN outputs (HMR's Levels 1 to 3), read at the queries
-        # that built the weight matrices: a gate per connection (static gating multiplies the
-        # weights here, so every later reader sees the gated substrate; context gating keeps the
+        # Neuromodulation from dedicated CPPN outputs (the prototype's Levels 1 to 3), read at the
+        # queries that built the weight matrices: a gate per connection (static gating multiplies
+        # the weights here, so every later reader sees the gated substrate; context gating keeps the
         # logits for its per-case gates), or the modulatory factor and node type the modulatory
-        # options read, each averaged over the input queries as HMR read them (modulatory_cppn_read
-        # 'input_mean'; the self read takes them from the self-connection query below).
+        # options read, each averaged over the input queries as the prototype read them
+        # (modulatory_cppn_read 'input_mean'; the self read takes them from the self-connection
+        # query below).
         self._cppn_neuromodulation = None
         modulatory_reads = getattr(self, '_modulatory_cppn_reads', ())
         if self.neuromod_config is not None and 'gate' in self._cppn_output_indices:
@@ -1407,7 +1407,7 @@ class GenerationMixin:
             self.dynamic_functions_mode == 'cppn_output' or self.agg_mode == 'cppn_output'
         )
         # Also query self-connections when the neuromod decode is configured to use
-        # them as the receptor/base-gain source (the HMR/paper decode). Default off.
+        # them as the receptor/base-gain source (the decode of the prototype and the paper). Default off.
         _need_self_conn = _need_self_conn or (
             self.neuromod_config is not None
             and (
@@ -1616,7 +1616,8 @@ class GenerationMixin:
             # node's self-connection, or from W1 for a one-output CPPN
             decode_palette, num_activations = self._activation_decode_palette()
             if self.df_cppn_read == 'input_mean':
-                # HMR's read: the channel averaged over the input-to-node queries (unmasked)
+                # The prototype's read: the channel averaged over the input-to-node queries
+                # (unmasked)
                 act_indices = continuous_to_index(
                     jnp.mean(input_query_raw[..., self._cppn_output_indices['activation']], axis=1),
                     num_activations, self.df_index_decode)
@@ -1673,7 +1674,8 @@ class GenerationMixin:
         elif self.agg_mode == 'cppn_output':
             # Dedicated CPPN output at the self-connection, or W1 for a one-output CPPN
             if self.agg_cppn_read == 'input_mean':
-                # HMR's read: the channel averaged over the input-to-node queries (unmasked)
+                # The prototype's read: the channel averaged over the input-to-node queries
+                # (unmasked)
                 ih_agg_indices = to_agg(
                     continuous_to_index(
                         jnp.mean(
@@ -1709,8 +1711,8 @@ class GenerationMixin:
                     )
                 )
         elif self.agg_mode in ('random_fixed', 'random_generation'):
-            # Random per-node aggregation, as the activation's random modes (HMR's salts 7777,
-            # 8888); random_fixed draws over the whole position axis, as the activation's does
+            # Random per-node aggregation, as the activation's random modes (the prototype's salts
+            # 7777, 8888); random_fixed draws over the whole position axis, as the activation's does
             if self.agg_mode == 'random_fixed':
                 if self._random_fixed_agg_indices is None:
                     self._random_fixed_agg_indices = random_function_indices(
@@ -1741,10 +1743,10 @@ class GenerationMixin:
 
         use_ih_aggregation = (ih_agg_indices is not None or ih_global_agg_fn is not None)
 
-        # Step 4d: HMR's sparsity and scaling (weight_interpretation's three mechanisms, modular's
-        # layers 2 and 3), from the same unscaled W1 the indices above came from. Sparsity is a
-        # per-node quantile (pop, positions), or the winner-take-all fraction, applied after the
-        # activation by the feed-forward evaluation; scaling multiplies each node's incoming
+        # Step 4d: the prototype's sparsity and scaling (weight_interpretation's three mechanisms,
+        # modular's layers 2 and 3), from the same unscaled W1 the indices above came from. Sparsity
+        # is a per-node quantile (pop, positions), or the winner-take-all fraction, applied after
+        # the activation by the feed-forward evaluation; scaling multiplies each node's incoming
         # weights.
         sparsity_quantiles = None
         wta_k_percent = None
@@ -1792,8 +1794,8 @@ class GenerationMixin:
                 neuromod_data['static_gates'] = static_gates
 
             elif neuromod_mode == 'context_gating' and self.neuromod_config.gate_source == 'cppn':
-                # Level 2 from a CPPN output (HMR's): per-case gates sigmoid(logit + influence *
-                # mean(input statistics))
+                # Level 2 from a CPPN output (the prototype's): per-case gates sigmoid(logit +
+                # influence * mean(input statistics))
                 neuromod_data['gate_source'] = 'cppn'
                 neuromod_data['G1_logit'] = self._cppn_neuromodulation['G1_logit']
                 neuromod_data['G2_logit'] = self._cppn_neuromodulation['G2_logit']
@@ -1919,9 +1921,10 @@ class GenerationMixin:
                     # Choose the per-position weight source for receptor/base-gain.
                     if (getattr(self.neuromod_config, 'use_self_connection_query', False)
                             and self_conn_eval is not None):
-                        # Exact HMR/paper reproduction: raw CPPN self-connection query at
-                        # (x,y,x,y,bias); index 0 = weight output, the same source HMR uses
-                        # (weight_values = self_conn_outputs[:, :, 0]). Already bounded ~[-1, 1].
+                        # Exact reproduction of the prototype and the paper: raw CPPN
+                        # self-connection query at (x,y,x,y,bias); index 0 = weight output, the
+                        # same source the prototype uses (weight_values = self_conn_outputs[:, :,
+                        # 0]). Already bounded ~[-1, 1].
                         weight_normalized = self_conn_eval[:, :, 0]
                     else:
                         # Default EMR approximation: first input's weight, normalized to ~[-1, 1].
@@ -1934,19 +1937,20 @@ class GenerationMixin:
                     )  # (pop, num_positions, num_nt)
 
                     # Convert to [-1, 1] range to match Option B (enables both excitatory and inhibitory)
-                    # This matches HMR's neuromodulation variant
+                    # This matches the prototype's neuromodulation variant
                     receptor_densities = receptor_densities * 2.0 - 1.0
 
                     # Base gains: derived from weight magnitude, range [0.5, 1.0]
                     # Use normalized weight (already in [-1, 1]) to match original
                     base_gains = jnp.abs(weight_normalized) * 0.5 + 0.5
                 else:
-                    # Option B (HMR's formulas): each NT type's receptor density is a dedicated CPPN
-                    # output at the node's self-connection, tanh-bounded; the base gain comes from
-                    # the weight output there. HMR's clip to +-10 and its NaN guards are kept (the
-                    # clip does nothing on the CPPN's tanh-bounded outputs). With four NT types the
-                    # rule reads three receptors (the fourth NT channel inverts the outputs), so the
-                    # fourth output has no effect, as in HMR.
+                    # Option B (the prototype's formulas): each NT type's receptor density is a
+                    # dedicated CPPN output at the node's self-connection, tanh-bounded; the base
+                    # gain comes from the weight output there. The prototype's clip to +-10 and its
+                    # NaN guards are kept (the clip does nothing on the CPPN's tanh-bounded
+                    # outputs). With four NT types the rule reads three receptors (the fourth NT
+                    # channel inverts the outputs), so the fourth output has no effect, as in the
+                    # prototype.
                     base = self._cppn_output_indices['receptor']
                     receptor_densities = jnp.tanh(
                         jnp.clip(self_conn_eval[:, :, base : base + num_nt], -10.0, 10.0)

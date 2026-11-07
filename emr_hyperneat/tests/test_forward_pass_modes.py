@@ -57,8 +57,8 @@ class TestDenseOnlyMode:
     def test_dense_only_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify DENSE_ONLY works with dynamic functions."""
         config = create_config_with_recurrence('feedforward')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'global', 'hidden_activation': 'tanh'}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {'mode': 'global', 'hidden_activation': 'tanh'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -67,8 +67,8 @@ class TestDenseOnlyMode:
     def test_dense_only_with_aggregation(self, algorithm, xor_problem):
         """Verify DENSE_ONLY works with aggregation configuration."""
         config = create_config_with_recurrence('feedforward')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {'mode': 'global', 'global_function': 'sum'}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {'mode': 'global', 'global_function': 'sum'}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -109,8 +109,8 @@ class TestHybridSparseHHMode:
     def test_hybrid_with_activate_time(self, algorithm, xor_problem):
         """Verify HYBRID_SPARSE_HH works with different activate_time values."""
         config = create_config_with_recurrence('hidden_only')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['activate_time'] = 5
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['activate_time'] = 5
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -119,8 +119,8 @@ class TestHybridSparseHHMode:
     def test_hybrid_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify HYBRID_SPARSE_HH works with dynamic functions."""
         config = create_config_with_recurrence('hidden_only')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -129,8 +129,8 @@ class TestHybridSparseHHMode:
     def test_hybrid_with_aggregation(self, algorithm, xor_problem):
         """Verify HYBRID_SPARSE_HH works with aggregation configuration."""
         config = create_config_with_recurrence('hidden_only')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['aggregation'] = {'mode': 'cppn_output', 'num_aggregations': 3}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['aggregation'] = {'mode': 'cppn_output', 'num_aggregations': 3}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -177,8 +177,8 @@ class TestModeWithOtherFeatures:
     def test_dense_only_with_neuromodulation(self, algorithm, xor_problem):
         """Verify DENSE_ONLY works with neuromodulation."""
         config = create_config_with_recurrence('feedforward')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['neuromodulation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['neuromodulation'] = {
             'mode': 'static_gating',
             'gate_scaling': 'sigmoid',
         }
@@ -190,8 +190,8 @@ class TestModeWithOtherFeatures:
     def test_hybrid_with_neuromodulation(self, algorithm, xor_problem):
         """Verify HYBRID_SPARSE_HH works with neuromodulation."""
         config = create_config_with_recurrence('hidden_only')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['neuromodulation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['neuromodulation'] = {
             'mode': 'static_gating',
             'gate_scaling': 'sigmoid',
         }
@@ -203,8 +203,8 @@ class TestModeWithOtherFeatures:
     def test_dense_only_with_locality_radius(self, algorithm, xor_problem):
         """Verify DENSE_ONLY works with locality_radius."""
         config = create_config_with_recurrence('feedforward')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -213,8 +213,8 @@ class TestModeWithOtherFeatures:
     def test_hybrid_with_locality_radius(self, algorithm, xor_problem):
         """Verify HYBRID_SPARSE_HH works with locality_radius."""
         config = create_config_with_recurrence('hidden_only')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['locality_radius'] = 0.5
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['locality_radius'] = 0.5
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -223,10 +223,10 @@ class TestModeWithOtherFeatures:
     def test_dense_only_with_h_to_h_cache(self, algorithm, xor_problem):
         """Verify feedforward mode (no h->h) handles cache config gracefully."""
         config = create_config_with_recurrence('feedforward')
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
         # H->H caching only applies to recurrent modes, but should be ignored in feedforward
-        hmr['recurrence']['hh_cache_enabled'] = True
-        hmr['recurrence']['hh_refresh_interval'] = 5
+        emr_block['recurrence']['hh_cache_enabled'] = True
+        emr_block['recurrence']['hh_refresh_interval'] = 5
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 

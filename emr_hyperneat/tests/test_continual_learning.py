@@ -1,8 +1,8 @@
-"""The continual-learning API, from HMR's dynamic-functions variant.
+"""The continual-learning API, from the prototype's dynamic-functions variant.
 
 The champion of the last generation, putting a genome into a population, the topology freeze, a
-genome's fitness on another problem, and a fresh state for another problem. HMR's versions had
-defects these tests guard: the champion read from the wrong population, injection over the
+genome's fitness on another problem, and a fresh state for another problem. The prototype's versions
+had defects these tests guard: the champion read from the wrong population, injection over the
 champion's slot, a freeze its own tests could not see (they counted every gene slot), and an
 evaluator that did not reproduce the training fitness (no variance mask, no per-node functions or
 recurrence, interleaved CPPN channels).
@@ -40,6 +40,15 @@ def _per_node():
 def _recurrent():
     return create_config_with_recurrence("full_recurrent", max_depth=DEPTH, population_size=POP,
                                          iteration_level=1, hh_cache_enabled=False)
+
+
+def _neuromodulated():
+    return create_config_with_neuromodulation(
+        "true_neuromodulation_4nt",
+        recurrence_preset="feedforward",
+        max_depth=DEPTH,
+        population_size=POP,
+    )
 
 
 def _setup(config=None):
@@ -103,7 +112,7 @@ class TestInjection:
                 np.asarray(injected.pop_conns[slot]), np.asarray(donor[1])
             )
 
-    def test_hmr_slots_on_request(self):
+    def test_prototype_slots_on_request(self):
         algo, problem, state = _setup()
         donor = (state.pop_nodes[5], state.pop_conns[5])
         injected = algo.inject_genome_into_population(state, *donor, slots=range(1))
@@ -194,7 +203,8 @@ class TestFreeze:
 class TestEvaluateGenome:
 
     @pytest.mark.parametrize(
-        "make, exact", [(_feed_forward, True), (_per_node, True), (_recurrent, False)]
+        "make, exact",
+        [(_feed_forward, True), (_per_node, True), (_neuromodulated, True), (_recurrent, False)],
     )
     def test_the_training_problem_gives_the_recorded_fitness(self, make, exact):
         algo, problem, state = _setup(make())
@@ -227,14 +237,26 @@ class TestEvaluateGenome:
     def test_what_the_substrate_api_does_not_describe_is_refused(self):
         config = create_config_with_neuromodulation(
             "true_neuromodulation_4nt",
-            recurrence_preset="feedforward",
+            recurrence_preset="hidden_only",
             max_depth=DEPTH,
             population_size=POP,
         )
         algo, problem, state = _setup(config)
-        with pytest.raises(ValueError, match="neuromodulation"):
+        with pytest.raises(
+            ValueError, match="true neuromodulation with hidden-to-hidden connections"
+        ):
             algo.evaluate_genome_on_problem(state, state.pop_nodes[0], state.pop_conns[0], problem)
 
+
+    def test_a_rescaled_fitness_is_rescaled_here_too(self):
+        """fitness_rescale_variance rescales what the loop records, and the evaluator rescales the same way
+        (at 2.0 nothing is floored at 0, so a missing rescale shows)."""
+        config = _feed_forward()
+        config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]["fitness_rescale_variance"] = 2.0
+        algo, problem, state = _setup(config)
+        state, _ = algo.run_generation(state, problem)
+        nodes, conns, fitness, _ = algo.get_best_genome_with_fitness()
+        assert algo.evaluate_genome_on_problem(state, nodes, conns, problem) == fitness
 
 class TestNewProblem:
     def test_a_fresh_state_with_the_inherited_genome(self):

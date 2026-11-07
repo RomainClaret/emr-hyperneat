@@ -209,8 +209,8 @@ def evaluate_population_split(
 #: alias. Every MultiGPUStrategy member has a route. The constructor does not use the base class's
 #: normalization, which sends FULL_PIPELINE_PARALLEL, MULTI_GPU and DATA_PARALLEL to
 #: PIPELINE_CHUNKED and CPPN_CHUNKED to POSITION_SHARDING_CHUNKED. 0.1.0's configuration key ran
-#: CPPN_CHUNKED as STREAMING and POSITION_SHARDING_CHUNKED as FULL_PIPELINE_PARALLEL; the HMR engine
-#: ran both as a CPPN query split by grid position.
+#: CPPN_CHUNKED as STREAMING and POSITION_SHARDING_CHUNKED as FULL_PIPELINE_PARALLEL; the prototype
+#: engine ran both as a CPPN query split by grid position.
 STRATEGY_NAME_MAP: Dict[str, MultiGPUStrategy] = {
     'SINGLE_GPU': MultiGPUStrategy.SINGLE_GPU,
     'FULL_PIPELINE_PARALLEL': MultiGPUStrategy.FULL_PIPELINE_PARALLEL,
@@ -312,7 +312,8 @@ ISLAND_KEYS = frozenset(
     {'count', 'populations', 'devices', 'migration_interval', 'migrants', 'topology'}
 )
 #: Who sends migrants to whom: ring (island i to island i + 1), star (every island to every other,
-#: HMR's V2), random (each island to one other, drawn from the run's seed and the migration event)
+#: the prototype's V2), random (each island to one other, drawn from the run's seed and the
+#: migration event)
 ISLAND_TOPOLOGIES = ('ring', 'star', 'random')
 
 
@@ -330,9 +331,9 @@ def island_seed(seed: int, island: int) -> int:
     """An island's seed: the run's for island 0, and for island i one drawn from (seed, i) by
     numpy's SeedSequence.
 
-    HMR seeded island i with seed + i, so island 1 of seed 42 was island 0 of seed 43, and two
-    replicates of a seeded study shared a population. These seeds depend on neither the populations
-    nor the devices.
+    The prototype seeded island i with seed + i, so island 1 of seed 42 was island 0 of seed 43, and
+    two replicates of a seeded study shared a population. These seeds depend on neither the
+    populations nor the devices.
     """
     if island == 0:
         return int(seed)

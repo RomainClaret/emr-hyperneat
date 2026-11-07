@@ -46,6 +46,7 @@ import numpy as np
 from emr_hyperneat.emrhyperneat_base import (
     HierarchicalGridStructureSingle,
     get_hierarchical_grid_cpu,
+    _subdivision_reach,
 )
 from emr_hyperneat.emrhyperneat import (
     AlgorithmMetrics,
@@ -391,6 +392,278 @@ def _refuse_hh_cache_on_population_chunks(algo, state) -> None:
         )
 
 
+def _build_levels(
+    algo,
+    state,
+    cppns,
+    h_grid,
+    input_coords,
+    output_coords,
+    num_levels: int,
+    genomes: int,
+    query_pop_chunk: int,
+    pos_chunk_size_w1: int,
+    pos_chunk_size_w2: int,
+    W1_cpu: np.ndarray,
+    W2_cpu: np.ndarray,
+    masks_cpu: np.ndarray,
+    positions_on_device,
+    max_weight: float,
+    weight_thresh: float,
+    verbose: bool,
+    level_timings: Union[list, None] = None,
+) -> None:
+    """Offload's level loop, shared by its two generations: the whole population's
+    (`run_generation_offload`) and one population chunk's (`_run_generation_population_chunked`).
+
+    Level by level: the reached mask from the parent level's subdivision, the CPPN queries of the
+    level's positions (streamed in position chunks when the level holds more than
+    ``max_lookahead_positions``), the variance lookahead to the next level, and the pruned weights
+    and the mask written into the CPU arrays at the level's columns. Each query is called with the
+    caller's population and chunk sizes, so every compiled query keeps its shape.
+
+    Args:
+        cppns: The transformed CPPNs of the genomes the arrays hold.
+        genomes: How many genomes the arrays hold (the population, or the chunk's).
+        query_pop_chunk: Genomes per CPPN query call.
+        W1_cpu, W2_cpu, masks_cpu: The CPU arrays the levels are written into (a memmap's masks are
+            uint8).
+        positions_on_device: level -> that level's positions on the device.
+        verbose: Print the streaming and lookahead notices.
+        level_timings: When given, a row per level (level, positions, seconds) is appended to it and,
+            under ``verbose``, printed.
+    """
+    # Track level variances and reached masks for subdivision
+    level_variances = []
+    level_reached = []
+    level_reached.append(np.ones((genomes, 4), dtype=bool))  # Level 0 always reached
+    # variance_rule legacy: set at level 0, read where level 1's reach is derived
+    legacy_v0 = None
+
+    # Cache for next-level weights (for variance lookahead)
+    cached_next_input_weights = None
+
+    for level in range(num_levels):
+        t_level = time.perf_counter()
+
+        level_start = h_grid.level_offsets_static[level]
+        level_end = h_grid.level_offsets_static[level + 1]
+        num_level_positions = level_end - level_start
+
+        # The level's positions on the device (positions_on_device transfers a CPU grid's level)
+        level_positions = positions_on_device(level)
+
+        # Get reached mask for this level (computed on CPU for efficiency)
+        if level == 0:
+            current_reached_mask = level_reached[0]
+        else:
+            # Compute reached from previous level's subdivision
+            prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
+                             else level_variances[level - 1])
+            # Forced through initial_depth, else by variance; a forced level reads no threshold
+            forced = level <= algo.initial_depth
+            current_reached_mask = _subdivision_reach(
+                level_reached[level - 1], prev_variance,
+                variance_threshold=None if forced else algo.variance_threshold,
+                forced=forced, parent_indices=np.asarray(h_grid.parent_indices[level]),
+            )
+            level_reached.append(current_reached_mask)
+
+        _reached_count = int(np.count_nonzero(current_reached_mask))
+        algo._last_reached_per_level[level] += _reached_count
+        # Once a level is unreached every level below it is too, and processing them
+        # writes exactly zeros: jnp.where(mask & ..., W1_raw, 0.0) against a
+        # pre-zeroed buffer. On by default (skip_dead_levels): it changes cost, not results.
+        if algo._skip_dead_levels and _reached_count == 0:
+            break
+
+        if level == 0 and algo._legacy_level0_variance:
+            # variance_rule legacy: level 0's own variance (four positions, one extra query)
+            legacy_v0 = np.asarray(legacy_level0_variance(query_level_positions_chunked(
+                state, cppns, input_coords, level_positions,
+                True, algo._jitted_cppn_forward, query_pop_chunk, pos_chunk_size_w1,
+                geometry_seeding_enabled=algo.geometry_seeding_enabled,
+            )[:, 0, :]))
+
+        # Check if this level is too large for standard processing
+        use_streaming_for_level = num_level_positions > algo._max_lookahead_positions
+
+        if use_streaming_for_level:
+            # Streaming mode: Process position chunks and offload immediately
+            # This avoids holding the full level result on GPU
+            if verbose:
+                print(f"    [Using streaming mode for level {level} ({num_level_positions:,} positions)]")
+
+            # Use streaming to process and offload W1 (input weights)
+            transfers_w1 = process_level_streaming(
+                state, cppns, input_coords, level_positions,
+                True, algo._jitted_cppn_forward, query_pop_chunk,
+                pos_chunk_size_w1, W1_cpu, level_start,
+                max_weight, weight_thresh, current_reached_mask,
+                geometry_seeding_enabled=algo.geometry_seeding_enabled,
+            )
+            algo._gpu_transfers_count += transfers_w1
+
+            # Use streaming to process and offload W2 (output weights)
+            transfers_w2 = process_level_streaming(
+                state, cppns, output_coords, level_positions,
+                False, algo._jitted_cppn_forward, query_pop_chunk,
+                pos_chunk_size_w2, W2_cpu, level_start,
+                max_weight, weight_thresh, current_reached_mask,
+                geometry_seeding_enabled=algo.geometry_seeding_enabled,
+            )
+            algo._gpu_transfers_count += transfers_w2
+
+            # Store mask (already on CPU; cast to the array's dtype, uint8 for a memmap)
+            masks_cpu[:, level_start:level_end] = current_reached_mask.astype(masks_cpu.dtype)
+
+            # A streaming level is large, but its variance still has to be real:
+            # zeros would leave the next level's reached mask empty and stop the
+            # substrate here. Slab it, and skip entirely if nothing is reached.
+            if level < num_levels - 1 and bool(np.any(current_reached_mask)):
+                next_level_positions = positions_on_device(level + 1)
+
+                def _query_next_slice(flat_start, flat_end):
+                    sliced = query_level_positions_chunked(
+                        state, cppns, input_coords,
+                        next_level_positions[flat_start:flat_end],
+                        True, algo._jitted_cppn_forward, query_pop_chunk,
+                        pos_chunk_size_w1,
+                        geometry_seeding_enabled=algo.geometry_seeding_enabled,
+                    )
+                    return np.asarray(sliced[:, 0, :])
+
+                level_variances.append(compute_single_level_variance_chunked(
+                    _query_next_slice, h_grid, level, genomes,
+                    max(1, algo._max_lookahead_positions) * genomes,
+                ))
+            else:
+                level_variances.append(np.zeros((genomes, num_level_positions)))
+            cached_next_input_weights = None
+
+        else:
+            # Standard mode: Query full level, then offload
+            # Convert reached mask to JAX for GPU operations
+            current_reached_mask_gpu = jax.device_put(current_reached_mask)
+
+            # GPU: Query CPPN for this level's positions (with position chunking)
+            if cached_next_input_weights is not None and level > 0:
+                level_input_weights = cached_next_input_weights
+            else:
+                level_input_weights = query_level_positions_chunked(
+                    state, cppns, input_coords, level_positions,
+                    True, algo._jitted_cppn_forward, query_pop_chunk,
+                    pos_chunk_size_w1,
+                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
+                )
+
+            level_output_weights = query_level_positions_chunked(
+                state, cppns, output_coords, level_positions,
+                False, algo._jitted_cppn_forward, query_pop_chunk,
+                pos_chunk_size_w2,
+                geometry_seeding_enabled=algo.geometry_seeding_enabled,
+            )
+
+            # GPU: Compute variance for this level (lookahead to next level)
+            # Skip the lookahead when nothing is reached: subdivision below is
+            # `prev_reached & (...)`, all-False regardless of the variance, so the
+            # query would be pure waste: 357.9M positions per genome at depth 13.
+            if level < num_levels - 1 and bool(np.any(current_reached_mask)):
+                next_level_positions = positions_on_device(level + 1)
+                next_level_size = next_level_positions.shape[0]
+
+                # Two ways a level can be too large to materialize in one shot:
+                #   truncate_variance_lookahead=True  -> zeros, exactly as documented. The
+                #     substrate changes: zeros fail `variance > threshold` everywhere, so the
+                #     next level's reached mask comes out empty and subdivision halts here.
+                #     Opt-in, because that is a real change to what gets evolved.
+                #   otherwise -> slab it. Bounded memory and the exact same substrate, which
+                #     is what the default should give.
+                if next_level_size > algo._max_lookahead_positions and algo._truncate_variance_lookahead:
+                    if verbose:
+                        print(f"    [Truncating lookahead: next level has {next_level_size:,} positions > {algo._max_lookahead_positions:,}, so the substrate halts at level {level}]")
+                    level_variances.append(np.zeros((genomes, num_level_positions)))
+                    cached_next_input_weights = None
+                elif next_level_size > algo._max_lookahead_positions:
+                    if verbose:
+                        print(f"    [Chunked lookahead: next level has {next_level_size:,} positions > {algo._max_lookahead_positions:,}]")
+
+                    def _query_next_slice(flat_start, flat_end):
+                        sliced = query_level_positions_chunked(
+                            state, cppns, input_coords,
+                            next_level_positions[flat_start:flat_end],
+                            True, algo._jitted_cppn_forward, query_pop_chunk,
+                            pos_chunk_size_w1,
+                            geometry_seeding_enabled=algo.geometry_seeding_enabled,
+                        )
+                        return np.asarray(sliced[:, 0, :])
+
+                    level_variances.append(compute_single_level_variance_chunked(
+                        _query_next_slice, h_grid, level, genomes,
+                        max(1, algo._max_lookahead_positions) * genomes,
+                    ))
+                    cached_next_input_weights = None
+                else:
+                    cached_next_input_weights = query_level_positions_chunked(
+                        state, cppns, input_coords, next_level_positions,
+                        True, algo._jitted_cppn_forward, query_pop_chunk,
+                        pos_chunk_size_w1,
+                        geometry_seeding_enabled=algo.geometry_seeding_enabled,
+                    )
+
+                    level_variance_gpu = compute_single_level_variance(
+                        cached_next_input_weights[:, 0, :],
+                        h_grid,
+                        level,
+                    )
+                    level_variance = np.asarray(level_variance_gpu)
+                    level_variances.append(level_variance)
+                    algo._gpu_transfers_count += 1
+            else:
+                level_variances.append(np.zeros((genomes, num_level_positions)))
+                cached_next_input_weights = None
+
+            # GPU: Apply weight processing
+            active_mask_broadcast = current_reached_mask_gpu[:, None, :]
+
+            W1_raw = jnp.tanh(level_input_weights) * max_weight
+            W1_level = jnp.where(
+                active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh),
+                W1_raw,
+                0.0
+            )
+
+            W2_raw = jnp.tanh(level_output_weights) * max_weight
+            W2_level = jnp.where(
+                active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh),
+                W2_raw,
+                0.0
+            )
+
+            # Offload to CPU immediately
+            W1_cpu[:, :, level_start:level_end] = np.asarray(W1_level)
+            W2_cpu[:, :, level_start:level_end] = np.asarray(W2_level)
+            masks_cpu[:, level_start:level_end] = np.asarray(current_reached_mask_gpu).astype(masks_cpu.dtype)
+
+            algo._gpu_transfers_count += 3  # W1, W2, masks
+
+            # GPU: Free memory immediately
+            del level_input_weights, level_output_weights
+            del W1_raw, W2_raw, W1_level, W2_level
+            del current_reached_mask_gpu, active_mask_broadcast
+
+        if level_timings is not None:
+            level_time = time.perf_counter() - t_level
+            level_timings.append({
+                'level': level,
+                'positions': num_level_positions,
+                'time_s': level_time,
+            })
+            if verbose:
+                print(f"  Level {level}: {num_level_positions:,} positions, "
+                      f"{level_time:.2f}s, transferred to CPU")
+
+
 def run_generation_offload(
     algo,
     state,
@@ -426,11 +699,7 @@ def run_generation_offload(
     # This path records no champion, so evaluate_on_data refuses rather than score an
     # earlier generation's
     algo._last_eval = None
-    # Execution mode is a memory choice and must draw the keys the standard path draws: the
-    # pre-ask split only under extra_randkey_split, as run_generation_verbose does.
-    if getattr(algo, '_repro_extra_randkey_split', False):
-        _, randkey = jax.random.split(state.randkey)
-        state = state.update(randkey=randkey)
+    state = algo._pre_ask_key_split(state)
 
     # Step 0: CPPN ask + transform (same as standard)
     t0 = time.perf_counter()
@@ -497,20 +766,10 @@ def run_generation_offload(
     cpu_bytes = (W1_cpu.nbytes + W2_cpu.nbytes + masks_cpu.nbytes)
     algo._cpu_memory_peak_gb = cpu_bytes / 1e9
 
-    # Track level variances and reached masks for subdivision
-    level_variances = []
-    level_reached = []
-    level_reached.append(np.ones((pop_size, 4), dtype=bool))  # Level 0 always reached
-    # variance_rule legacy: set at level 0, read where level 1's reach is derived
-    legacy_v0 = None
-
     # Per-level reached counts. A level stuck at 0 means the substrate stopped short
     # of the requested max_depth; these counts make that visible (a depth sweep
     # without them ran for 188 days against a level-3 substrate).
     algo._last_reached_per_level = [0] * num_levels
-
-    # Cache for next-level weights (for variance lookahead)
-    cached_next_input_weights = None
 
     max_weight = algo.max_weight
     weight_thresh = 0.1
@@ -556,242 +815,20 @@ def run_generation_offload(
 
     level_timings = []
 
-    for level in range(num_levels):
-        t_level = time.perf_counter()
+    # A CPU grid's levels go to the device on demand, one level at a time
+    if use_cpu_grid:
+        def positions_on_device(level):
+            return jax.device_put(h_grid.level_positions[level])
+    else:
+        def positions_on_device(level):
+            return h_grid.level_positions[level]
 
-        level_start = h_grid.level_offsets_static[level]
-        level_end = h_grid.level_offsets_static[level + 1]
-        num_level_positions = level_end - level_start
-
-        # Get level positions - transfer to GPU on-demand for CPU grid
-        if use_cpu_grid:
-            # CPU grid: positions are NumPy arrays, transfer to GPU
-            level_positions = jax.device_put(h_grid.level_positions[level])
-        else:
-            # GPU grid: positions are already JAX arrays on GPU
-            level_positions = h_grid.level_positions[level]
-
-        # Get reached mask for this level (computed on CPU for efficiency)
-        if level == 0:
-            current_reached_mask = level_reached[0]
-        else:
-            # Compute reached from previous level's subdivision
-            prev_reached = level_reached[level - 1]
-            prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
-                             else level_variances[level - 1])
-            # Canonical ES-HyperNEAT subdivides on two clauses (naive/eshyperneat/eshyperneat.py:441):
-            #   (level < initial_depth) or (variance > threshold)
-            # The eager path needs both clauses: variance alone stops subdividing at
-            # level 2-3, so with the variance clause only, max_depth 8..13 cannot
-            # differ. A parent at level-1 is forced when level-1 < initial_depth, i.e.
-            # level <= initial_depth.
-            if level <= algo.initial_depth:
-                prev_subdivided = prev_reached
-            else:
-                prev_subdivided = prev_reached & (prev_variance > algo.variance_threshold)
-
-            parent_indices = np.asarray(h_grid.parent_indices[level])
-            current_reached_mask = prev_subdivided[:, parent_indices]
-            level_reached.append(current_reached_mask)
-
-        _reached_count = int(np.count_nonzero(current_reached_mask))
-        algo._last_reached_per_level[level] += _reached_count
-        # Once a level is unreached every level below it is too, and processing them
-        # writes exactly zeros: jnp.where(mask & ..., W1_raw, 0.0) against a
-        # pre-zeroed buffer. On by default (skip_dead_levels): it changes cost, not results.
-        if algo._skip_dead_levels and _reached_count == 0:
-            break
-
-        if level == 0 and algo._legacy_level0_variance:
-            # variance_rule legacy: level 0's own variance (four positions, one extra query)
-            legacy_v0 = np.asarray(legacy_level0_variance(query_level_positions_chunked(
-                state, cppns_transformed, input_coords, level_positions,
-                True, algo._jitted_cppn_forward, pop_chunk_size, pos_chunk_size_w1,
-                geometry_seeding_enabled=algo.geometry_seeding_enabled,
-            )[:, 0, :]))
-
-        # Check if this level is too large for standard processing
-        use_streaming_for_level = num_level_positions > algo._max_lookahead_positions
-
-        if use_streaming_for_level:
-            # Streaming mode: Process position chunks and offload immediately
-            # This avoids holding the full level result on GPU
-            if algo._offload_verbose:
-                print(f"    [Using streaming mode for level {level} ({num_level_positions:,} positions)]")
-
-            # Use streaming to process and offload W1 (input weights)
-            transfers_w1 = process_level_streaming(
-                state, cppns_transformed, input_coords, level_positions,
-                True, algo._jitted_cppn_forward, pop_chunk_size,
-                pos_chunk_size_w1, W1_cpu, level_start,
-                max_weight, weight_thresh, current_reached_mask,
-                geometry_seeding_enabled=algo.geometry_seeding_enabled,
-            )
-            algo._gpu_transfers_count += transfers_w1
-
-            # Use streaming to process and offload W2 (output weights)
-            transfers_w2 = process_level_streaming(
-                state, cppns_transformed, output_coords, level_positions,
-                False, algo._jitted_cppn_forward, pop_chunk_size,
-                pos_chunk_size_w2, W2_cpu, level_start,
-                max_weight, weight_thresh, current_reached_mask,
-                geometry_seeding_enabled=algo.geometry_seeding_enabled,
-            )
-            algo._gpu_transfers_count += transfers_w2
-
-            # Store mask (already on CPU)
-            masks_cpu[:, level_start:level_end] = current_reached_mask
-
-            # A streaming level is large, but its variance still has to be real:
-            # zeros would leave the next level's reached mask empty and stop the
-            # substrate here. Slab it, and skip entirely if nothing is reached.
-            if level < num_levels - 1 and bool(np.any(current_reached_mask)):
-                next_level_positions = (jax.device_put(h_grid.level_positions[level + 1]) if use_cpu_grid
-                                else h_grid.level_positions[level + 1])
-
-                def _query_next_slice(flat_start, flat_end):
-                    sliced = query_level_positions_chunked(
-                        state, cppns_transformed, input_coords,
-                        next_level_positions[flat_start:flat_end],
-                        True, algo._jitted_cppn_forward, pop_chunk_size,
-                        pos_chunk_size_w1,
-                        geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                    )
-                    return np.asarray(sliced[:, 0, :])
-
-                level_variances.append(compute_single_level_variance_chunked(
-                    _query_next_slice, h_grid, level, pop_size,
-                    max(1, algo._max_lookahead_positions) * pop_size,
-                ))
-            else:
-                level_variances.append(np.zeros((pop_size, num_level_positions)))
-            cached_next_input_weights = None
-
-        else:
-            # Standard mode: Query full level, then offload
-            # Convert reached mask to JAX for GPU operations
-            current_reached_mask_gpu = jax.device_put(current_reached_mask)
-
-            # GPU: Query CPPN for this level's positions (with position chunking)
-            if cached_next_input_weights is not None and level > 0:
-                level_input_weights = cached_next_input_weights
-            else:
-                level_input_weights = query_level_positions_chunked(
-                    state, cppns_transformed, input_coords, level_positions,
-                    True, algo._jitted_cppn_forward, pop_chunk_size,
-                    pos_chunk_size_w1,
-                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                )
-
-            level_output_weights = query_level_positions_chunked(
-                state, cppns_transformed, output_coords, level_positions,
-                False, algo._jitted_cppn_forward, pop_chunk_size,
-                pos_chunk_size_w2,
-                geometry_seeding_enabled=algo.geometry_seeding_enabled,
-            )
-
-            # GPU: Compute variance for this level (lookahead to next level)
-            # Skip the lookahead when nothing is reached: subdivision below is
-            # `prev_reached & (...)`, all-False regardless of the variance, so the
-            # query would be pure waste: 357.9M positions per genome at depth 13.
-            if level < num_levels - 1 and bool(np.any(current_reached_mask)):
-                # Get next level positions - transfer to GPU on-demand for CPU grid
-                if use_cpu_grid:
-                    next_level_positions = jax.device_put(h_grid.level_positions[level + 1])
-                else:
-                    next_level_positions = h_grid.level_positions[level + 1]
-                next_level_size = next_level_positions.shape[0]
-
-                # Two ways a level can be too large to materialize in one shot:
-                #   truncate_variance_lookahead=True  -> zeros, exactly as documented. The
-                #     substrate changes: zeros fail `variance > threshold` everywhere, so the
-                #     next level's reached mask comes out empty and subdivision halts here.
-                #     Opt-in, because that is a real change to what gets evolved.
-                #   otherwise -> slab it. Bounded memory and the exact same substrate, which
-                #     is what the default should give.
-                if next_level_size > algo._max_lookahead_positions and algo._truncate_variance_lookahead:
-                    if algo._offload_verbose:
-                        print(f"    [Truncating lookahead: next level has {next_level_size:,} positions > {algo._max_lookahead_positions:,}, so the substrate halts at level {level}]")
-                    level_variances.append(np.zeros((pop_size, num_level_positions)))
-                    cached_next_input_weights = None
-                elif next_level_size > algo._max_lookahead_positions:
-                    if algo._offload_verbose:
-                        print(f"    [Chunked lookahead: next level has {next_level_size:,} positions > {algo._max_lookahead_positions:,}]")
-
-                    def _query_next_slice(flat_start, flat_end):
-                        sliced = query_level_positions_chunked(
-                            state, cppns_transformed, input_coords,
-                            next_level_positions[flat_start:flat_end],
-                            True, algo._jitted_cppn_forward, pop_chunk_size,
-                            pos_chunk_size_w1,
-                            geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                        )
-                        return np.asarray(sliced[:, 0, :])
-
-                    level_variances.append(compute_single_level_variance_chunked(
-                        _query_next_slice, h_grid, level, pop_size,
-                        max(1, algo._max_lookahead_positions) * pop_size,
-                    ))
-                    cached_next_input_weights = None
-                else:
-                    cached_next_input_weights = query_level_positions_chunked(
-                        state, cppns_transformed, input_coords, next_level_positions,
-                        True, algo._jitted_cppn_forward, pop_chunk_size,
-                        pos_chunk_size_w1,
-                        geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                    )
-
-                    level_variance_gpu = compute_single_level_variance(
-                        cached_next_input_weights[:, 0, :],
-                        h_grid,
-                        level,
-                    )
-                    level_variance = np.asarray(level_variance_gpu)
-                    level_variances.append(level_variance)
-                    algo._gpu_transfers_count += 1
-            else:
-                level_variances.append(np.zeros((pop_size, num_level_positions)))
-                cached_next_input_weights = None
-
-            # GPU: Apply weight processing
-            active_mask_broadcast = current_reached_mask_gpu[:, None, :]
-
-            W1_raw = jnp.tanh(level_input_weights) * max_weight
-            W1_level = jnp.where(
-                active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh),
-                W1_raw,
-                0.0
-            )
-
-            W2_raw = jnp.tanh(level_output_weights) * max_weight
-            W2_level = jnp.where(
-                active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh),
-                W2_raw,
-                0.0
-            )
-
-            # Offload to CPU immediately
-            W1_cpu[:, :, level_start:level_end] = np.asarray(W1_level)
-            W2_cpu[:, :, level_start:level_end] = np.asarray(W2_level)
-            masks_cpu[:, level_start:level_end] = np.asarray(current_reached_mask_gpu)
-
-            algo._gpu_transfers_count += 3  # W1, W2, masks
-
-            # GPU: Free memory immediately
-            del level_input_weights, level_output_weights
-            del W1_raw, W2_raw, W1_level, W2_level
-            del current_reached_mask_gpu, active_mask_broadcast
-
-        level_time = time.perf_counter() - t_level
-        level_timings.append({
-            'level': level,
-            'positions': num_level_positions,
-            'time_s': level_time,
-        })
-
-        if algo._offload_verbose:
-            print(f"  Level {level}: {num_level_positions:,} positions, "
-                  f"{level_time:.2f}s, transferred to CPU")
+    _build_levels(
+        algo, state, cppns_transformed, h_grid, input_coords, output_coords, num_levels, pop_size,
+        pop_chunk_size, pos_chunk_size_w1, pos_chunk_size_w2, W1_cpu, W2_cpu, masks_cpu,
+        positions_on_device, max_weight, weight_thresh, verbose=algo._offload_verbose,
+        level_timings=level_timings,
+    )
 
     step_timings['step1_depth_offload_build'] = time.perf_counter() - t1
     step_timings['gpu_to_cpu_transfers'] = algo._gpu_transfers_count
@@ -1010,6 +1047,13 @@ def _run_generation_population_chunked(
         if algo._offload_verbose:
             print(f"  [PopChunking] Pre-transferred {num_levels} levels to GPU (cached)")
 
+    if use_cpu_grid:
+        def positions_on_device(level):
+            return gpu_level_positions[level]
+    else:
+        def positions_on_device(level):
+            return h_grid.level_positions[level]
+
     # Accumulated across population chunks; see the non-chunked path above.
     algo._last_reached_per_level = [0] * num_levels
 
@@ -1092,219 +1136,13 @@ def _run_generation_population_chunked(
         chunk_cpu_bytes = (W1_cpu.nbytes + W2_cpu.nbytes + masks_cpu.nbytes)
         algo._cpu_memory_peak_gb = max(algo._cpu_memory_peak_gb, chunk_cpu_bytes / 1e9)
 
-        # Track level variances and reached masks for this chunk
-        level_variances = []
-        level_reached = []
-        level_reached.append(np.ones((actual_chunk_size, 4), dtype=bool))
-        # variance_rule legacy: set at level 0, read where level 1's reach is derived
-        legacy_v0 = None
-
-        cached_next_input_weights = None
-
         # Process all levels for this chunk
-        for level in range(num_levels):
-            level_start = h_grid.level_offsets_static[level]
-            level_end = h_grid.level_offsets_static[level + 1]
-            num_level_positions = level_end - level_start
-
-            # Get level positions (use GPU cache to avoid redundant transfers)
-            if use_cpu_grid:
-                level_positions = gpu_level_positions[level]
-            else:
-                level_positions = h_grid.level_positions[level]
-
-            # Get reached mask for this level
-            if level == 0:
-                current_reached_mask = level_reached[0]
-            else:
-                prev_reached = level_reached[level - 1]
-                prev_variance = (legacy_v0 if (level == 1 and legacy_v0 is not None)
-                                 else level_variances[level - 1])
-                # Canonical ES-HyperNEAT subdivides on two clauses (naive/eshyperneat/eshyperneat.py:441):
-                #   (level < initial_depth) or (variance > threshold)
-                # The eager path needs both clauses: variance alone stops subdividing at
-                # level 2-3, so with the variance clause only, max_depth 8..13 cannot
-                # differ. A parent at level-1 is forced when level-1 < initial_depth, i.e.
-                # level <= initial_depth.
-                if level <= algo.initial_depth:
-                    prev_subdivided = prev_reached
-                else:
-                    prev_subdivided = prev_reached & (prev_variance > algo.variance_threshold)
-                parent_indices = np.asarray(h_grid.parent_indices[level])
-                current_reached_mask = prev_subdivided[:, parent_indices]
-                level_reached.append(current_reached_mask)
-
-            _reached_count = int(np.count_nonzero(current_reached_mask))
-            algo._last_reached_per_level[level] += _reached_count
-            # Once a level is unreached every level below it is too, and processing them
-            # writes exactly zeros: jnp.where(mask & ..., W1_raw, 0.0) against a
-            # pre-zeroed buffer. On by default (skip_dead_levels): it changes cost, not results.
-            if algo._skip_dead_levels and _reached_count == 0:
-                break
-
-            if level == 0 and algo._legacy_level0_variance:
-                # variance_rule legacy: level 0's own variance (four positions, one extra query)
-                legacy_v0 = np.asarray(legacy_level0_variance(query_level_positions_chunked(
-                    state, chunk_cppns, input_coords, level_positions,
-                    True, algo._jitted_cppn_forward, cppn_pop_chunk, pos_chunk_size_w1,
-                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                )[:, 0, :]))
-
-            use_streaming_for_level = num_level_positions > algo._max_lookahead_positions
-
-            if use_streaming_for_level:
-                # Streaming mode for large levels
-                transfers_w1 = process_level_streaming(
-                    state, chunk_cppns, input_coords, level_positions,
-                    True, algo._jitted_cppn_forward, cppn_pop_chunk,
-                    pos_chunk_size_w1, W1_cpu, level_start,
-                    max_weight, weight_thresh, current_reached_mask,
-                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                )
-                algo._gpu_transfers_count += transfers_w1
-
-                transfers_w2 = process_level_streaming(
-                    state, chunk_cppns, output_coords, level_positions,
-                    False, algo._jitted_cppn_forward, cppn_pop_chunk,
-                    pos_chunk_size_w2, W2_cpu, level_start,
-                    max_weight, weight_thresh, current_reached_mask,
-                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                )
-                algo._gpu_transfers_count += transfers_w2
-
-                # Convert bool to uint8 for memmap compatibility
-                masks_cpu[:, level_start:level_end] = current_reached_mask.astype(np.uint8)
-                # A streaming level is large, but its variance still has to be real:
-                # zeros would leave the next level's reached mask empty and stop the
-                # substrate here. Slab it, and skip entirely if nothing is reached.
-                if level < num_levels - 1 and bool(np.any(current_reached_mask)):
-                    next_level_positions = (gpu_level_positions[level + 1] if use_cpu_grid
-                                            else h_grid.level_positions[level + 1])
-
-                    def _query_next_slice(flat_start, flat_end):
-                        sliced = query_level_positions_chunked(
-                            state, chunk_cppns, input_coords,
-                            next_level_positions[flat_start:flat_end],
-                            True, algo._jitted_cppn_forward, cppn_pop_chunk,
-                            pos_chunk_size_w1,
-                            geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                        )
-                        return np.asarray(sliced[:, 0, :])
-
-                    level_variances.append(compute_single_level_variance_chunked(
-                        _query_next_slice, h_grid, level, actual_chunk_size,
-                        max(1, algo._max_lookahead_positions) * actual_chunk_size,
-                    ))
-                else:
-                    level_variances.append(np.zeros((actual_chunk_size, num_level_positions)))
-                cached_next_input_weights = None
-
-            else:
-                # Standard mode
-                current_reached_mask_gpu = jax.device_put(current_reached_mask)
-
-                if cached_next_input_weights is not None and level > 0:
-                    level_input_weights = cached_next_input_weights
-                else:
-                    level_input_weights = query_level_positions_chunked(
-                        state, chunk_cppns, input_coords, level_positions,
-                        True, algo._jitted_cppn_forward, cppn_pop_chunk,
-                        pos_chunk_size_w1,
-                        geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                    )
-
-                level_output_weights = query_level_positions_chunked(
-                    state, chunk_cppns, output_coords, level_positions,
-                    False, algo._jitted_cppn_forward, cppn_pop_chunk,
-                    pos_chunk_size_w2,
-                    geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                )
-
-                # Compute variance for next level (use GPU cache for positions)
-                # Skip the lookahead when nothing is reached: subdivision below is
-                # `prev_reached & (...)`, all-False regardless of the variance, so the
-                # query would be pure waste: 357.9M positions per genome at depth 13.
-                if level < num_levels - 1 and bool(np.any(current_reached_mask)):
-                    if use_cpu_grid:
-                        next_level_positions = gpu_level_positions[level + 1]
-                    else:
-                        next_level_positions = h_grid.level_positions[level + 1]
-                    next_level_size = next_level_positions.shape[0]
-
-                    # Two ways a level can be too large to materialize in one shot:
-                    #   truncate_variance_lookahead=True  -> zeros, exactly as documented. The
-                    #     substrate changes: zeros fail `variance > threshold` everywhere, so the
-                    #     next level's reached mask comes out empty and subdivision halts here.
-                    #     Opt-in, because that is a real change to what gets evolved.
-                    #   otherwise -> slab it. Bounded memory and the exact same substrate, which
-                    #     is what the default should give.
-                    if next_level_size > algo._max_lookahead_positions and algo._truncate_variance_lookahead:
-                        level_variances.append(np.zeros((actual_chunk_size, num_level_positions)))
-                        cached_next_input_weights = None
-                    elif next_level_size > algo._max_lookahead_positions:
-
-                        def _query_next_slice(flat_start, flat_end):
-                            sliced = query_level_positions_chunked(
-                                state, chunk_cppns, input_coords,
-                                next_level_positions[flat_start:flat_end],
-                                True, algo._jitted_cppn_forward, cppn_pop_chunk,
-                                pos_chunk_size_w1,
-                                geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                            )
-                            return np.asarray(sliced[:, 0, :])
-
-                        level_variances.append(compute_single_level_variance_chunked(
-                            _query_next_slice, h_grid, level, actual_chunk_size,
-                            max(1, algo._max_lookahead_positions) * actual_chunk_size,
-                        ))
-                        cached_next_input_weights = None
-                    else:
-                        cached_next_input_weights = query_level_positions_chunked(
-                            state, chunk_cppns, input_coords, next_level_positions,
-                            True, algo._jitted_cppn_forward, cppn_pop_chunk,
-                            pos_chunk_size_w1,
-                            geometry_seeding_enabled=algo.geometry_seeding_enabled,
-                        )
-                        level_variance_gpu = compute_single_level_variance(
-                            cached_next_input_weights[:, 0, :],
-                            h_grid,
-                            level,
-                        )
-                        level_variance = np.asarray(level_variance_gpu)
-                        level_variances.append(level_variance)
-                        algo._gpu_transfers_count += 1
-                else:
-                    level_variances.append(np.zeros((actual_chunk_size, num_level_positions)))
-                    cached_next_input_weights = None
-
-                # Apply weight processing
-                active_mask_broadcast = current_reached_mask_gpu[:, None, :]
-
-                W1_raw = jnp.tanh(level_input_weights) * max_weight
-                W1_level = jnp.where(
-                    active_mask_broadcast & (jnp.abs(W1_raw) > weight_thresh),
-                    W1_raw,
-                    0.0
-                )
-
-                W2_raw = jnp.tanh(level_output_weights) * max_weight
-                W2_level = jnp.where(
-                    active_mask_broadcast & (jnp.abs(W2_raw) > weight_thresh),
-                    W2_raw,
-                    0.0
-                )
-
-                # Offload to CPU (convert mask to uint8 for memmap compatibility)
-                W1_cpu[:, :, level_start:level_end] = np.asarray(W1_level)
-                W2_cpu[:, :, level_start:level_end] = np.asarray(W2_level)
-                masks_cpu[:, level_start:level_end] = np.asarray(current_reached_mask_gpu).astype(np.uint8)
-
-                algo._gpu_transfers_count += 3
-
-                # Free GPU memory
-                del level_input_weights, level_output_weights
-                del W1_raw, W2_raw, W1_level, W2_level
-                del current_reached_mask_gpu, active_mask_broadcast
+        _build_levels(
+            algo, state, chunk_cppns, h_grid, input_coords, output_coords, num_levels,
+            actual_chunk_size, cppn_pop_chunk, pos_chunk_size_w1, pos_chunk_size_w2,
+            W1_cpu, W2_cpu, masks_cpu, positions_on_device, max_weight, weight_thresh,
+            verbose=False,
+        )
 
         # Evaluate this chunk. Each helper writes its step timings into the dict
         # it is handed and (recurrent path) stamps algo._last_*hh* with this

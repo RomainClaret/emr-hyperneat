@@ -87,14 +87,14 @@ def _run(mode, preset, iteration_level, act_mode, depth, population, generations
         preset, max_depth=depth, population_size=population,
         iteration_level=iteration_level, hh_cache_enabled=False,
     )
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-    hmr['recurrence']['hh_discovery_mode'] = mode
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block['recurrence']['hh_discovery_mode'] = mode
     if second_factor is not None:
-        hmr['recurrence']['multi_hop_second_factor'] = second_factor
+        emr_block['recurrence']['multi_hop_second_factor'] = second_factor
     if max_sparse_conns is not None:
-        hmr['recurrence']['max_sparse_conns'] = max_sparse_conns
+        emr_block['recurrence']['max_sparse_conns'] = max_sparse_conns
     if act_mode == 'cppn_output':
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
     captured = {}
     original = engine.discover_sparse_hh_vectorized_multi_hop
 
@@ -118,8 +118,8 @@ def _run(mode, preset, iteration_level, act_mode, depth, population, generations
     finally:
         engine.discover_sparse_hh_vectorized_multi_hop = original
     settings = {
-        'band_threshold': float(hmr['band_threshold']),
-        'max_weight': float(hmr['max_weight']),
+        'band_threshold': float(emr_block['band_threshold']),
+        'max_weight': float(emr_block['max_weight']),
         'hop_decay_factor': float(algorithm.extended_config.hop_decay_factor),
         'custom_metrics': getattr(_metrics, 'custom_metrics', None),
     }
@@ -394,10 +394,10 @@ class TestMultiHopSemantics:
         for level in (1, 2):
             config = create_config_with_leo('default', recurrence_preset='hidden_only', max_depth=3,
                                             population_size=30, mode='replacement')
-            hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-            hmr['recurrence']['iteration_level'] = level
-            hmr['recurrence']['hh_cache_enabled'] = False
-            hmr['recurrence']['hh_discovery_mode'] = mode
+            emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+            emr_block['recurrence']['iteration_level'] = level
+            emr_block['recurrence']['hh_cache_enabled'] = False
+            emr_block['recurrence']['hh_discovery_mode'] = mode
             algorithm = EMRHyperNEAT()
             state = algorithm.initialize(
                 algorithm.create_config(config), XORProblem(), seed=DEFAULT_SEED
@@ -407,7 +407,7 @@ class TestMultiHopSemantics:
             algorithm.run_generation(state, XORProblem(), verbose=False)
             sets[level] = [set(zip(f.tolist(), t.tolist()))
                            for f, t, _w in _connection_lists(algorithm._cached_sparse_hh)]
-            band = float(hmr['band_threshold'])
+            band = float(emr_block['band_threshold'])
         weak = sum(int(np.sum(np.abs(w) <= band)) for _f, _t, w in
                    _connection_lists(algorithm._cached_sparse_hh))
         assert len(sets[1]) == len(sets[2]) == 30

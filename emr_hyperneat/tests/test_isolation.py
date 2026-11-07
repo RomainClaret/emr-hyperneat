@@ -11,14 +11,12 @@ API and the vendored compat shim, exercises a real generation, and then asserts 
 If a future feature addition reintroduces a geenns import anywhere on the
 executed path, this test fails immediately.
 
-It also reads every module of the package and every script under papers/ and scripts/
-by syntax tree: none may import the HMR engine (the frozen package release 0.1.0
-ships, removed in 0.2.0) or pass ``backend='hmr'``, and the frozen package must
-not be importable.
+It also reads every file of the repository: none may carry the name of the frozen prototype
+engine that release 0.1.0 ships beside EMR (its code left in 0.2.0, its name in 0.3.0), in its
+path or its text, apart from the program recorded with that engine's reference trajectories.
 """
-import ast
-import importlib.util
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,7 +24,12 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parents[1]
 REPO_ROOT = PACKAGE.parent
 
-_HMR_MODULE = re.compile(r"(^|\.)(_hmr_frozen|hmrhyperneat\w*)(\.|$)")
+#: The prototype engine's name, in any case; a character class spells it, so this file passes its own
+#: check.
+_PROTOTYPE_NAME = re.compile(r"h[m]r", re.IGNORECASE)
+#: The one file that keeps the name: the program recorded with the prototype engine's trajectories,
+#: kept as it ran.
+_RECORDED_PROGRAM = "papers/emr-dynamic-functions/scripts/analysis/prototype_trajectories.json"
 
 
 def _assert_no_geenns():
@@ -38,10 +41,6 @@ def test_public_api_imports_without_geenns():
     from emr_hyperneat import EMRHyperNEAT  # noqa: F401
 
     _assert_no_geenns()
-
-
-def test_frozen_hmr_package_is_gone():
-    assert importlib.util.find_spec("emr_hyperneat._hmr_frozen") is None
 
 
 def test_loaded_modules_resolve_inside_repo():
@@ -72,54 +71,44 @@ def test_one_generation_runs_without_geenns(algorithm, xor_problem, base_config)
     _assert_no_geenns()
 
 
-def _is_hmr(node) -> bool:
-    return isinstance(node, ast.Constant) and node.value == "hmr"
+def _repository_files() -> list:
+    """The repository's files: git's list in a checkout, else a walk without caches, environments
+    and the vendored TensorNEAT."""
+    try:
+        listed = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-files"], capture_output=True,
+                                text=True, check=True).stdout.split("\n")
+        files = [REPO_ROOT / name for name in listed if name]
+    except (OSError, subprocess.CalledProcessError):
+        files = [p for p in REPO_ROOT.rglob("*") if p.is_file()]
+    skip = ("__pycache__", ".git", ".venv", "venv", "build", "dist", "third_party")
+    return [p for p in files if p.is_file()
+            and not any(part in skip or part.endswith(".egg-info")
+                        for part in p.relative_to(REPO_ROOT).parts)]
 
 
-def _hmr_uses(path: Path) -> list:
-    """The lines where a module imports the frozen HMR package or passes backend='hmr'.
-
-    An import counts wherever it stands (inside a function too), and so does a call to
-    import_module or __import__ with a literal name; backend='hmr' counts as a call keyword, a
-    parameter default or a dict entry.
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    found = []
-    for node in ast.walk(tree):
-        names = []
-        if isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom):
-            names = [node.module or ""] + [f"{node.module}.{alias.name}" for alias in node.names]
-        elif isinstance(node, ast.Call):
-            func = node.func
-            called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-            if (called in ("import_module", "__import__") and node.args
-                    and isinstance(node.args[0], ast.Constant)):
-                names = [str(node.args[0].value)]
-            if any(k.arg == "backend" and _is_hmr(k.value) for k in node.keywords):
-                found.append(node.lineno)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            args = node.args
-            positional = args.posonlyargs + args.args
-            pairs = list(zip(positional[len(positional) - len(args.defaults):], args.defaults))
-            pairs += [(a, d) for a, d in zip(args.kwonlyargs, args.kw_defaults) if d is not None]
-            if any(a.arg == "backend" and _is_hmr(d) for a, d in pairs):
-                found.append(node.lineno)
-        elif isinstance(node, ast.Dict):
-            if any(isinstance(k, ast.Constant) and k.value == "backend" and _is_hmr(v)
-                   for k, v in zip(node.keys, node.values)):
-                found.append(node.lineno)
-        if any(_HMR_MODULE.search(name) for name in names):
-            found.append(node.lineno)
-    return found
+def _is_text(path: Path) -> bool:
+    """git's own test for a text file: no NUL byte in its first 8,000 bytes. Every such file is
+    read, whatever its suffix (a .tex figure, a .gitignore, an .svg)."""
+    with open(path, "rb") as handle:
+        return b"\0" not in handle.read(8000)
 
 
-def test_no_module_or_script_uses_hmr():
-    roots = [PACKAGE, REPO_ROOT / "papers", REPO_ROOT / "scripts"]
-    files = [p for root in roots if root.is_dir() for p in sorted(root.rglob("*.py"))
-             if "__pycache__" not in p.parts]
-    assert any(p.is_relative_to(PACKAGE) for p in files)
-    users = {p.relative_to(REPO_ROOT).as_posix(): lines for p in files
-             if (lines := _hmr_uses(p))}
-    assert not users, users
+def test_no_file_carries_the_prototype_engines_name():
+    files = _repository_files()
+    assert any(p == Path(__file__).resolve() for p in files)
+    named, mentions = [], {}
+    for path in files:
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if _PROTOTYPE_NAME.search(relative):
+            named.append(relative)
+        if relative != _RECORDED_PROGRAM and _is_text(path):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = [n for n, line in enumerate(text.split("\n"), 1) if _PROTOTYPE_NAME.search(line)]
+            if lines:
+                mentions[relative] = lines
+    assert not named, named
+    assert not mentions, mentions
+    recorded = REPO_ROOT / _RECORDED_PROGRAM
+    if recorded.exists():
+        # the exemption is still needed: the recorded program names the engine as it ran
+        assert _PROTOTYPE_NAME.search(recorded.read_text(encoding="utf-8"))

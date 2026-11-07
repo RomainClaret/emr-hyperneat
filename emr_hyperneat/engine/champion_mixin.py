@@ -35,12 +35,13 @@ class ChampionMixin:
         Raises:
             RuntimeError: create_config has not been called.
             ValueError: the configuration evaluates something the substrate API does not
-                describe (neuromodulation, multi-task, swarm mode, LEO, the weight-interpretation or
-                random function modes, a non-standard execution mode, or hidden-to-hidden
-                connections other than per-genome discovery without the h->h cache).
+                describe (neuromodulation other than true neuromodulation of a feed-forward
+                substrate with receptors from the weights, multi-task, swarm mode, LEO, the
+                weight-interpretation or random function modes, a non-standard execution mode, or
+                hidden-to-hidden connections other than per-genome discovery without the h->h cache).
         """
         # Lazy import: emr_hyperneat.substrate imports emrhyperneat, which imports this module.
-        from emr_hyperneat.substrate import SubstrateConfig
+        from emr_hyperneat.substrate import NeuromodulationSettings, SubstrateConfig
 
         if self.max_depth is None or not hasattr(self, 'dynamic_functions_mode'):
             raise RuntimeError("call create_config before substrate_config")
@@ -70,23 +71,40 @@ class ChampionMixin:
                     self.agg_mode == 'cppn_output' and self.num_cppn_outputs > 1):
                 refusals.append("hh_aggregation_mode 'dynamic' without the aggregation channel "
                                 "(the weight-interpretation decode)")
-        if self.neuromod_config is not None and self.neuromod_config.mode != 'disabled':
-            refusals.append(f"neuromodulation mode {self.neuromod_config.mode!r}")
+        nm = self.neuromod_config
+        modulated = nm is not None and nm.mode != 'disabled'
+        if modulated:
+            # True neuromodulation of a feed-forward substrate, with receptors from each position's
+            # first input weight (the engine's default), is covered; what the API cannot reproduce
+            # is refused.
+            if nm.mode != 'true_neuromodulation':
+                refusals.append(f"neuromodulation mode {nm.mode!r} (the API covers "
+                                "true_neuromodulation)")
+            else:
+                if recurrent:
+                    refusals.append("true neuromodulation with hidden-to-hidden connections (the API "
+                                    "covers feed-forward substrates)")
+                if not nm.receptor_from_weight:
+                    refusals.append("receptors from dedicated CPPN outputs (receptor_from_weight "
+                                    "false)")
+                if getattr(nm, 'use_self_connection_query', False):
+                    refusals.append("receptors from the self-connection query "
+                                    "(use_self_connection_query)")
+                if getattr(nm, 'branch_gating', False):
+                    refusals.append("branch gating")
         if self.multitask_config is not None and getattr(self.multitask_config, 'enabled', False):
             refusals.append("multi-task evaluation")
         if self.swarm_mode:
             refusals.append("swarm mode")
         if getattr(self, 'use_leo', False):
             refusals.append("LEO gating")
-        if self.agg_palette is not None:
-            refusals.append("an aggregation palette")
         if getattr(self, 'df_palette_evolution', None) is not None:
             refusals.append("palette evolution (its decode)")
         if (self.df_cppn_read, self.agg_cppn_read) != ('self', 'self') or 'raw' in (
             self.df_weight_source,
             self.agg_weight_source,
         ):
-            refusals.append("HMR's reads (cppn_read or weight_source)")
+            refusals.append("the prototype's reads (cppn_read or weight_source)")
         resolved = self.execution_config.resolve(self.max_depth)
         if resolved is not ExecutionMode.STANDARD:
             refusals.append(f"execution mode {resolved.value!r} (set execution.mode: standard)")
@@ -96,9 +114,11 @@ class ChampionMixin:
                 "execution path; this configuration also uses " + ", ".join(refusals)
             )
 
-        # The generation loop's plain branch runs when neither per-node mode is on, and
-        # it applies tanh and sigmoid whatever output_activation says.
-        if self.dynamic_functions_mode == 'disabled' and self.agg_mode == 'disabled':
+        # The generation loop's plain branch runs when neither per-node mode nor neuromodulation is
+        # on, and it applies tanh and sigmoid whatever output_activation says; under
+        # neuromodulation the configured output activation applies.
+        if (self.dynamic_functions_mode == 'disabled' and self.agg_mode == 'disabled'
+                and not modulated):
             hidden, output = 'tanh', 'sigmoid'
         else:
             name = self.df_hidden_activation if self.dynamic_functions_mode == 'global' else 'tanh'
@@ -135,6 +155,16 @@ class ChampionMixin:
             **self._substrate_recurrence_fields(recurrent),
             activation_index_decode=self.df_index_decode,
             aggregation_index_decode=self.agg_index_decode,
+            aggregation_palette=(tuple(int(i) for i in np.asarray(self.agg_palette))
+                                 if self.agg_palette is not None else None),
+            neuromodulation=(NeuromodulationSettings(
+                num_nt_types=int(nm.num_nt_types),
+                modulation_strength=float(nm.modulation_strength),
+                receptor_derivation=nm.receptor_derivation,
+                modulation_mode=nm.modulation_mode,
+                node_rule=nm.node_rule,
+                output_inversion=bool(nm.use_output_inversion),
+            ) if modulated else None),
         ).validate()
 
     def _substrate_recurrence_fields(self, recurrent: bool) -> Dict[str, Any]:
@@ -264,10 +294,10 @@ class ChampionMixin:
     def get_best_genome_with_fitness(self) -> Tuple[np.ndarray, np.ndarray, float, int]:
         """The last evaluated generation's champion, as run_generation recorded it.
 
-        HMR's version took the argmax of a fitness array over the population in the state it was
-        given, which after a generation is the next population (TensorNEAT lays it out best species
-        first), so it returned another genome unless the argmax was 0; it had no caller. This one
-        takes no arguments: the record knows the genome.
+        The prototype's version took the argmax of a fitness array over the population in the state
+        it was given, which after a generation is the next population (TensorNEAT lays it out best
+        species first), so it returned another genome unless the argmax was 0; it had no caller.
+        This one takes no arguments: the record knows the genome.
 
         Returns:
             ``(nodes, conns, fitness, index)``: the champion's CPPN genes, its fitness and its index
@@ -300,10 +330,11 @@ class ChampionMixin:
 
         The copies replace the genomes at ``slots``: by default the last ``num_copies`` slots,
         offspring. After a generation slot 0 holds the champion, which TensorNEAT keeps unmutated,
-        and HMR's version wrote slots 0 to num_copies - 1, so in an evolved population it replaced
-        the champion; ``slots=range(num_copies)`` reproduces HMR's slots. Species bookkeeping is
-        left to the next generation's speciation, as in HMR: for that generation the copies count in
-        the replaced genomes' species (harmless in a fresh population, which has one species).
+        and the prototype's version wrote slots 0 to num_copies - 1, so in an evolved population it
+        replaced the champion; ``slots=range(num_copies)`` reproduces the prototype's slots. Species
+        bookkeeping is left to the next generation's speciation, as in the prototype: for that
+        generation the copies count in the replaced genomes' species (harmless in a fresh
+        population, which has one species).
 
         Args:
             state: Algorithm state (from initialize or run_generation).
@@ -359,14 +390,14 @@ class ChampionMixin:
         """Stop structural mutation: node and connection additions and deletions.
 
         Crossover, weight, bias and response mutation and the replacement of a CPPN node's functions
-        continue, as in HMR, so selection still chooses among the population's existing topologies
-        and no new one appears. The rates are read when TensorNEAT's tell is traced, so tell is
-        compiled again (from a new function object, so no trace cache of the old rates is reused).
-        The freeze is the model's: a new create_config ends it.
+        continue, as in the prototype, so selection still chooses among the population's existing
+        topologies and no new one appears. The rates are read when TensorNEAT's tell is traced, so
+        tell is compiled again (from a new function object, so no trace cache of the old rates is
+        reused). The freeze is the model's: a new create_config ends it.
 
         Args:
-            state: Accepted for HMR's signature, which stored a flag in the state; returned
-                unchanged.
+            state: Accepted for the prototype's signature, which stored a flag in the state;
+                returned unchanged.
 
         Returns:
             ``state``.
@@ -437,10 +468,10 @@ class ChampionMixin:
         per-node functions, hidden-to-hidden connections) and run with this model's fitness mode. On
         the training problem it reproduces the champion's recorded fitness (bit for bit feed-forward
         on the CPU; within float32 rounding with recurrence, which the loop evaluates on the
-        population's union of positions). HMR's evaluator took every position as a hidden node (no
-        variance mask), ignored per-node functions, recurrence, LEO and the fitness mode, and with a
-        multi-output CPPN interleaved the channels, so it did not reproduce the training fitness
-        even on the training problem.
+        population's union of positions). The prototype's evaluator took every position as a hidden
+        node (no variance mask), ignored per-node functions, recurrence, LEO and the fitness mode,
+        and with a multi-output CPPN interleaved the channels, so it did not reproduce the training
+        fitness even on the training problem.
 
         Args:
             state: Algorithm state (TensorNEAT's, for the CPPN forward).
@@ -455,8 +486,9 @@ class ChampionMixin:
             The fitness.
 
         Raises:
-            ValueError: a configuration the substrate API does not describe (neuromodulation,
-                multi-task, ...), or data that does not match the coordinates.
+            ValueError: a configuration the substrate API does not describe (neuromodulation other than
+                true neuromodulation of a feed-forward substrate, multi-task, ...), or data that does
+                not match the coordinates.
         """
         from emr_hyperneat.substrate import (
             build_recurrent_substrate,
@@ -510,7 +542,8 @@ class ChampionMixin:
         fitness = jax.vmap(lambda out: _eval_single_fitness(out, targets, self.fitness_mode))(
             outputs
         )
-        return float(fitness[0])
+        # Rescaled as the loop rescales what it records (fitness_rescale_variance)
+        return float(self._rescale_fitness(fitness)[0])
 
     def create_state_for_new_problem(
         self,
@@ -524,8 +557,9 @@ class ChampionMixin:
 
         With ``config_params`` the model is configured again first (for a problem whose input or
         output count differs, the parameters carry its substrate coordinates); otherwise the current
-        configuration is kept. HMR's version rebuilt a configuration from six settings, so every
-        other setting reverted to its default, and raised when no palette was set; it had no caller.
+        configuration is kept. The prototype's version rebuilt a configuration from six settings, so
+        every other setting reverted to its default, and raised when no palette was set; it had no
+        caller.
 
         Args:
             problem: The new problem.
@@ -628,10 +662,7 @@ class ChampionMixin:
 
         # vmapped over the champion's two copies, as the generation vmapped the population
         outputs, fitness = jax.vmap(score)(*record['champion_args'])
-        if self._fitness_rescale_variance is not None:
-            fitness = jnp.maximum(
-                0.0, 1.0 - (1.0 - fitness) / self._fitness_rescale_variance
-            )
+        fitness = self._rescale_fitness(fitness)
         outputs = outputs[0]
         errors = (outputs - targets) ** 2
         sample_errors = jnp.mean(errors, axis=1)

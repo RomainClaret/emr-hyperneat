@@ -1,7 +1,8 @@
-"""The plain feed-forward generation as one traceable function, and HMR's GPU while_loop over it.
+"""The plain feed-forward generation as one traceable function, and the prototype's GPU while_loop
+over it.
 
-8a: run_generation_verbose runs the configurations of HMR's GPU loop's scope (a one-output CPPN, no
-hidden-to-hidden connections, activation and aggregation 'disabled' or 'global') through
+8a: run_generation_verbose runs the configurations of the prototype's GPU loop's scope (a one-output
+CPPN, no hidden-to-hidden connections, activation and aggregation 'disabled' or 'global') through
 `_feedforward_generation`, which reads the configuration and writes nothing to the engine. Run op by
 op it must equal the general path, which every other configuration runs, bit for bit on XLA:CPU:
 every fitness array, the weights, masks and records, the metrics and the final key. The same holds
@@ -52,7 +53,7 @@ from emr_hyperneat.emrhyperneat import (
     substrate_masks,
     substrate_query_rows,
 )
-from hmr_reference import hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import prototype_value, live  # type: ignore[import-not-found]
 
 SEED = 42
 GENERATIONS = 3
@@ -92,7 +93,7 @@ CORE_CONFIGS = {
         create_config_with_geometry_seeding('default', max_depth=3, population_size=30),
         locality_radius=0.5,
     ),
-    'hmr_compatible': lambda: _with(
+    'prototype_compatible': lambda: _with(
         _plain(), variance_rule='legacy', extra_randkey_split=True, initial_depth=1
     ),
     'population_150': lambda: _plain(population=150),
@@ -348,7 +349,7 @@ NO_STOP = 2.0  # above any 1-MSE or accuracy fitness: every run takes max_genera
 #: Configurations the loop runs, each a setting it applies
 LOOP_CONFIGS = {name: CORE_CONFIGS[name] for name in (
     'plain', 'aggregation_global_max', 'activation_global_sin', 'eval_chunk_7', 'fitness_accuracy',
-    'fitness_rescale', 'geometry_locality', 'hmr_compatible', 'population_150')}
+    'fitness_rescale', 'geometry_locality', 'prototype_compatible', 'population_150')}
 
 
 def _looped(config: dict) -> dict:
@@ -432,7 +433,7 @@ class TestGenerationLoopKey:
 class TestWhileLoopEquality:
 
     @pytest.mark.parametrize(
-        'name', ['plain', 'aggregation_global_max', 'eval_chunk_7', 'hmr_compatible']
+        'name', ['plain', 'aggregation_global_max', 'eval_chunk_7', 'prototype_compatible']
     )
     def test_equals_the_core_compiled_per_generation(self, name):
         _, result = _threshold_run(_looped(LOOP_CONFIGS[name]()))
@@ -509,7 +510,8 @@ class TestWhileLoopEquality:
             for best in (np.nextafter(nearest, np.float32(-np.inf)), nearest,
                          np.nextafter(nearest, np.float32(np.inf))):
                 assert bool(best >= threshold) == (float(best) >= target), (target, best)
-        # 0.95 is below its float32 rounding: HMR's float32 cast would stop a generation early there
+        # 0.95 is below its float32 rounding: the prototype's float32 cast would stop a generation
+        # early there
         assert float(np.float32(0.95)) < 0.95 and float32_threshold(0.95) > np.float32(0.95)
         assert np.isnan(float32_threshold(float('nan')))
 
@@ -644,7 +646,8 @@ class TestWhileLoopRuns:
 
 
 def _node_list() -> dict:
-    """HMR's node-list model at depth 2 (test_node_list.py's shape: no variance settings)."""
+    """The prototype's node-list model at depth 2 (test_node_list.py's shape: no variance
+    settings)."""
     return {
         'algorithm_params': {
             'emrhyperneat': {
@@ -785,12 +788,12 @@ class TestWhileLoopRefusals:
         assert result['generations'] == 2
 
 
-# HMR's base engine's GPU loop through the seam (the HMR engine, release 0.1.0). With
-# HMR's level-0 rule and pre-ask key split (as the release's frozen-HMR test sets them), HMR's
-# while_loop and EMR's give the same generations and final key, and the same best of every
-# generation to rounding (bit for bit in the design probe, depth 2, population 60). HMR's side comes
-# through hmr_reference.py: live here, recorded on CPU for the public release, so on another backend
-# the comparison runs in a CPU subprocess.
+# The GPU loop of the prototype's base engine (release 0.1.0), through the seam. With the
+# prototype's level-0 rule and pre-ask key split (as the release's frozen-prototype test sets
+# them), the prototype's while_loop and EMR's give the same generations and final key, and the same
+# best of every generation to rounding (bit for bit in the design probe, depth 2, population 60).
+# The prototype's side comes through prototype_reference.py: live here, recorded on CPU for the
+# public release, so on another backend the comparison runs in a CPU subprocess.
 
 def _base_loop_config(algo_key: str, section_key: str, **section) -> dict:
     return {
@@ -845,18 +848,18 @@ def _on_cpu(test_id: str) -> None:
 
 
 @pytest.mark.golden_cpu
-def test_the_loop_equals_hmrs_base_loop():
+def test_the_loop_equals_the_prototype_base_loop():
     if jax.default_backend() != 'cpu':
-        _on_cpu('test_the_loop_equals_hmrs_base_loop')
+        _on_cpu('test_the_loop_equals_the_prototype_base_loop')
         return
     args = (
-        _base_loop_config('hmrhyperneat', 'hmr_hyperneat'),
+        _base_loop_config('emrhyperneat', 'emr_hyperneat'),
         XORProblem(),
         SEED,
         LOOP_GENERATIONS,
     )
-    h_history, h_generations, h_key = hmr_value('generation_loop.hmr_base_while_loop',
-                                                lambda: live('base_while_loop', *args), inputs=args)
+    h_history, h_generations, h_key = prototype_value('generation_loop.prototype_base_while_loop',
+                                                      lambda: live('base_while_loop', *args), inputs=args)
     algorithm = EMRHyperNEAT()
     config = _base_loop_config(
         'emrhyperneat',

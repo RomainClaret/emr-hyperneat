@@ -62,8 +62,8 @@ class TestLEOConfiguration:
     def test_leo_config_override(self, leo_algorithm, xor_problem):
         """LEO config should accept overrides."""
         config = create_config_with_leo(preset='default', threshold=0.35)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        assert hmr['leo']['threshold'] == 0.35
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        assert emr_block['leo']['threshold'] == 0.35
         result = run_quick_evolution(leo_algorithm, config, xor_problem)
         assert_no_errors(result)
 
@@ -524,7 +524,7 @@ def _leo_config(recurrence='feedforward', hand_set_genome=True, **leo):
     return config
 
 
-def _hmr(config):
+def _emr(config):
     return config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
 
@@ -544,12 +544,12 @@ class TestLEOChannelsAndModes:
     def test_per_node_outputs_take_the_channels_after_leo(self):
         """B: activation and aggregation never read LEO's channel."""
         config = _leo_config(hand_set_genome=False)
-        _hmr(config)['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        _emr(config)['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
         algo, _ = _leo_run(config)
         assert algo.num_cppn_outputs == 3
         assert algo._cppn_output_indices == {'weight': 0, 'activation': 2, 'aggregation': 0}
 
-        _hmr(config)['aggregation'] = {'mode': 'cppn_output', 'num_aggregations': 4}
+        _emr(config)['aggregation'] = {'mode': 'cppn_output', 'num_aggregations': 4}
         algo, _ = _leo_run(config)
         assert algo.num_cppn_outputs == 4
         assert algo._cppn_output_indices == {'weight': 0, 'activation': 2, 'aggregation': 3}
@@ -560,7 +560,7 @@ class TestLEOChannelsAndModes:
         )
 
         config = _leo_config(hand_set_genome=False)
-        _hmr(config)['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4,
+        _emr(config)['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4,
                                              'cppn_output_indices': {'activation': 1}}
         with pytest.raises(ValueError, match="LEO's channel"):
             EMRHyperNEAT().create_config(config)
@@ -583,7 +583,7 @@ class TestLEOChannelsAndModes:
         )
 
         config = _leo_config(hand_set_genome=False)
-        _hmr(config)['dynamic_functions'] = {'num_cppn_outputs': 1}
+        _emr(config)['dynamic_functions'] = {'num_cppn_outputs': 1}
         with pytest.raises(ValueError, match="LEO needs a CPPN output"):
             EMRHyperNEAT().create_config(config)
 
@@ -622,7 +622,7 @@ class TestLEOChannelsAndModes:
 
         standard = _leo_config(mode=mode)
         streaming = _leo_config(mode=mode)
-        _hmr(streaming)['execution'] = {'mode': 'streaming'}
+        _emr(streaming)['execution'] = {'mode': 'streaming'}
         _, standard_fits = _leo_run(standard, generations=2)
         _, streaming_fits = _leo_run(streaming, generations=2)
         for a, b in zip(standard_fits, streaming_fits):

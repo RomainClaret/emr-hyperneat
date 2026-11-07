@@ -62,8 +62,8 @@ class MultiTaskConfig:
     # Fitness mode for evaluation
     fitness_mode: str = 'mse'  # MULTITASK_FITNESS_MODES ('ce' and unknown names raise)
 
-    # HMR's modulation_penalty, a bonus despite its name: penalty times the variance over tasks of
-    # each genome's mean modulation over its active positions (0.0 = off)
+    # The prototype's modulation_penalty, a bonus despite its name: penalty times the variance over
+    # tasks of each genome's mean modulation over its active positions (0.0 = off)
     modulation_penalty: float = 0.0
 
     # Softmin parameters (for 'softmin' aggregation)
@@ -83,7 +83,7 @@ class MultiTaskConfig:
     confusion_eval_frequency: int = 0  # Compute confusion matrix every N generations (0 = disabled)
 
     # Subspace orthogonality bonus (Liu & Wang 2024 mechanism)
-    orthogonality_bonus_weight: float = 0.0  # HMR's per-genome bonus; 0.0 = off
+    orthogonality_bonus_weight: float = 0.0  # The prototype's per-genome bonus; 0.0 = off
     orthogonality_metric: str = 'cosine_mean'  # 'cosine_mean', 'cosine_max', 'correlation'
 
     # Dendritic branch-specific gating (Liu & Wang 2024 SST mechanism)
@@ -92,9 +92,10 @@ class MultiTaskConfig:
     # Two-Module Architecture (Liu & Wang 2024 PFC/Sensorimotor separation)
     two_module_mode: str = 'none'  # 'none', 'parallel', 'sequential'
 
-    # HMR's names (its runners build MultiTaskConfig(tasks=..., aggregation=..., weights=...,
-    # nt_vectors=...) and pass it to run_generation_multitask): aggregation is fitness_aggregation,
-    # weights and nt_vectors are per task name (task_weights and nt_per_task are lists).
+    # The prototype's names (its runners build MultiTaskConfig(tasks=..., aggregation=...,
+    # weights=..., nt_vectors=...) and pass it to run_generation_multitask): aggregation is
+    # fitness_aggregation, weights and nt_vectors are per task name (task_weights and nt_per_task
+    # are lists).
     aggregation: Optional[str] = None
     weights: Optional[Dict[str, float]] = None
     nt_vectors: Optional[Dict[str, Any]] = None
@@ -113,9 +114,9 @@ class MultiTaskConfig:
 class MultiTaskMetrics:
     """Metrics from multi-task evolution with per-task breakdown, keyed by task name.
 
-    What run_generation_multitask returns for HMR's call form (a MultiTaskConfig with tasks by
-    name). The aggregated fitness includes any bonus; the best generalist is the genome of the
-    highest aggregated fitness.
+    What run_generation_multitask returns for the prototype's call form (a MultiTaskConfig with
+    tasks by name). The aggregated fitness includes any bonus; the best generalist is the genome of
+    the highest aggregated fitness.
     """
     aggregated_fitness: float = 0.0
     mean_aggregated_fitness: float = 0.0
@@ -143,7 +144,7 @@ ORTHOGONALITY_METRICS = ('cosine_mean', 'cosine_max', 'correlation')
 def refuse_anti_branch_gating(node_rule: str, branch_mode: str) -> None:
     """Refuse multi-task branch gating under neuromodulation.node_rule 'anti': the routing gives
     each region one receptor channel's modulation, which would replace the rule's own over every
-    channel (HMR ANTI had no routing).
+    channel (the prototype's ANTI variant had no routing).
 
     Raises:
         ValueError: node_rule 'anti' with a branch mode other than 'none'.
@@ -174,9 +175,10 @@ def check_branch_gating_and_penalty(
 
     Raises:
         ValueError: an unknown branch mode; a branch mode with two_module_mode (both set the
-            modulation by region; HMR evaluated the two modules and ignored the branch mode) or with
-            fewer than three NT types (the routing reads channels 0 to 2); a penalty that is not a
-            number at least 0, or above 0 with fewer than two tasks (a variance over one task is 0).
+            modulation by region; the prototype evaluated the two modules and ignored the branch
+            mode) or with fewer than three NT types (the routing reads channels 0 to 2); a penalty
+            that is not a number at least 0, or above 0 with fewer than two tasks (a variance over
+            one task is 0).
     """
     if branch_mode not in BRANCH_GATING_MODES:
         raise ValueError(
@@ -187,8 +189,8 @@ def check_branch_gating_and_penalty(
         if two_module_mode != 'none':
             raise ValueError(
                 "multitask.branch_gating_mode and two_module_mode both set the modulation by "
-                "region; HMR evaluated the two modules and ignored the branch mode, so set one of "
-                "them"
+                "region; the prototype evaluated the two modules and ignored the branch mode, so "
+                "set one of them"
             )
         if num_nt is not None and num_nt < 3:
             raise ValueError(
@@ -265,8 +267,8 @@ def compute_modulation_with_branch_gating(
     branch_mode: str = 'none',
 ) -> jnp.ndarray:
     """The modulation each position receives when its region selects the receptor channel
-    (multitask.branch_gating_mode, HMR's dendritic branch gating after Liu and Wang 2024; the same
-    function as HMR's compute_branch_specific_modulation).
+    (multitask.branch_gating_mode, the prototype's dendritic branch gating after Liu and Wang 2024;
+    the same function as the prototype's compute_branch_specific_modulation).
 
     'none': every position receptors[:, :3] @ nt[:3], the usual modulation. 'spatial', by quadrant
     of the grid: x < 0 and y < 0 reads channel 0 alone (receptors[:, 0] * nt[0]), x >= 0 and y < 0

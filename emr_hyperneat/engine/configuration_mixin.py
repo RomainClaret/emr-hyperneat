@@ -36,7 +36,7 @@ from emr_hyperneat.engine.functions import (
     PALETTE_CONFIGS,
     PALETTE_EVOLUTION_KEYS,
     RANDOM_SCOPES,
-    _parse_hmr_reads,
+    _parse_prototype_reads,
     parse_function_palette,
     parse_live_strategy,
     parse_palette_evolution,
@@ -60,7 +60,7 @@ from emr_hyperneat.engine.neuromodulation import (
     NEUROMODULATION_PRESETS,
     NEUROMODULATION_SOURCES,
     NeuromodulationConfig,
-    _translate_hmr_neuromodulation,
+    _translate_prototype_neuromodulation,
     check_modulatory_options,
     get_neuromodulation_config,
     get_nt_for_task,
@@ -89,7 +89,7 @@ class ConfigurationMixin:
         self._check_function_palettes()
         recurrent = (self.extended_config is not None
                      and self.extended_config.allow_hidden_to_hidden)
-        self._check_hmr_reads(recurrent)
+        self._check_prototype_reads(recurrent)
         # Modulatory neurons reading a CPPN output at the input queries (modulatory_cppn_read
         # 'input_mean'); the self read takes the self-connection query, which streaming runs too
         modulatory_input_read = (self.neuromod_config is not None
@@ -111,8 +111,8 @@ class ConfigurationMixin:
                 if recurrent:
                     raise ValueError(
                         "context gating from a CPPN output gates each case's connections in a "
-                        "feed-forward pass (HMR's Level 2) and would ignore the hidden-to-hidden "
-                        "connections"
+                        "feed-forward pass (the prototype's Level 2) and would ignore the "
+                        "hidden-to-hidden connections"
                     )
                 if self.agg_mode != 'disabled':
                     raise ValueError(
@@ -137,26 +137,26 @@ class ConfigurationMixin:
                 refuse_anti_branch_gating(
                     rule, getattr(self.multitask_config, 'branch_gating_mode', 'none')
                 )
-        if self._settling_rule == 'hmr':
+        if self._settling_rule == 'drive_once':
             if not recurrent:
                 raise ValueError(
-                    "recurrence.settling_rule 'hmr' needs hidden-to-hidden recurrence; this "
+                    "recurrence.settling_rule 'drive_once' needs hidden-to-hidden recurrence; this "
                     "configuration is feed-forward, where both rules compute the same network"
                 )
             if self.neuromod_config is not None and self.neuromod_config.mode != 'disabled':
-                # HMR FULL's additive rule: what it cannot apply raises
+                # The additive rule of the prototype's FULL variant: what it cannot apply raises
                 self._check_additive_settling()
         dropped = self._features_a_tanh_sum_path_drops()
-        # The multi-task evaluation applies neuromodulation, and HMR FULL's multi-task rule under
-        # settling_rule 'hmr'
+        # The multi-task evaluation applies neuromodulation, and the multi-task rule of the
+        # prototype's FULL variant under settling_rule 'drive_once'
         per_node = [feature for feature in dropped
-                    if feature not in ("neuromodulation", "recurrence.settling_rule='hmr'")]
+                    if feature not in ("neuromodulation", "recurrence.settling_rule='drive_once'")]
         multitask = (self.multitask_config is not None
                      and getattr(self.multitask_config, 'enabled', False))
         # The configured hidden activation applies in mode 'global' only, and the output activation
         # everywhere except the multi-task evaluation, which applies tanh and sigmoid; a setting it
         # would drop raises. The plain evaluation (no per-node function, aggregation or
-        # neuromodulation) applies the output activation, as HMR's dynamic-functions variant did:
+        # neuromodulation) applies the output activation, as the prototype's dynamic-functions variant did:
         # see below.
         if self.dynamic_functions_mode != 'global' and self.df_hidden_activation != 'tanh':
             raise ValueError(
@@ -177,8 +177,9 @@ class ConfigurationMixin:
         no_aggregation = self.agg_mode == 'disabled' or (
             self.agg_mode == 'modular' and self.df_modular_config['aggregation_method'] == 'none')
         plain = self.dynamic_functions_mode == 'disabled' and no_aggregation and not modulated
-        # HMR's sparsity mechanisms exist for feed-forward evaluation only (its dynamic-functions
-        # variant has no recurrence), and the neuromodulated evaluation does not apply them.
+        # The prototype's sparsity mechanisms exist for feed-forward evaluation only (its
+        # dynamic-functions variant has no recurrence), and the neuromodulated evaluation does not
+        # apply them.
         if self._df_sparsity_method != 'none' and (recurrent or modulated or multitask):
             raise ValueError(
                 f"the {self._df_sparsity_method!r} sparsity of dynamic_functions "
@@ -196,10 +197,10 @@ class ConfigurationMixin:
             )
         if (plain and not multitask and self.agg_mode == 'disabled'
                 and self.df_output_activation != 'sigmoid'):
-            # HMR's dynamic-functions variant applied the configured output activation in plain
-            # mode. The plain evaluation equals mode 'global' with a tanh hidden activation bit for
-            # bit (tests/test_hmr_names.py), so the run takes that path with the configured output
-            # activation; dynamic_functions_mode then reads 'global'.
+            # The prototype's dynamic-functions variant applied the configured output activation in
+            # plain mode. The plain evaluation equals mode 'global' with a tanh hidden activation
+            # bit for bit (tests/test_aliases.py), so the run takes that path with the configured
+            # output activation; dynamic_functions_mode then reads 'global'.
             self.dynamic_functions_mode = 'global'
             self.df_hidden_activation = 'tanh'
             self._hidden_act_fn = jnp.tanh
@@ -294,8 +295,8 @@ class ConfigurationMixin:
         return 1 if allow_hh and level == 0 else level
 
     def _check_additive_settling(self) -> None:
-        """Refuse what HMR FULL's neuromodulated rule (recurrence.settling_rule 'hmr' with
-        neuromodulation) cannot apply.
+        """Refuse what the neuromodulated rule of the prototype's FULL variant
+        (recurrence.settling_rule 'drive_once' with neuromodulation) cannot apply.
 
         Raises:
             ValueError: modulatory neurons (FULL's modulatory recurrence read one population-wide
@@ -306,23 +307,23 @@ class ConfigurationMixin:
         mode = self.neuromod_config.mode
         if mode == 'modulatory_neurons':
             raise ValueError(
-                "recurrence.settling_rule 'hmr' with modulatory neurons is refused: HMR FULL's "
-                "modulatory recurrence read one population-wide modulatory mask, "
-                "where EMR's masks are "
-                "each genome's own, and no runner used it"
+                "recurrence.settling_rule 'drive_once' with modulatory neurons is refused: the "
+                "modulatory recurrence of the prototype's FULL variant read one population-wide "
+                "modulatory mask, where EMR's masks are each genome's own, and no runner used it"
             )
         if self.hh_aggregation_mode == 'dynamic':
             raise ValueError(
-                "recurrence.settling_rule 'hmr' with neuromodulation sums the hidden-to-hidden "
-                "input, as HMR FULL did; per-node hidden-to-hidden aggregation would be ignored"
+                "recurrence.settling_rule 'drive_once' with neuromodulation sums the "
+                "hidden-to-hidden input, as the prototype's FULL variant did; per-node "
+                "hidden-to-hidden aggregation would be ignored"
             )
         plain_tanh = self.dynamic_functions_mode == 'disabled' or (
             self.dynamic_functions_mode == 'global' and self.df_hidden_activation == 'tanh')
         if self.hh_activation_mode == 'every_iteration' and not plain_tanh:
             raise ValueError(
-                "recurrence.settling_rule 'hmr' with neuromodulation applies tanh at every step "
-                "after the first, as HMR FULL did; set dynamic_functions.hh_activation_mode "
-                "'initial_only'"
+                "recurrence.settling_rule 'drive_once' with neuromodulation applies tanh at every "
+                "step after the first, as the prototype's FULL variant did; set "
+                "dynamic_functions.hh_activation_mode 'initial_only'"
             )
 
     def _features_a_tanh_sum_path_drops(self) -> List[str]:
@@ -334,14 +335,15 @@ class ConfigurationMixin:
             dropped.append(f"aggregation.mode={self.agg_mode!r}")
         if self.neuromod_config is not None and self.neuromod_config.mode != 'disabled':
             dropped.append("neuromodulation")
-        if self._settling_rule == 'hmr':
-            dropped.append("recurrence.settling_rule='hmr'")
+        if self._settling_rule == 'drive_once':
+            dropped.append("recurrence.settling_rule='drive_once'")
         return dropped
 
-    def _check_hmr_reads(self, recurrent: bool) -> None:
-        """Refuse HMR's reads (cppn_read 'input_mean', weight_source 'raw') where nothing would
-        apply them or where the raw input-to-node queries are not kept: they reproduce HMR's
-        feed-forward dynamic-functions and aggregation variants on the standard execution path.
+    def _check_prototype_reads(self, recurrent: bool) -> None:
+        """Refuse the prototype's reads (cppn_read 'input_mean', weight_source 'raw') where nothing
+        would apply them or where the raw input-to-node queries are not kept: they reproduce the
+        prototype's feed-forward dynamic-functions and aggregation variants on the standard
+        execution path.
 
         Raises:
             ValueError: A read is set with recurrence, outside the standard execution mode, without
@@ -380,7 +382,7 @@ class ConfigurationMixin:
             where = f"{section} " + " and ".join(chosen)
             if recurrent:
                 raise ValueError(
-                    f"{where} reproduces HMR's feed-forward variants; this configuration has "
+                    f"{where} reproduces the prototype's feed-forward variants; this configuration has "
                     f"hidden-to-hidden recurrence"
                 )
             if self.execution_config.resolve(self.max_depth) is not ExecutionMode.STANDARD:
@@ -391,7 +393,7 @@ class ConfigurationMixin:
             if read != 'self' and (mode != 'cppn_output' or self.num_cppn_outputs < 2):
                 raise ValueError(
                     f"{section}.cppn_read 'input_mean' needs mode 'cppn_output' and a dedicated "
-                    f"CPPN channel (HMR had no one-output read); mode {mode!r}, "
+                    f"CPPN channel (the prototype had no one-output read); mode {mode!r}, "
                     f"{self.num_cppn_outputs} CPPN output(s)"
                 )
             if source != 'w1' and not reads_weights:
@@ -449,8 +451,8 @@ class ConfigurationMixin:
             recurrence_section: The 'recurrence' subsection of emr_hyperneat config
         """
         _refuse_unknown_keys('recurrence', recurrence_section, self.RECURRENCE_KEYS)
-        # The network model: the grid, or HMR's node list, opt-in. create_config checks a node-list
-        # configuration once everything is parsed (_configure_node_list).
+        # The network model: the grid, or the prototype's node list, opt-in. create_config checks a
+        # node-list configuration once everything is parsed (_configure_node_list).
         self.network_model = recurrence_section.get('network_model', 'grid')
         if self.network_model not in NETWORK_MODELS:
             raise ValueError(f"recurrence.network_model must be one of {NETWORK_MODELS}, got "
@@ -603,14 +605,14 @@ class ConfigurationMixin:
             raise ValueError(f"recurrence.hh_cache_trigger must be one of {HH_CACHE_TRIGGERS}, got "
                              f"{self.extended_config.hh_cache_trigger!r}")
         # recurrence.max_connections is parsed and checked and never read: the cap on each genome's
-        # hidden-to-hidden connections is max_sparse_conns. HMR's unified model capped with
-        # max_connections, its node-list model ignored it. It warns.
+        # hidden-to-hidden connections is max_sparse_conns. The prototype's unified model capped
+        # with max_connections, its node-list model ignored it. It warns.
         if 'max_connections' in recurrence_section:
             import warnings
             warnings.warn(f"recurrence.max_connections={recurrence_section['max_connections']!r} "
                           f"has no effect: the cap on each genome's hidden-to-hidden connections "
-                          f"is recurrence.max_sparse_conns (a run that reproduces an HMR "
-                          f"unified-model run sets max_sparse_conns to that run's "
+                          f"is recurrence.max_sparse_conns (a run that reproduces a run of the "
+                          f"prototype's unified model sets max_sparse_conns to that run's "
                           f"max_connections)", UserWarning, stacklevel=3)
         # Forward mode, iteration level and settling steps, by the rule set_recurrence_config also
         # applies. Either block sets the steps (recurrence.activate_time, substrate.activate_time),
@@ -635,16 +637,16 @@ class ConfigurationMixin:
                 print(f"  - allow_self_loops: {self.extended_config.allow_self_loops}")
                 print(f"  - activate_time: {self.activate_time}")
 
-    def _parse_dynamic_functions_config(self, hmr_config: Dict[str, Any]) -> None:
+    def _parse_dynamic_functions_config(self, emr_block: Dict[str, Any]) -> None:
         """Parse dynamic functions and aggregation configuration.
 
         Args:
-            hmr_config: The 'emr_hyperneat' section of config
+            emr_block: The 'emr_hyperneat' section of config
         """
-        dynamic_funcs = hmr_config.get('dynamic_functions', {})
+        dynamic_funcs = emr_block.get('dynamic_functions', {})
         _refuse_unknown_keys('dynamic_functions', dynamic_funcs, self.DYNAMIC_FUNCTIONS_KEYS)
         _refuse_unknown_keys(
-            'aggregation', hmr_config.get('aggregation', {}), self.AGGREGATION_KEYS
+            'aggregation', emr_block.get('aggregation', {}), self.AGGREGATION_KEYS
         )
         palette_evolution = dynamic_funcs.get('palette_evolution') or {}
         if not isinstance(palette_evolution, dict):
@@ -669,8 +671,8 @@ class ConfigurationMixin:
                 "the activation dispatch and run the fixed tanh/sigmoid baseline "
                 "instead, which reports as a successful run of the mode you asked for."
             )
-        # Mode 'modular' (HMR's three orthogonal layers: activation selection, sparsity, weight
-        # scaling): 0.1.0 parsed it, warned and evaluated fixed tanh.
+        # Mode 'modular' (the prototype's three orthogonal layers: activation selection, sparsity,
+        # weight scaling): 0.1.0 parsed it, warned and evaluated fixed tanh.
 
         # For random modes: store seed for reproducibility, and the scope of the draw
         # (random_function_indices)
@@ -684,14 +686,14 @@ class ConfigurationMixin:
         if self.df_index_decode not in INDEX_DECODES:
             raise ValueError(f"dynamic_functions.index_decode must be one of {INDEX_DECODES}, got "
                              f"{self.df_index_decode!r}")
-        self.df_cppn_read, self.df_weight_source = _parse_hmr_reads(
+        self.df_cppn_read, self.df_weight_source = _parse_prototype_reads(
             'dynamic_functions', dynamic_funcs
         )
 
         # For 'global' mode: which activation to use. Absent here, both come from the substrate
-        # section (substrate.hidden_activation and substrate.output_activation), as in HMR's
-        # dynamic-functions variant. An unknown name raises rather than running tanh (hidden) or
-        # sigmoid (output) for it.
+        # section (substrate.hidden_activation and substrate.output_activation), as in the
+        # prototype's dynamic-functions variant. An unknown name raises rather than running tanh
+        # (hidden) or sigmoid (output) for it.
         self.df_hidden_activation = dynamic_funcs.get(
             'hidden_activation', getattr(self, 'hidden_activation', 'tanh'))
         self.df_output_activation = dynamic_funcs.get(
@@ -738,7 +740,7 @@ class ConfigurationMixin:
                 "in 0.1.0"
             )
         act_from_cppn = self.dynamic_functions_mode == 'cppn_output'
-        agg_from_cppn = hmr_config.get('aggregation', {}).get('mode') == 'cppn_output'
+        agg_from_cppn = emr_block.get('aggregation', {}).get('mode') == 'cppn_output'
         if getattr(self, 'use_leo', False):
             # LEO holds channel LEO_CHANNEL, so the per-node outputs take the channels after
             # it: activation, then aggregation.
@@ -794,22 +796,23 @@ class ConfigurationMixin:
         # step its name describes, so under it no configured activation would apply on the
         # recurrent path, and a name that says the opposite of what runs is not kept.
         self.hh_activation_mode = dynamic_funcs.get('hh_activation_mode', 'every_iteration')
-        # Under recurrence.settling_rule 'hmr', 'initial_only' is HMR's mode: the configured
-        # activation at the first step, tanh at the later ones (settle_hidden_hmr).
-        hmr_initial_only = (
-            self.hh_activation_mode == 'initial_only' and self._settling_rule == 'hmr'
+        # Under recurrence.settling_rule 'drive_once', 'initial_only' is the prototype's mode: the
+        # configured activation at the first step, tanh at the later ones
+        # (settle_hidden_drive_once).
+        drive_once_initial_only = (
+            self.hh_activation_mode == 'initial_only' and self._settling_rule == 'drive_once'
         )
-        if self.hh_activation_mode == 'initial_only' and not hmr_initial_only:
+        if self.hh_activation_mode == 'initial_only' and not drive_once_initial_only:
             raise ValueError(
                 "dynamic_functions.hh_activation_mode='initial_only' is no longer accepted outside "
-                "recurrence.settling_rule 'hmr'. "
+                "recurrence.settling_rule 'drive_once'. "
                 "In emr-hyperneat 0.1.0 it applied no configured activation on the "
                 "recurrent path: every settling step was tanh and per-node or global "
                 "activations were computed and never used. Use 'every_iteration' (the "
                 "default: the configured activation at every step) or 'tanh' (tanh at every "
                 "step, which settles as 0.1.0 did when no input aggregation is configured)."
             )
-        if self.hh_activation_mode not in HH_ACTIVATION_MODES and not hmr_initial_only:
+        if self.hh_activation_mode not in HH_ACTIVATION_MODES and not drive_once_initial_only:
             raise ValueError(
                 f"dynamic_functions.hh_activation_mode must be one of {HH_ACTIVATION_MODES}, "
                 f"got {self.hh_activation_mode!r}"
@@ -841,8 +844,8 @@ class ConfigurationMixin:
             )
             self.df_palette_name = 'custom'
 
-        # Built-in palette evolution (HMR's dynamic-functions variant; 0.1.0 ignored the key). It
-        # evolves the palette of the per-node CPPN decode, which it owns.
+        # Built-in palette evolution (the prototype's dynamic-functions variant; 0.1.0 ignored the
+        # key). It evolves the palette of the per-node CPPN decode, which it owns.
         self.df_palette_evolution = None
         if palette_evolution.get('enabled', False):
             if self.dynamic_functions_mode != 'cppn_output':
@@ -871,9 +874,9 @@ class ConfigurationMixin:
                     "is not true, so they would be ignored"
                 )
 
-        # HMR's live palette strategy: a runner's strategy object sets the palette after each
-        # generation (set_palette_strategy). HMR's perturbation wrote into TensorNEAT's node-index
-        # column, a defect not reproduced; here it goes to the bias of the
+        # The prototype's live palette strategy: a runner's strategy object sets the palette after
+        # each generation (set_palette_strategy). The prototype's perturbation wrote into
+        # TensorNEAT's node-index column, a defect not reproduced; here it goes to the bias of the
         # activation output node.
         self._live_strategy = parse_live_strategy(dynamic_funcs.get('live_strategy') or {})
         self._palette_strategy = None
@@ -928,7 +931,7 @@ class ConfigurationMixin:
             if self.df_modular_config[key] not in names:
                 raise ValueError(
                     f"dynamic_functions.modular.{key} must be one of {names}, got "
-                    f"{self.df_modular_config[key]!r} (HMR fell back to magnitude_bio or to "
+                    f"{self.df_modular_config[key]!r} (the prototype fell back to magnitude_bio or to "
                     "nothing for an unknown name)"
                 )
         modular_sparsity = modular_config.get('sparsity', {})
@@ -983,7 +986,7 @@ class ConfigurationMixin:
         # What the generation applies after the activation index: a sparsity method (zero the hidden
         # values below a quantile of each sample's active values) and a scaling method (scale each
         # node's incoming weights). weight_interpretation names them through its interpretation,
-        # modular through its layers; each takes its own sparsity block, as in HMR.
+        # modular through its layers; each takes its own sparsity block, as in the prototype.
         self._df_sparsity_method, self._df_scaling_method = 'none', 'none'
         self._df_sparsity_params = self.df_sparsity_config
         if self.dynamic_functions_mode == 'weight_interpretation':
@@ -1000,8 +1003,8 @@ class ConfigurationMixin:
 
         # AGGREGATION FUNCTIONS CONFIGURATION
         # Note: aggregation is a sibling of dynamic_functions in the config,
-        # so we read it from hmr_config, not from dynamic_funcs
-        aggregation_config = hmr_config.get('aggregation', {})
+        # so we read it from emr_block, not from dynamic_funcs
+        aggregation_config = emr_block.get('aggregation', {})
         if 'global_aggregation' in aggregation_config:
             raise ValueError(
                 "aggregation.global_aggregation is not a setting; the function of aggregation "
@@ -1014,8 +1017,8 @@ class ConfigurationMixin:
                 f"aggregation.mode must be one of {sorted(self.AGGREGATION_MODES)}, got "
                 f"{self.agg_mode!r}"
             )
-        # Mode 'modular' takes dynamic_functions.modular.aggregation_method (HMR's aggregation
-        # variant); 0.1.0 ran sum aggregation for it.
+        # Mode 'modular' takes dynamic_functions.modular.aggregation_method (the prototype's
+        # aggregation variant); 0.1.0 ran sum aggregation for it.
 
         # For random modes: the seed and the scope of the draw (random_function_indices)
         self._random_agg_seed = aggregation_config.get('random_seed', None)
@@ -1027,7 +1030,7 @@ class ConfigurationMixin:
         if self.agg_index_decode not in INDEX_DECODES:
             raise ValueError(f"aggregation.index_decode must be one of {INDEX_DECODES}, got "
                              f"{self.agg_index_decode!r}")
-        self.agg_cppn_read, self.agg_weight_source = _parse_hmr_reads(
+        self.agg_cppn_read, self.agg_weight_source = _parse_prototype_reads(
             'aggregation', aggregation_config
         )
 
@@ -1040,10 +1043,10 @@ class ConfigurationMixin:
 
         # For 'cppn_output' mode: number of aggregation functions available
         self.agg_num_aggregations = aggregation_config.get('num_aggregations', 4)
-        # Aggregation palette: HMR's palette strategies computed an aggregation palette that was
-        # recorded and never applied, and 0.1.0 read no agg_palette a runner set. The per-node modes
-        # decode a palette position and map it to the function's AGGREGATION_LIST index, as the
-        # activation palette does.
+        # Aggregation palette: the prototype's palette strategies computed an aggregation palette
+        # that was recorded and never applied, and 0.1.0 read no agg_palette a runner set. The
+        # per-node modes decode a palette position and map it to the function's AGGREGATION_LIST
+        # index, as the activation palette does.
         agg_palette = aggregation_config.get('palette', None)
         self.agg_palette = (
             None
@@ -1079,7 +1082,7 @@ class ConfigurationMixin:
             )
 
         # Resolve hidden activation function for 'global' and 'disabled' modes, and for 'modular'
-        # with activation method 'none', which gives every node tanh (HMR's index 0)
+        # with activation method 'none', which gives every node tanh (the prototype's index 0)
         modular_tanh = (self.dynamic_functions_mode == 'modular'
                         and self.df_modular_config['activation_method'] == 'none')
         if self.dynamic_functions_mode in ('disabled', 'global') or modular_tanh:
@@ -1122,7 +1125,7 @@ class ConfigurationMixin:
                 print(f"  - True aggregation: {self.agg_use_true_aggregation}")
                 print(f"  - H->H aggregation mode: {self.hh_aggregation_mode}")
 
-    def _parse_neuromodulation_config(self, hmr_config: Dict[str, Any]) -> None:
+    def _parse_neuromodulation_config(self, emr_block: Dict[str, Any]) -> None:
         """Parse neuromodulation and multi-task configuration.
 
         Supports 4 neuromodulation levels:
@@ -1134,11 +1137,20 @@ class ConfigurationMixin:
         4. true_neuromodulation: NT vectors + receptor densities + gain modulation
 
         Args:
-            hmr_config: The 'emr_hyperneat' section of config
+            emr_block: The 'emr_hyperneat' section of config
         """
-        raw_neuromodulation = hmr_config.get('neuromodulation', {})
-        neuromod_config = _translate_hmr_neuromodulation(raw_neuromodulation)
+        raw_neuromodulation = emr_block.get('neuromodulation', {})
+        neuromod_config = _translate_prototype_neuromodulation(raw_neuromodulation)
         _refuse_unknown_keys('neuromodulation', neuromod_config, self.NEUROMODULATION_KEYS)
+        # The rule is checked first, whatever the mode or preset, as leo.mode and settling_rule
+        # are: otherwise an unknown rule under a gating mode would be refused as a rule of
+        # true_neuromodulation, and a disabled block would take it
+        rule = neuromod_config.get('node_rule', 'paper')
+        if rule not in NEUROMODULATION_NODE_RULES:
+            raise ValueError(
+                f"neuromodulation.node_rule must be one of {NEUROMODULATION_NODE_RULES}, got "
+                f"{rule!r}"
+            )
         # The modulatory CPPN outputs the modulatory options read (mode modulatory_neurons; set
         # below)
         self._modulatory_cppn_reads: Tuple[str, ...] = ()
@@ -1149,7 +1161,7 @@ class ConfigurationMixin:
         if mode not in self.NEUROMODULATION_MODES:
             raise ValueError(
                 f"neuromodulation.mode must be one of {self.NEUROMODULATION_MODES}, got {mode!r}; "
-                "HMR's neuromodulation variant used preset names as modes (e.g. "
+                "the prototype's neuromodulation variant used preset names as modes (e.g. "
                 "'true_neuromodulation_4nt_option_a_tanh', 'xdg_style', 'full', 'custom'); EMR's "
                 "presets are neuromodulation.preset")
         if neuromod_config.get('branch_gating', False):
@@ -1189,9 +1201,9 @@ class ConfigurationMixin:
                            ('true_neuromodulation',): 'true_neuromodulation'}.get(levels)
             if preset_mode is None:
                 raise ValueError(f"neuromodulation.preset {preset!r} combines the levels {levels}; "
-                                 f"HMR evaluated {levels[-1]} alone while its CPPN also evolved "
-                                 f"the outputs of the others, which nothing read, so EMR runs one "
-                                 f"level: configure {levels[-1]}")
+                                 f"the prototype evaluated {levels[-1]} alone while its CPPN also "
+                                 f"evolved the outputs of the others, which nothing read, so EMR runs "
+                                 f"one level: configure {levels[-1]}")
             if 'mode' in neuromod_config and mode != preset_mode:
                 raise ValueError(f"neuromodulation.mode {mode!r} contradicts preset {preset!r} (level "
                                  f"{preset_mode!r})")
@@ -1283,8 +1295,8 @@ class ConfigurationMixin:
                 node_rule=neuromod_config.get('node_rule', 'paper'),
                 # Branch-specific gating
                 branch_gating=neuromod_config.get('branch_gating', False),
-                # Opt-in self-connection-query decode (reproduces the HMR/paper
-                # receptor/base-gain source). Default False = existing EMR behavior.
+                # Opt-in self-connection-query decode (reproduces the receptor and base-gain
+                # source of the prototype and the paper). Default False = existing EMR behavior.
                 use_self_connection_query=neuromod_config.get('use_self_connection_query', False),
                 gate_source=neuromod_config.get(
                     'gate_source', 'cppn' if neuromod_config.get('gate_from_cppn') else 'weights'
@@ -1303,7 +1315,7 @@ class ConfigurationMixin:
 
         # Neuromodulation's dedicated CPPN outputs: Option B's receptors, the per-connection gate,
         # or the modulatory factor and node type, the CPPN's last channels after the weight, LEO and
-        # the per-node channels (HMR's order; the output count includes them)
+        # the per-node channels (the prototype's order; the output count includes them)
         if self.neuromod_config:
             for key, value in (('gate_source', self.neuromod_config.gate_source),
                                ('modulatory_source', self.neuromod_config.modulatory_source)):
@@ -1326,6 +1338,13 @@ class ConfigurationMixin:
                     f"neuromodulation.modulatory_source 'cppn' chooses modulatory neurons in mode "
                     f"modulatory_neurons, not {mode!r}"
                 )
+            # An unknown modulation_mode would otherwise run as 'full' in the loop, while
+            # substrate_config refuses it
+            if self.neuromod_config.modulation_mode not in MODULATION_MODES:
+                raise ValueError(
+                    f"neuromodulation.modulation_mode must be one of {MODULATION_MODES}, got "
+                    f"{self.neuromod_config.modulation_mode!r}"
+                )
             # The node rule is true neuromodulation's: another mode would ignore it
             rule = self.neuromod_config.node_rule
             if rule != 'paper' and mode != 'true_neuromodulation':
@@ -1334,18 +1353,18 @@ class ConfigurationMixin:
                     f"mode {mode!r} would ignore it"
                 )
             if rule == 'anti':
-                # HMR ANTI's rule gates and scales every node from its own modulation and inverts no
-                # output
+                # The rule of the prototype's ANTI variant gates and scales every node from its own
+                # modulation and inverts no output
                 if self.neuromod_config.modulation_mode != 'full':
                     raise ValueError(
-                        "neuromodulation.node_rule 'anti' gates and scales every node (HMR ANTI "
-                        "had no other form); modulation_mode "
+                        "neuromodulation.node_rule 'anti' gates and scales every node (the "
+                        "prototype's ANTI variant had no other form); modulation_mode "
                         f"{self.neuromod_config.modulation_mode!r} is not one of its forms"
                     )
                 if neuromod_config.get('use_output_inversion', False):
                     raise ValueError(
                         "neuromodulation.use_output_inversion would be ignored: node_rule 'anti' "
-                        "(HMR ANTI's rule) inverts no output"
+                        "(the rule of the prototype's ANTI variant) inverts no output"
                     )
                 self.neuromod_config.use_output_inversion = False
             # The modulatory-neuron options: checked in their mode, refused in any other
@@ -1360,7 +1379,7 @@ class ConfigurationMixin:
                     f"neuromodulation.{options_set[0]} is an option of mode modulatory_neurons, "
                     f"not {mode!r}"
                 )
-            channels = neuromodulation_cppn_channels(hmr_config.get('neuromodulation', {}))
+            channels = neuromodulation_cppn_channels(emr_block.get('neuromodulation', {}))
             if channels:
                 base = self.num_cppn_outputs - len(channels)
                 used = (
@@ -1396,14 +1415,15 @@ class ConfigurationMixin:
             }
 
         # Multi-task configuration
-        multitask_config = hmr_config.get('multitask', {})
+        multitask_config = emr_block.get('multitask', {})
         _refuse_unknown_keys('multitask', multitask_config, self.MULTITASK_KEYS)
         # Settings nothing in EMR applies, or that cannot rank genomes, raise unless left at their
-        # default. The two constant bonuses add one value to every genome (orthogonality_bonus from the
-        # tasks' NT vectors, specialization_bonus from the population's mean fitness variance): it never
-        # changes a rank within a generation, only the reported fitness (and with it stagnation and a
-        # threshold stop); the per-genome bonuses are orthogonality_bonus_weight and
-        # specialization_bonus_weight (HMR's mechanisms). Nothing reads confusion_eval_frequency.
+        # default. The two constant bonuses add one value to every genome (orthogonality_bonus from
+        # the tasks' NT vectors, specialization_bonus from the population's mean fitness variance):
+        # it never changes a rank within a generation, only the reported fitness (and with it
+        # stagnation and a threshold stop); the per-genome bonuses are orthogonality_bonus_weight
+        # and specialization_bonus_weight (the prototype's mechanisms). Nothing reads
+        # confusion_eval_frequency.
         for key, inert, why in (
             (
                 'orthogonality_bonus',
@@ -1502,7 +1522,7 @@ class ConfigurationMixin:
                 specialization_bonus_weight=float(
                     multitask_config.get('specialization_bonus_weight', 0.0)
                 ),
-                # HMR's branch gating and modulation penalty
+                # The prototype's branch gating and modulation penalty
                 branch_gating_mode=multitask_config.get('branch_gating_mode', 'none'),
                 modulation_penalty=float(multitask_config.get('modulation_penalty', 0.0)),
             )
@@ -1534,6 +1554,17 @@ class ConfigurationMixin:
                 }
         else:
             self.multitask_config = None
+
+        # node_rule 'anti' reads every neurotransmitter channel, and the single-task vector has
+        # four: more channels would fail at the first generation with a shape error; multi-task
+        # gives each task its own vector of num_nt_types channels
+        if (self.neuromod_config is not None and self.neuromod_config.node_rule == 'anti'
+                and self.neuromod_config.num_nt_types > 4 and self.multitask_config is None):
+            raise ValueError(
+                f"neuromodulation.node_rule 'anti' reads every neurotransmitter channel and the "
+                f"single-task vector has four; num_nt_types {self.neuromod_config.num_nt_types} "
+                f"needs multi-task vectors (multitask.enabled) or at most 4 channels"
+            )
 
         # Log neuromodulation configuration
         if self.verbose and self.neuromod_config:

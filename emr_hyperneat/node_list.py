@@ -1,6 +1,6 @@
-"""HMR's node-list recurrent model on the EMR engine.
+"""The prototype's node-list recurrent model on the EMR engine.
 
-The model of HMR's recurrent-network variant (RN below), opt-in with
+The model of the prototype's recurrent-network variant (RN below), opt-in with
 ``recurrence.network_model: node_list``. Each genome's network is discovered on the leaves of a
 complete quadtree at depth ``max_depth`` and settled as a list of nodes. RN made every leaf a
 candidate (its active-leaf mask was all true, so no variance decided anything) and kept a

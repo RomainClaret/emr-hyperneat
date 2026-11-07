@@ -1,5 +1,5 @@
-"""The engine's HMR names: the attribute and property names HMR runners read, its result keys, and the
-multi-task methods it named that EMR refuses with a pointer to its own."""
+"""The prototype engine's names in EMR: the attribute and property names its runners read, its
+result keys, and the multi-task methods it named that EMR refuses with a pointer to its own."""
 from typing import Any, Callable, Dict, Optional
 
 import jax.numpy as jnp
@@ -9,13 +9,13 @@ from emr_hyperneat.engine.metrics import EMRRecurrenceMetrics
 from emr_hyperneat.execution import ExecutionMode
 
 
-class HMRNamesMixin:
-    """EMRHyperNEAT's HMR-compatible names."""
+class AliasesMixin:
+    """EMRHyperNEAT's prototype-compatible names."""
 
     @property
     def _hidden_act_func(self) -> Optional[Callable]:
-        """HMR's name for _hidden_act_fn, the one hidden activation of a non-per-node run (None when
-        per node)."""
+        """The prototype's name for _hidden_act_fn, the one hidden activation of a non-per-node run
+        (None when per node)."""
         return self._hidden_act_fn
 
     @_hidden_act_func.setter
@@ -24,7 +24,7 @@ class HMRNamesMixin:
 
     @property
     def _output_act_func(self) -> Optional[Callable]:
-        """HMR's name for _output_act_fn, the output activation."""
+        """The prototype's name for _output_act_fn, the output activation."""
         return self._output_act_fn
 
     @_output_act_func.setter
@@ -33,37 +33,38 @@ class HMRNamesMixin:
 
     @property
     def aggregation_mode(self) -> str:
-        """HMR's name for agg_mode (its aggregation variant's attribute)."""
+        """The prototype's name for agg_mode (its aggregation variant's attribute)."""
         return self.agg_mode
 
     @property
     def _depth_offload_enabled(self) -> bool:
-        """HMR's name (its depth-offload variant): whether this configuration runs the depth-offload
-        path."""
+        """The prototype's name (its depth-offload variant): whether this configuration runs the
+        depth-offload path."""
         return self.resolve_execution_mode() is ExecutionMode.DEPTH_OFFLOAD
 
     @property
     def _use_sparse_hh(self) -> bool:
-        """HMR's unified model's flag: hidden-to-hidden connections are discovered."""
+        """The flag of the prototype's unified model: hidden-to-hidden connections are discovered."""
         return self.extended_config is not None and bool(
             self.extended_config.allow_hidden_to_hidden
         )
 
     @property
     def _use_full_recurrent(self) -> bool:
-        """HMR's unified model's flag, by its rule (get_recurrence_mode() == 'full_recurrent'):
-        recurrence enabled with backward, lateral or self connections."""
+        """The flag of the prototype's unified model, by its rule (get_recurrence_mode() ==
+        'full_recurrent'): recurrence enabled with backward, lateral or self connections."""
         return self.get_recurrence_mode() == 'full_recurrent'
 
     def get_recurrence_metrics(self) -> Optional[EMRRecurrenceMetrics]:
-        """HMR's unified model's name for the last generation's recurrence metrics
-        (get_extended_metrics; the record carries every field of HMR's RecurrenceMetrics)."""
+        """The name the prototype's unified model used for the last generation's recurrence metrics
+        (get_extended_metrics; the record carries every field of the prototype's
+        RecurrenceMetrics)."""
         return self._extended_metrics
 
-    def _hmr_result_keys(
+    def _alias_result_keys(
         self, target_fitness: float, last_best: float, best: float
     ) -> Dict[str, Any]:
-        """HMR's result keys of run_until_threshold (its streaming and depth-offload variants):
+        """The prototype's result keys of run_until_threshold (its streaming and depth-offload variants):
         'converged' and its alias 'solved' (the run reached target_fitness), 'final_fitness' (the
         last generation's best, where 'best_fitness' is the run's best) and 'sparse_hh_stats' (the
         last generation's hidden-to-hidden discovery: its time, its connections over the population
@@ -103,14 +104,15 @@ class HMRNamesMixin:
 
     @property
     def cppn_num_outputs(self) -> int:
-        """HMR's name for ``num_cppn_outputs``, the CPPN's output count."""
+        """The prototype's name for ``num_cppn_outputs``, the CPPN's output count."""
         return self.num_cppn_outputs
 
     def evaluate_with_task_context(
         self, state: Any, task_context: Any, inputs: Any, targets: Any
     ) -> jnp.ndarray:
-        """HMR's name (its neuromodulation variant), refused: there it read _cached_G1_logit, which
-        nothing assigned, so it raised before evaluating anything, and no runner calls it.
+        """The prototype's name (its neuromodulation variant), refused: there it read
+        _cached_G1_logit, which nothing assigned, so it raised before evaluating anything, and no
+        runner calls it.
 
         Raises:
             NotImplementedError: Always; context gating takes its context from the current task
@@ -118,34 +120,34 @@ class HMRNamesMixin:
                 tasks.
         """
         raise NotImplementedError(
-            "evaluate_with_task_context is HMR's, where it never ran (it read gate logits nothing "
-            "set); context gating takes its context from the task index "
+            "evaluate_with_task_context is the prototype's, where it never ran (it read gate logits "
+            "nothing set); context gating takes its context from the task index "
             "(set_task_neurotransmitter), and run_generation_multitask evaluates several tasks")
 
     def evaluate_multi_task(
         self, state: Any, multi_task_problem: Any, aggregation: str = 'mean'
     ) -> jnp.ndarray:
-        """HMR's name, refused for the reason evaluate_with_task_context gives (it called that
-        method).
+        """The prototype's name, refused for the reason evaluate_with_task_context gives (it called
+        that method).
 
         Raises:
             NotImplementedError: Always; run_generation_multitask evaluates several tasks.
         """
         raise NotImplementedError(
-            "evaluate_multi_task is HMR's, where it never ran (it called "
+            "evaluate_multi_task is the prototype's, where it never ran (it called "
             "evaluate_with_task_context); use "
             "run_generation_multitask")
 
     def run_multi_task_generation(
         self, state: Any, multi_task_problem: Any, aggregation: str = 'mean'
     ) -> Any:
-        """HMR's name, refused for the reason evaluate_with_task_context gives (it called that
-        method, and it would have told the new population the previous population's fitnesses).
+        """The prototype's name, refused for the reason evaluate_with_task_context gives (it called
+        that method, and it would have told the new population the previous population's fitnesses).
 
         Raises:
             NotImplementedError: Always; run_generation_multitask runs a multi-task generation.
         """
         raise NotImplementedError(
-            "run_multi_task_generation is HMR's, where it never ran (it called "
+            "run_multi_task_generation is the prototype's, where it never ran (it called "
             "evaluate_with_task_context); use "
             "run_generation_multitask")

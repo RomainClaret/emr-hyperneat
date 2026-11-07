@@ -1,5 +1,6 @@
-"""How a recurrent substrate settles: the three settling rules (EMR's, HMR's, additive), the node
-activations and node rules, and the step and rule registries that keep their compiled forms."""
+"""How a recurrent substrate settles: the three settling rules (EMR's, the prototype's, additive),
+the node activations and node rules, and the step and rule registries that keep their compiled
+forms."""
 import functools
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -14,15 +15,16 @@ from emr_hyperneat.engine.functions import (
 )
 
 
-#: Settling steps of HMR's rule for the stable node functions, by (step function, dynamic recurrent
-#: input, return_states, number of h->h aggregations, number of step operands), as
+#: Settling steps of the prototype's rule for the stable node functions, by (step function, dynamic
+#: recurrent input, return_states, number of h->h aggregations, number of step operands), as
 #: :data:`_SETTLE_STEPS` for :func:`settle_hidden`.
-_SETTLE_STEPS_HMR: Dict[Tuple[Any, ...], Callable] = {}
+_SETTLE_STEPS_DRIVE_ONCE: Dict[Tuple[Any, ...], Callable] = {}
 
 
-def _hmr_recurrent_delta(hidden: jnp.ndarray, operands: Tuple[jnp.ndarray, ...], dynamic: bool,
-                         num_hh_aggregations: int) -> jnp.ndarray:
-    """The hidden-to-hidden input of one step of HMR's rule (:func:`settle_hidden_hmr`)."""
+def _drive_once_recurrent_delta(hidden: jnp.ndarray, operands: Tuple[jnp.ndarray, ...], dynamic: bool,
+                                num_hh_aggregations: int) -> jnp.ndarray:
+    """The hidden-to-hidden input of one step of the prototype's rule
+    (:func:`settle_hidden_drive_once`)."""
     safe_from, safe_to, effective_weights, *aggregation = operands
     contributions = hidden[:, safe_from] * effective_weights
     if dynamic:
@@ -33,9 +35,9 @@ def _hmr_recurrent_delta(hidden: jnp.ndarray, operands: Tuple[jnp.ndarray, ...],
     return jnp.zeros_like(hidden).at[:, safe_to].add(contributions)
 
 
-def _stable_settle_step_hmr(step_fn: Callable[..., jnp.ndarray], dynamic: bool, return_states: bool,
-                            num_hh_aggregations: int, num_step_operands: int = 0) -> Callable:
-    """The step of HMR's rule for a stable step function, made once and reused (see
+def _stable_settle_step_drive_once(step_fn: Callable[..., jnp.ndarray], dynamic: bool, return_states: bool,
+                                   num_hh_aggregations: int, num_step_operands: int = 0) -> Callable:
+    """The step of the prototype's rule for a stable step function, made once and reused (see
     :func:`_stable_settle_step`): the step function's operands ride in the carry beside the
     recurrent operands."""
     key = (
@@ -45,21 +47,21 @@ def _stable_settle_step_hmr(step_fn: Callable[..., jnp.ndarray], dynamic: bool, 
         num_hh_aggregations if dynamic else None,
         num_step_operands,
     )
-    step = _SETTLE_STEPS_HMR.get(key)
+    step = _SETTLE_STEPS_DRIVE_ONCE.get(key)
     if step is None:
         def step(carry, _):
             hidden, *operands = carry
             step_operands, operands = operands[:num_step_operands], operands[num_step_operands:]
             new = step_fn(
-                hidden + _hmr_recurrent_delta(hidden, operands, dynamic, num_hh_aggregations),
+                hidden + _drive_once_recurrent_delta(hidden, operands, dynamic, num_hh_aggregations),
                 *step_operands,
             )
             return (new, *step_operands, *operands), (new if return_states else None)
-        _SETTLE_STEPS_HMR[key] = step
+        _SETTLE_STEPS_DRIVE_ONCE[key] = step
     return step
 
 
-def settle_hidden_hmr(
+def settle_hidden_drive_once(
     drive: jnp.ndarray,
     from_indices: jnp.ndarray,
     to_indices: jnp.ndarray,
@@ -75,7 +77,7 @@ def settle_hidden_hmr(
     first_operands: Tuple[jnp.ndarray, ...] = (),
     step_operands: Tuple[jnp.ndarray, ...] = (),
 ) -> Any:
-    """Settle a recurrent substrate's hidden layer by HMR's rule (frozen engine,
+    """Settle a recurrent substrate's hidden layer by the prototype's rule (frozen engine,
     ``forward_hybrid_vmapped`` of the dynamic-functions variants): ``h = first_fn(drive,
     *first_operands)``, then ``activate_time - 1`` steps of ``h = step_fn(h + recurrent(h),
     *step_operands)``.
@@ -83,20 +85,21 @@ def settle_hidden_hmr(
     The input drive enters at the first step only, and the ``h +`` term acts as a unit
     self-connection on every hidden node, under hidden_only too, so the result differs from
     :func:`settle_hidden` from generation 0 on the same networks (by up to 0.56 of a genome's 1 -
-    MSE, part5_settling_probe). The recurrent input is HMR's scatter-add (:func:`settle_hidden` uses
-    an equivalent dense matmul, within float32 rounding), so this reproduces the frozen engine's
-    arithmetic. A registry step function (tanh) or a node rule (per-node activation,
-    :func:`node_activation_rule`) settles through a step made once that carries the rule's operands,
-    as in :func:`settle_hidden`, so repeated calls with the same shapes compile nothing new.
+    MSE, part5_settling_probe). The recurrent input is the prototype's scatter-add
+    (:func:`settle_hidden` uses an equivalent dense matmul, within float32 rounding), so this
+    reproduces the frozen engine's arithmetic. A registry step function (tanh) or a node rule
+    (per-node activation, :func:`node_activation_rule`) settles through a step made once that
+    carries the rule's operands, as in :func:`settle_hidden`, so repeated calls with the same shapes
+    compile nothing new.
 
     Args:
         drive: (n_samples, num_positions) input drive.
         from_indices, to_indices, hh_weights, valid_mask: the hidden-to-hidden connections.
-        activate_time: Settling steps of HMR's count, at least 1 (static): the first activation is
-            one of them.
+        activate_time: Settling steps of the prototype's count, at least 1 (static): the first
+            activation is one of them.
         first_fn: The first activation: the node's configured function.
-        step_fn: The activation of the later steps: tanh (HMR's 'initial_only') or the node's
-            function ('every_iteration').
+        step_fn: The activation of the later steps: tanh (the prototype's 'initial_only') or the
+            node's function ('every_iteration').
         hh_agg_indices, hh_aggregation_mode, num_hh_aggregations, return_states: as for
             :func:`settle_hidden` (the first state is the first activation).
         first_operands, step_operands: The arrays ``first_fn`` and ``step_fn`` read after the
@@ -126,7 +129,7 @@ def settle_hidden_hmr(
     first = hidden
     step_operands = tuple(step_operands)
     if _is_stable_node_fn(step_fn):
-        step = _stable_settle_step_hmr(
+        step = _stable_settle_step_drive_once(
             step_fn, dynamic, return_states, num_hh_aggregations, len(step_operands)
         )
         (hidden, *_), states = lax.scan(step, (hidden,) + step_operands + operands, None,
@@ -136,7 +139,7 @@ def settle_hidden_hmr(
         # entry per call and never reuse one
         def step(hidden, _):
             new = step_fn(
-                hidden + _hmr_recurrent_delta(hidden, operands, dynamic, num_hh_aggregations),
+                hidden + _drive_once_recurrent_delta(hidden, operands, dynamic, num_hh_aggregations),
                 *step_operands,
             )
             return new, (new if return_states else None)
@@ -153,9 +156,9 @@ _SETTLE_STEPS_ADDITIVE: Dict[Tuple[Any, ...], Callable] = {}
 
 def _stable_settle_step_additive(update_fn: Callable[..., jnp.ndarray], return_states: bool,
                                  num_update_operands: int) -> Callable:
-    """The step of HMR FULL's neuromodulated rule for a stable update rule, made once and reused:
-    the rule's operands ride in the carry beside the recurrent operands (see
-    :func:`_stable_settle_step_hmr`)."""
+    """The step of the neuromodulated rule of the prototype's FULL variant for a stable update
+    rule, made once and reused: the rule's operands ride in the carry beside the recurrent operands
+    (see :func:`_stable_settle_step_drive_once`)."""
     key = (update_fn, return_states, num_update_operands)
     step = _SETTLE_STEPS_ADDITIVE.get(key)
     if step is None:
@@ -166,7 +169,7 @@ def _stable_settle_step_additive(update_fn: Callable[..., jnp.ndarray], return_s
                 operands[num_update_operands:],
             )
             new = hidden + update_fn(
-                _hmr_recurrent_delta(hidden, operands, False, 0), *update_operands
+                _drive_once_recurrent_delta(hidden, operands, False, 0), *update_operands
             )
             return (new, *update_operands, *operands), (new if return_states else None)
         step = _SETTLE_STEPS_ADDITIVE.setdefault(key, step)
@@ -184,16 +187,17 @@ def settle_hidden_additive(
     update_operands: Tuple[jnp.ndarray, ...] = (),
     return_states: bool = False,
 ) -> Any:
-    """Settle a neuromodulated recurrent hidden layer by HMR FULL's rule.
+    """Settle a neuromodulated recurrent hidden layer by the rule of the prototype's FULL variant.
 
     ``h`` starts at the node's value of the input drive (``first_hidden``, computed by the caller),
     then ``activate_time`` steps of ``h = h + update_fn(recurrent(h), *update_operands)``: the
-    update is added to the state, where HMR's older rule (:func:`settle_hidden_hmr`) passes ``h +
-    recurrent(h)`` through the node and runs ``activate_time - 1`` steps. The recurrent input is
-    HMR's scatter-add (:func:`_hmr_recurrent_delta`), summed: FULL's neuromodulated evaluations had
-    no per-node hidden-to-hidden aggregation. The update rules are FULL's: under static and context
-    gating ``tanh(gates * r)``; under true neuromodulation the node rule with tanh on the
-    single-task path and the node itself (the task's activation) on the multi-task path.
+    update is added to the state, where the prototype's older rule
+    (:func:`settle_hidden_drive_once`) passes ``h + recurrent(h)`` through the node and runs
+    ``activate_time - 1`` steps. The recurrent input is the prototype's scatter-add
+    (:func:`_drive_once_recurrent_delta`), summed: FULL's neuromodulated evaluations had no per-node
+    hidden-to-hidden aggregation. The update rules are FULL's: under static and context gating
+    ``tanh(gates * r)``; under true neuromodulation the node rule with tanh on the single-task path
+    and the node itself (the task's activation) on the multi-task path.
 
     Args:
         first_hidden: (n_samples, num_positions) the node's value of the input drive.
@@ -226,7 +230,7 @@ def settle_hidden_additive(
     else:
         def step(hidden, _):
             new = hidden + update_fn(
-                _hmr_recurrent_delta(hidden, operands, False, 0), *update_operands
+                _drive_once_recurrent_delta(hidden, operands, False, 0), *update_operands
             )
             return new, (new if return_states else None)
 

@@ -12,7 +12,7 @@ from emr_hyperneat.emrhyperneat_base import (
 )
 from emr_hyperneat.engine.config import SparseHiddenConnections
 from emr_hyperneat.engine.evaluation import forward_hybrid_vmapped
-from emr_hyperneat.engine.settling import settle_hidden
+from emr_hyperneat.engine.functions import dense_substrate_forward
 
 
 # PMAP Evaluation Functions (Zero IPC Overhead Multi-GPU)
@@ -40,9 +40,7 @@ def _pmap_eval_single_dense(w1: jnp.ndarray, w2: jnp.ndarray,
     Returns:
         Sum of squared errors for this genome on this data shard (scalar)
     """
-    # Feedforward: inputs @ w1 -> tanh -> @ w2 -> sigmoid
-    hidden = jnp.tanh(inputs @ w1)
-    outputs = jax.nn.sigmoid(hidden @ w2)
+    outputs = dense_substrate_forward(inputs, w1, w2)
     errors = (outputs - targets) ** 2
     return jnp.sum(errors)
 
@@ -74,9 +72,8 @@ def _pmap_eval_single_hybrid(w1: jnp.ndarray, w2: jnp.ndarray,
         Sum of squared errors for this genome on this data shard (scalar)
     """
     del num_hidden
-    hidden = settle_hidden(inputs @ w1, hh_from, hh_to, hh_weights, hh_valid,
-                           activate_time, jnp.tanh)
-    outputs = jax.nn.sigmoid(hidden @ w2)
+    outputs = forward_hybrid_vmapped(inputs, w1, w2, hh_from, hh_to, hh_weights, hh_valid,
+                                     activate_time)
     errors = (outputs - targets) ** 2
     return jnp.sum(errors)
 
@@ -423,8 +420,7 @@ def _full_pipeline_with_hh_core(
     else:
         # Dense-only evaluation
         def eval_single_dense(w1, w2):
-            hidden = jnp.tanh(inputs_batch @ w1)
-            outputs = jax.nn.sigmoid(hidden @ w2)
+            outputs = dense_substrate_forward(inputs_batch, w1, w2)
             errors = jnp.mean((outputs - targets_batch) ** 2, axis=1)
             return 1.0 - jnp.mean(errors)
 

@@ -61,8 +61,8 @@ class TestRecurrenceConfigParsing:
     def test_custom_recurrence_config(self, algorithm, xor_problem):
         """Verify custom recurrence configuration works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {
             'enabled': True,
             'allow_hidden_to_hidden': True,
             'allow_backward': True,
@@ -89,11 +89,11 @@ class TestRecurrenceConfigParsing:
 
     def test_preset_decides_whether_recurrence_is_on(self):
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {'preset': 'hidden_only', 'enabled': True,
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {'preset': 'hidden_only', 'enabled': True,
                              'allow_hidden_to_hidden': True}
         EMRHyperNEAT().create_config(config)
-        hmr['recurrence']['allow_hidden_to_hidden'] = False
+        emr_block['recurrence']['allow_hidden_to_hidden'] = False
         with pytest.raises(ValueError, match="contradicts preset 'hidden_only'"):
             EMRHyperNEAT().create_config(config)
 
@@ -108,12 +108,12 @@ class TestRecurrenceConfigParsing:
         """A preset decides enabled and allow_hidden_to_hidden, so a value that contradicts it
         raises and an agreeing one is accepted: a block cannot say one thing and run the other."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence'] = {'preset': preset, key: value}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence'] = {'preset': preset, key: value}
         with pytest.raises(ValueError, match=f"recurrence.{key}={value!r} contradicts preset "
                                              f"'{preset}'"):
             EMRHyperNEAT().create_config(config)
-        hmr['recurrence'] = {'preset': preset, key: not value}
+        emr_block['recurrence'] = {'preset': preset, key: not value}
         EMRHyperNEAT().create_config(config)
 
     def test_iteration_level_configuration(self, algorithm, xor_problem):
@@ -399,13 +399,13 @@ class TestConfigurationCombinations:
     def test_full_feature_combination(self, algorithm, xor_problem):
         """Verify all features can be enabled together."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
         # Enable all features
-        hmr['recurrence'] = RECURRENCE_PRESETS['hidden_only'].copy()
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
-        hmr['aggregation'] = {'mode': 'global', 'global_function': 'sum'}
-        hmr['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS['hidden_only'].copy()
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block['aggregation'] = {'mode': 'global', 'global_function': 'sum'}
+        emr_block['neuromodulation'] = NEUROMODULATION_PRESETS['true_neuromodulation_4nt'].copy()
 
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
@@ -527,7 +527,8 @@ class TestSelectorGuards:
         assert algorithm.variance_rule == 'legacy'
 
     def test_missing_config_block_warns(self):
-        """An HMR-shaped or misnested config warns: it would default every EMR setting."""
+        """A config shaped for the prototype engine, or misnested, warns: it would default every EMR
+        setting."""
         with pytest.warns(UserWarning, match="No 'emr_hyperneat' configuration block"):
             EMRHyperNEAT().create_config(
                 {'algorithm_params': {'emrhyperneat': {'population_size': 10}}})
@@ -642,9 +643,9 @@ class TestPresetIterationLevelDefault:
         assert algorithm.substrate_config().iteration_level == 1
 
 
-class TestHmrNameAliases:
+class TestPrototypeNameAliases:
     def test_cppn_num_outputs(self, algorithm):
-        """HMR's runners read cppn_num_outputs; EMR names it num_cppn_outputs."""
+        """The prototype's runners read cppn_num_outputs; EMR names it num_cppn_outputs."""
         algorithm.create_config(create_base_config())
         assert algorithm.cppn_num_outputs == algorithm.num_cppn_outputs == 1
 
@@ -847,7 +848,7 @@ class TestActivateTimeResolution:
         assert fresh.activate_time == 10
 
     def test_set_recurrence_config_reads_only_four_fields(self, algorithm):
-        """A caller can pass HMR's UnifiedExtendedConfig rather than an EMRConfig."""
+        """A caller can pass the prototype's UnifiedExtendedConfig rather than an EMRConfig."""
         from types import SimpleNamespace
         algorithm.create_config(self._config({'preset': 'feedforward'}))
         algorithm.set_recurrence_config(SimpleNamespace(enabled=True, allow_hidden_to_hidden=True,
@@ -1324,13 +1325,25 @@ class TestNoSilentDrops:
         with pytest.raises(ValueError, match=f'{section}.interpretation must be one of'):
             EMRHyperNEAT().create_config(config)
 
-    def test_hmr_shaped_configuration(self):
+    def test_another_engines_configuration(self):
+        """A configuration whose engine blocks carry another engine's names (as the prototype
+        engine's did) raises instead of running every setting at its default."""
         config = create_base_config()
         block = config['algorithm_params'].pop('emrhyperneat')
-        block['hmr_hyperneat'] = block.pop('emr_hyperneat')
-        config['algorithm_params']['hmrhyperneat'] = block
-        with pytest.raises(ValueError, match='shaped for the HMR engine'):
+        block['other_hyperneat'] = block.pop('emr_hyperneat')
+        config['algorithm_params']['otherhyperneat'] = block
+        with pytest.raises(ValueError, match=r'names engine blocks EMR does not read '
+                                             r'\(algorithm_params\.otherhyperneat\)'):
             EMRHyperNEAT().create_config(config)
+
+    def test_another_engines_flat_configuration(self):
+        """The flat form (the engine's blocks at the top level) with another engine's block name
+        raises too."""
+        block = create_base_config()['algorithm_params']['emrhyperneat']
+        block['other_hyperneat'] = block.pop('emr_hyperneat')
+        with pytest.raises(ValueError, match=r'names engine blocks EMR does not read '
+                                             r'\(other_hyperneat\)'):
+            EMRHyperNEAT().create_config(block)
 
     def test_recurrent_aggregation_fallback_follows_the_interpretation(self, monkeypatch):
         """Both sides of weight-interpretation aggregation, input-to-hidden and hidden-to-hidden,
@@ -1506,8 +1519,8 @@ class TestNoSilentDrops:
             EMRHyperNEAT().create_config(config)
 
     def test_substrate_activations_feed_global_mode(self):
-        """As in HMR's dynamic-functions variant, the substrate section's activations are the defaults
-        of dynamic_functions.hidden_activation and output_activation."""
+        """As in the prototype's dynamic-functions variant, the substrate section's activations are
+        the defaults of dynamic_functions.hidden_activation and output_activation."""
         config = create_base_config()
         _emr(config)['dynamic_functions'] = {'mode': 'global'}
         config['algorithm_params']['emrhyperneat']['substrate'].update(
@@ -1526,10 +1539,10 @@ class TestNoSilentDrops:
             EMRHyperNEAT().create_config(config)
 
     def test_output_activation_on_the_plain_path(self):
-        """A configured output activation applies on the plain path (HMR's dynamic-functions variant
-        applied it; 0.1.0 ignored it on this path): the run takes mode 'global' with a tanh hidden
-        activation, which equals the plain evaluation bit for bit (test_hmr_names.py). With
-        per-node aggregation the dynamic evaluation applies it."""
+        """A configured output activation applies on the plain path (the prototype's
+        dynamic-functions variant applied it; 0.1.0 ignored it on this path): the run takes mode
+        'global' with a tanh hidden activation, which equals the plain evaluation bit for bit
+        (test_aliases.py). With per-node aggregation the dynamic evaluation applies it."""
         config = create_base_config()
         _emr(config)['dynamic_functions'] = {'mode': 'disabled', 'output_activation': 'tanh'}
         algorithm = EMRHyperNEAT()
@@ -1544,8 +1557,8 @@ class TestNoSilentDrops:
     @pytest.mark.parametrize(
         'block, match',
         [
-            # gate_from_cppn is HMR's name of gate_source 'cppn' (TestCppnNeuromodulation); in
-            # another mode it raises
+            # gate_from_cppn is the prototype's name of gate_source 'cppn'
+            # (TestCppnNeuromodulation); in another mode it raises
             (
                 {'mode': 'true_neuromodulation', 'gate_from_cppn': True},
                 "gate_source 'cppn' gates connections",
@@ -1560,7 +1573,8 @@ class TestNoSilentDrops:
             ),
             ({'mode': 'true_neuromodulation_fancy'}, "neuromodulation.mode must be one of"),
             ({'mode': 'full'}, "evaluated Level 3 only"),
-            ({'mode': 'xdg_style', 'gate_source': 'weights'}, "contradicts HMR's mode 'xdg_style'"),
+            ({'mode': 'xdg_style', 'gate_source': 'weights'},
+             "contradicts the prototype's mode 'xdg_style'"),
             ({'preset': 'full'}, "combines the levels"),
             ({'preset': 'mystery'}, "neuromodulation.preset must be one of"),
             ({'enabled': True}, "enabled is true but no mode or preset"),
@@ -1672,9 +1686,9 @@ class TestNoSilentDrops:
         else:
             EMRHyperNEAT().create_config(config)
 
-    def test_hmr_fitness_modes(self):
-        """acc_mse and accuracy_confident as HMR's neuromodulation variant defined them (they
-        computed MSE here)."""
+    def test_prototype_fitness_modes(self):
+        """acc_mse and accuracy_confident as the prototype's neuromodulation variant defined them
+        (they computed MSE here)."""
         import jax.numpy as jnp
         from emr_hyperneat.emrhyperneat import (
             _eval_single_fitness,
@@ -1693,10 +1707,10 @@ class TestNoSilentDrops:
         assert abs(float(_eval_single_fitness(outputs, targets, 'accuracy_confident'))
                    - (accuracy + 0.1 * confidence)) < 1e-6
 
-    def test_hmrs_option_a_mode_names(self):
-        """HMR's Option A mode names are EMR's true_neuromodulation with the name's NT count and
-        receptor derivation and HMR's receptor source; the run equals the explicit EMR block bit for
-        bit."""
+    def test_prototype_option_a_mode_names(self):
+        """The prototype's Option A mode names are EMR's true_neuromodulation with the name's NT
+        count and receptor derivation and the prototype's receptor source; the run equals the
+        explicit EMR block bit for bit."""
         def run(block):
             config = create_base_config(max_depth=3, population_size=20)
             _emr(config)['neuromodulation'] = block
@@ -1746,7 +1760,7 @@ class TestNoSilentDrops:
             algorithm.neuromod_config.receptor_derivation,
         ) == (num_nt, derivation)
 
-    def test_hmrs_custom_mode(self):
+    def test_prototype_custom_mode(self):
         config = create_base_config()
         _emr(config)['neuromodulation'] = {
             'mode': 'custom',
@@ -1768,22 +1782,23 @@ class TestNoSilentDrops:
         [
             (
                 {'mode': 'true_neuromodulation_4nt_option_a_tanh', 'num_nt_types': 5},
-                "contradicts HMR's mode",
+                "contradicts the prototype's mode",
             ),
-            # HMR's Option B names translate (test_neuromodulation.py TestOptionB); a contradiction
-            # raises
+            # The prototype's Option B names translate (test_neuromodulation.py TestOptionB); a
+            # contradiction raises
             (
                 {'mode': 'true_neuromodulation_4nt', 'num_nt_types': 2},
-                "is HMR's Option B with four NT types",
+                "is the prototype's Option B with four NT types",
             ),
-            # HMR evaluated the highest level of a 'custom' combination (test_custom_levels.py)
+            # The prototype evaluated the highest level of a 'custom' combination
+            # (test_custom_levels.py)
             (
                 {'mode': 'custom', 'static_gating': True, 'true_neuromodulation': True},
-                'HMR evaluated true_neuromodulation alone',
+                'the prototype evaluated true_neuromodulation alone',
             ),
         ],
     )
-    def test_hmr_mode_name_refusals(self, block, match):
+    def test_prototype_mode_name_refusals(self, block, match):
         config = create_base_config()
         _emr(config)['neuromodulation'] = block
         with pytest.raises(ValueError, match=match):
@@ -1852,9 +1867,7 @@ class TestUnknownKeysOutsideEmrHyperneatRaise:
         ('algorithm_params', 'population_size',
          'EMR reads algorithm_params.emrhyperneat.population_size'),
         ('algorithm_params', 'generations', "run_until_threshold's max_generations"),
-        ('algorithm_params', 'hmrhyperneat', 'the block of the HMR engine'),
         ('algorithm_params.emrhyperneat', 'pop_size', 'population_size here, or neat.pop_size'),
-        ('algorithm_params.emrhyperneat', 'hmr_hyperneat', "HMR's block name"),
         ('algorithm_params.emrhyperneat', 'bogus',
          'the settings of algorithm_params.emrhyperneat are'),
     ])
@@ -1954,17 +1967,17 @@ class TestUnknownKeysOutsideEmrHyperneatRaise:
         }}}
         _silently(config)
 
-    def test_hmr_shaped_configuration_raises_without_a_warning_first(self):
+    def test_another_engines_configuration_raises_without_a_warning_first(self):
         """Without an emr_hyperneat block nothing is checked here: the base class refuses the
         configuration (or warns that every setting takes its default)."""
         import warnings
         config = create_base_config()
         block = config['algorithm_params'].pop('emrhyperneat')
-        block['hmr_hyperneat'] = block.pop('emr_hyperneat')
-        config['algorithm_params']['hmrhyperneat'] = block
+        block['other_hyperneat'] = block.pop('emr_hyperneat')
+        config['algorithm_params']['otherhyperneat'] = block
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter('always')
-            with pytest.raises(ValueError, match='shaped for the HMR engine'):
+            with pytest.raises(ValueError, match='names engine blocks EMR does not read'):
                 EMRHyperNEAT().create_config(config)
         assert not [w for w in record if 'is not a setting' in str(w.message)]
 
@@ -2047,3 +2060,27 @@ class TestOneMinusMseEvaluations:
         monkeypatch.setattr(jax, 'devices', lambda backend=None: [cpu, cpu])
         with pytest.raises(ValueError, match=f"{match}.*would ignore {key}="):
             algorithm.run_until_threshold(state, task, target_fitness=2.0, max_generations=1)
+
+
+class TestNeuromodulationSettingValues:
+    """node_rule and modulation_mode are checked when the configuration is read, whatever the mode or preset."""
+
+    @pytest.mark.parametrize('rule', ['unknown_rule', 'h' + 'mr_full'])
+    @pytest.mark.parametrize('mode', ['static_gating', 'true_neuromodulation_4nt'])
+    def test_an_unknown_node_rule(self, mode, rule):
+        config = create_config_with_neuromodulation(mode, node_rule=rule)
+        with pytest.raises(ValueError, match='node_rule must be one of'):
+            EMRHyperNEAT().create_config(config)
+
+    @pytest.mark.parametrize('rule', ['unknown_rule', 'h' + 'mr_full'])
+    def test_an_unknown_node_rule_in_a_disabled_block(self, rule):
+        config = create_base_config()
+        config['algorithm_params']['emrhyperneat']['emr_hyperneat']['neuromodulation'] = {'node_rule': rule}
+        with pytest.raises(ValueError, match='node_rule must be one of'):
+            EMRHyperNEAT().create_config(config)
+
+    def test_an_unknown_modulation_mode(self):
+        config = create_config_with_neuromodulation('true_neuromodulation_4nt', recurrence_preset='feedforward',
+                                                    modulation_mode='gate_only')
+        with pytest.raises(ValueError, match='modulation_mode must be one of'):
+            EMRHyperNEAT().create_config(config)

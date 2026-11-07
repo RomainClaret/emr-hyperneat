@@ -16,11 +16,14 @@ this module returns is the substrate EMR evaluates, not a second implementation 
 The equivalence is tested bit for bit against the generation loop.
 
 Scope: the substrate of the standard execution path, with the activation modes
-``disabled``, ``global`` and ``cppn_output`` and the aggregation modes of the same names,
-feed-forward or with hidden-to-hidden connections under per-genome discovery. Neuromodulation,
-multi-task evaluation, swarm mode, the weight-interpretation and random function modes, the
-union h->h discovery and the h->h cache are not covered, and `EMRHyperNEAT.substrate_config`
+``disabled``, ``global`` and ``cppn_output`` and the aggregation modes of the same names (an
+aggregation palette included), feed-forward or with hidden-to-hidden connections under per-genome
+discovery, and true neuromodulation of a feed-forward substrate with receptors from each
+position's first input weight (`substrate_neuromodulation`). The other neuromodulation levels and
+sources, multi-task evaluation, swarm mode, the weight-interpretation and random function modes,
+the union h->h discovery and the h->h cache are not covered, and `EMRHyperNEAT.substrate_config`
 refuses a configuration that uses them rather than return a substrate EMR would not evaluate.
+`SUBSTRATE_CAPABILITIES` names what is covered beyond the first release of this API.
 
 Hidden-to-hidden connections are built in two more steps, the caller evaluating the CPPN
 again: `hh_query_rows` gives each genome's rows (every pair of its active positions), and
@@ -69,6 +72,9 @@ import numpy as np
 from emr_hyperneat.emrhyperneat import (
     ACTIVATION_FUNCTIONS,
     AGGREGATION_FUNCTIONS,
+    AGGREGATION_LIST,
+    MODULATION_MODES,
+    NEUROMODULATION_NODE_RULES,
     SETTLING_RULES,
     WEIGHT_THRESHOLD,
     _bucket_size_for,
@@ -85,19 +91,23 @@ from emr_hyperneat.emrhyperneat import (
     continuous_to_index,
     cppn_output_function_indices,
     dense_substrate_forward,
+    derive_receptor_from_weight,
     hh_pair_weights,
     hidden_activation,
     input_drive,
+    invert_outputs,
     node_activation,
+    node_activation_rule,
     per_genome_pair_connections,
     self_connection_rows,
     settle_hidden,
-    settle_hidden_hmr,
+    settle_hidden_drive_once,
     apply_sparse_cap_policy,
     check_sparse_cap_settings,
     sparse_cap_refusal,
     substrate_masks,
     substrate_weight_matrices,
+    true_neuromodulation_node_rule,
 )
 from emr_hyperneat.emrhyperneat_base import (
     batch_query_population_multi_source_chunked,
@@ -110,11 +120,14 @@ __all__ = [
     "ACTIVATION_MODES",
     "AGGREGATION_MODES",
     "HH_CONNECTION_CLASSES",
+    "NeuromodulationSettings",
     "SPARSE_CAP_POLICIES",
+    "SUBSTRATE_CAPABILITIES",
     "SparseCapExceeded",
     "SparseCapWarning",
     "Substrate",
     "SubstrateConfig",
+    "SubstrateNeuromodulation",
     "SubstrateQueries",
     "WEIGHT_THRESHOLD",
     "build_recurrent_substrate",
@@ -122,6 +135,8 @@ __all__ = [
     "compute_hierarchical_variances_batch",
     "cppn_output_function_indices",
     "cppn_query_rows",
+    "default_neurotransmitter",
+    "derive_receptor_from_weight",
     "get_hierarchical_grid",
     "hh_connection_classes",
     "hh_pair_weights",
@@ -130,6 +145,7 @@ __all__ = [
     "query_substrate",
     "self_connection_rows",
     "substrate_forward",
+    "substrate_neuromodulation",
     "substrate_queries",
     "substrate_weight_matrices",
 ]
@@ -146,6 +162,43 @@ AGGREGATION_MODES = ("disabled", "global", "cppn_output")
 #: the y coordinates of its ends as in the recurrence configuration: forward when the source lies
 #: below the target, lateral on the same y, backward above, self a position to itself.
 HH_CONNECTION_CLASSES = ("forward", "lateral", "backward", "self")
+#: What the substrate API covers beyond its first release, for a caller that checks before it asks:
+#: the connection cap's policies (``SubstrateConfig.sparse_cap_policy``), true neuromodulation of a
+#: feed-forward substrate (`substrate_neuromodulation`, ``substrate_forward(..., neuromodulation=)``),
+#: an aggregation palette (``SubstrateConfig.aggregation_palette``), and the steps the substrate is
+#: built from as public functions with stable signatures (`get_hierarchical_grid`,
+#: `cppn_query_rows`, `cppn_output_function_indices`, `substrate_weight_matrices`,
+#: `self_connection_rows`, `compute_hierarchical_variances_batch`).
+SUBSTRATE_CAPABILITIES = frozenset({
+    "sparse_cap_policy",
+    "neuromodulation",
+    "aggregation_palette",
+    "substrate_steps",
+})
+
+
+class NeuromodulationSettings(NamedTuple):
+    """True neuromodulation (level 4) as the generation loop applies it to a feed-forward substrate.
+
+    `EMRHyperNEAT.substrate_config` fills it in from the parsed configuration
+    (``SubstrateConfig.neuromodulation``). Receptor densities come from each hidden position's first
+    input weight, the engine's default source.
+
+    Attributes:
+        num_nt_types: Neurotransmitter channels, 2 to 6.
+        modulation_strength: The modulation strength s.
+        receptor_derivation: How a weight becomes receptor densities (`derive_receptor_from_weight`).
+        modulation_mode: ``'full'``, ``'gating_only'`` or ``'gain_bias_only'`` (``MODULATION_MODES``).
+        node_rule: The neuromodulated node's rule (``NEUROMODULATION_NODE_RULES``).
+        output_inversion: Whether the fourth channel inverts the outputs (four or more channels).
+    """
+
+    num_nt_types: int = 4
+    modulation_strength: float = 2.0
+    receptor_derivation: str = "tanh"
+    modulation_mode: str = "full"
+    node_rule: str = "paper"
+    output_inversion: bool = True
 
 
 class SubstrateConfig(NamedTuple):
@@ -196,8 +249,10 @@ class SubstrateConfig(NamedTuple):
         max_sparse_conns_ceiling: The most ``'grow'`` may reach (None: no ceiling).
         activate_time: Settling steps, an integer of at least 1 (a bool is refused); None is the loop's
             automatic count, ``2 (2**max_depth + 1)``. No effect without hidden-to-hidden connections.
-        settling_rule: ``'emr'``, the package's one settling rule (:func:`settle_hidden`).
-        hh_activation_mode: The activation of a settling step, ``'every_iteration'`` or ``'tanh'``.
+        settling_rule: ``'emr'`` (:func:`settle_hidden`) or ``'drive_once'``
+            (:func:`settle_hidden_drive_once`, the prototype engine's rule).
+        hh_activation_mode: The activation of a settling step, ``'every_iteration'`` or ``'tanh'``,
+            or ``'initial_only'`` under the ``'drive_once'`` rule.
         hh_aggregation_mode: ``'sum'``, or ``'dynamic'`` (per-node aggregation of the recurrent
             input, read from the aggregation channel at the self-connection).
         activation_index_decode: How the activation channel becomes a function index,
@@ -205,6 +260,10 @@ class SubstrateConfig(NamedTuple):
             ``'uniform'`` (every entry, equal bins); `continuous_to_index`.
         aggregation_index_decode: The same for the aggregation channel, including the recurrent
             input's dynamic aggregation.
+        aggregation_palette: AGGREGATION_LIST indices the aggregation channel chooses from, any
+            subset in any order, or None for the leading ``num_aggregations`` entries.
+        neuromodulation: True neuromodulation of a feed-forward substrate
+            (`NeuromodulationSettings`), or None.
     """
 
     input_coords: Tuple[Tuple[float, float], ...]
@@ -249,6 +308,9 @@ class SubstrateConfig(NamedTuple):
     # max_sparse_conns, and how far 'grow' may go
     sparse_cap_policy: str = "refuse"
     max_sparse_conns_ceiling: Optional[int] = None
+    # Appended last: the aggregation palette and true neuromodulation of a feed-forward substrate
+    aggregation_palette: Optional[Tuple[int, ...]] = None
+    neuromodulation: Optional[NeuromodulationSettings] = None
 
     def validate(self) -> "SubstrateConfig":
         """Raise ValueError if the configuration cannot describe an EMR substrate.
@@ -291,7 +353,7 @@ class SubstrateConfig(NamedTuple):
                     f"settling_rule must be one of {SETTLING_RULES}, got {self.settling_rule!r}"
                 )
             modes = ("every_iteration", "tanh") + (
-                ("initial_only",) if self.settling_rule == "hmr" else ()
+                ("initial_only",) if self.settling_rule == "drive_once" else ()
             )
             if self.hh_activation_mode not in modes:
                 raise ValueError(f"hh_activation_mode must be one of {modes} under the "
@@ -310,6 +372,26 @@ class SubstrateConfig(NamedTuple):
                                       self.max_sparse_conns_ceiling)
             if self.activate_time is not None:
                 _explicit_activate_time("activate_time", self.activate_time)
+        if self.aggregation_palette is not None:
+            entries = tuple(self.aggregation_palette)
+            if not entries or any(isinstance(i, bool) or not isinstance(i, (int, np.integer))
+                                  or not 0 <= int(i) < len(AGGREGATION_LIST) for i in entries):
+                raise ValueError(f"aggregation_palette must hold AGGREGATION_LIST indices (0 to "
+                                 f"{len(AGGREGATION_LIST) - 1}), got {self.aggregation_palette!r}")
+        nm = self.neuromodulation
+        if nm is not None:
+            if self.hidden_to_hidden:
+                raise ValueError("neuromodulation covers feed-forward substrates: this configuration "
+                                 "has hidden-to-hidden connections")
+            if not 2 <= int(nm.num_nt_types) <= 6:
+                raise ValueError(f"neuromodulation.num_nt_types must be 2 to 6, got "
+                                 f"{nm.num_nt_types!r}")
+            if nm.modulation_mode not in MODULATION_MODES:
+                raise ValueError(f"neuromodulation.modulation_mode must be one of "
+                                 f"{MODULATION_MODES}, got {nm.modulation_mode!r}")
+            if nm.node_rule not in NEUROMODULATION_NODE_RULES:
+                raise ValueError(f"neuromodulation.node_rule must be one of "
+                                 f"{NEUROMODULATION_NODE_RULES}, got {nm.node_rule!r}")
         return self
 
 
@@ -578,21 +660,28 @@ def build_substrate(
             decode=config.activation_index_decode,
         )
     agg_indices = None
+    agg_palette = _aggregation_palette(config)
+    agg_options = (len(config.aggregation_palette) if agg_palette is not None
+                   else config.num_aggregations)
     if config.aggregation_mode == "cppn_output":
         agg_indices = cppn_output_function_indices(
             self_outputs, masks, W1,
             channel=config.aggregation_channel,
-            num_options=config.num_aggregations,
+            num_options=agg_options,
             num_cppn_outputs=config.num_cppn_outputs,
+            palette=agg_palette,
             decode=config.aggregation_index_decode,
         )
     hh_agg_indices = None
     if config.hidden_to_hidden and config.hh_aggregation_mode == "dynamic":
         # The generation loop's decode of the recurrent-input aggregation: the aggregation channel
-        # at the self-connection, unmasked (validate() guarantees the channel exists).
+        # at the self-connection, unmasked (validate() guarantees the channel exists), a palette
+        # position mapped to its AGGREGATION_LIST index as the loop maps it.
         hh_agg_indices = continuous_to_index(
-            jnp.asarray(self_outputs)[:, :, config.aggregation_channel], config.num_aggregations,
+            jnp.asarray(self_outputs)[:, :, config.aggregation_channel], agg_options,
             config.aggregation_index_decode)
+        if agg_palette is not None:
+            hh_agg_indices = agg_palette[hh_agg_indices]
     return Substrate(
         positions=grid.all_positions,
         levels=_levels(grid),
@@ -606,13 +695,28 @@ def build_substrate(
     )
 
 
+def _aggregation_palette(config: SubstrateConfig) -> Optional[jnp.ndarray]:
+    if config.aggregation_palette is None:
+        return None
+    return jnp.array(config.aggregation_palette, dtype=jnp.int32)
+
+
+def _evaluated_aggregations(config: SubstrateConfig) -> int:
+    """How many aggregations evaluation dispatches over: the whole list under a palette (its entries
+    are AGGREGATION_LIST indices), else the leading ``num_aggregations``, as in the generation loop."""
+    if config.aggregation_palette is not None:
+        return len(AGGREGATION_LIST)
+    return int(config.num_aggregations)
+
+
 def _palette(config: SubstrateConfig) -> Optional[jnp.ndarray]:
     if config.palette is None:
         return None
     return jnp.array(config.palette, dtype=jnp.int32)
 
 
-def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = False) -> Any:
+def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = False, *,
+                      neuromodulation: Optional["SubstrateNeuromodulation"] = None) -> Any:
     """Run every substrate on the same inputs.
 
     A feed-forward substrate runs on the whole grid, as the generation loop does (bit for bit).
@@ -620,11 +724,17 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
     active positions (padded to a bucket size, so compiled shapes repeat), which matches the
     loop's fitness within float32 rounding.
 
+    Under true neuromodulation each hidden node follows the generation loop's neuromodulated node
+    rule and the outputs its inversion, bit for bit: with the substrate's own receptors and gains
+    (`substrate_neuromodulation`) when its configuration has neuromodulation settings, or with
+    ``neuromodulation`` when given, on any feed-forward substrate.
+
     Args:
         substrate: Output of `build_substrate`, and of `build_recurrent_substrate` when the
             configuration has hidden-to-hidden connections.
         inputs: (n_samples, num_inputs).
         return_states: Also return the hidden state after each settling step (recurrent only).
+        neuromodulation: A `SubstrateNeuromodulation` to apply instead of the configured one.
 
     Returns:
         (pop_size, n_samples, num_outputs); with ``return_states`` the pair ``(outputs,
@@ -634,6 +744,9 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
     """
     config = substrate.config
     if config.hidden_to_hidden:
+        if neuromodulation is not None:
+            raise ValueError("neuromodulation covers feed-forward substrates: this one has "
+                             "hidden-to-hidden connections")
         if substrate.hh_from is None:
             raise ValueError("this substrate has hidden-to-hidden connections to settle: build them with "
                              "build_recurrent_substrate first")
@@ -641,6 +754,10 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
     if return_states:
         raise ValueError("return_states needs a recurrent substrate: a feed-forward one does not "
                          "settle")
+    if neuromodulation is None and config.neuromodulation is not None:
+        neuromodulation = substrate_neuromodulation(substrate)
+    if neuromodulation is not None:
+        return _neuromodulated_forward(substrate, inputs, neuromodulation)
     inputs = jnp.asarray(inputs, dtype=jnp.float32)
     per_node_aggregation = substrate.agg_indices is not None
     agg_indices = (substrate.agg_indices if per_node_aggregation
@@ -661,10 +778,132 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
             global_agg_fn=global_agg_fn,
             per_node_aggregation=per_node_aggregation,
             true_aggregation=config.true_aggregation,
-            num_aggregations=config.num_aggregations,
+            num_aggregations=_evaluated_aggregations(config),
         )
 
     return jax.vmap(one)(substrate.W1, substrate.W2, substrate.act_indices, agg_indices)
+
+
+# True neuromodulation of a feed-forward substrate
+
+
+class SubstrateNeuromodulation(NamedTuple):
+    """What each hidden node of a feed-forward substrate reads besides its drive under true
+    neuromodulation, and how it reads it.
+
+    `substrate_neuromodulation` computes it as the generation loop does. A caller may build one
+    itself, for example with receptor densities from its own summary of a node's weights through
+    `derive_receptor_from_weight`; `substrate_forward` applies the generation loop's node rule to
+    whatever it is given.
+
+    Attributes:
+        receptors: (pop_size, num_positions, num_nt_types) receptor densities in [-1, 1].
+        base_gains: (pop_size, num_positions) base gains.
+        neurotransmitter: The neurotransmitter vector every node reads.
+        settings: The `NeuromodulationSettings` the node rule follows.
+    """
+
+    receptors: Any
+    base_gains: Any
+    neurotransmitter: Any
+    settings: NeuromodulationSettings
+
+
+def default_neurotransmitter(num_nt_types: int) -> jnp.ndarray:
+    """The generation loop's neurotransmitter vector for a single-task run: 0.5 on the modulating
+    channels and 1.0 on the inverting one (``[0.5, 0.5, 0.5, 1.0]`` from four channels on)."""
+    return jnp.array([0.5] * min(3, num_nt_types) + [1.0] if num_nt_types >= 4
+                     else [0.5] * num_nt_types)
+
+
+def substrate_neuromodulation(substrate: Substrate,
+                              neurotransmitter: Any = None) -> SubstrateNeuromodulation:
+    """The receptor densities and base gains of every hidden position, as the generation loop
+    computes them from the substrate's own weights.
+
+    Each position's first input weight, divided by ``max_weight``, gives its receptor densities
+    (`derive_receptor_from_weight`, rescaled to [-1, 1]) and its base gain (``|w| / 2 + 1/2``).
+    These are the weights the substrate carries, pruned and locality-scaled, so the weight
+    threshold and the locality radius change them as they do in the loop.
+
+    Args:
+        substrate: A feed-forward substrate whose configuration has neuromodulation settings.
+        neurotransmitter: The vector every node reads; None is the loop's single-task default
+            (`default_neurotransmitter`).
+
+    Returns:
+        A `SubstrateNeuromodulation` for `substrate_forward`.
+    """
+    settings = substrate.config.neuromodulation
+    if settings is None:
+        raise ValueError("this substrate's configuration has no neuromodulation settings "
+                         "(SubstrateConfig.neuromodulation); substrate_config fills them in when "
+                         "the model has true neuromodulation")
+    if substrate.config.hidden_to_hidden:
+        raise ValueError("neuromodulation covers feed-forward substrates: this one has "
+                         "hidden-to-hidden connections")
+    weight = substrate.W1[:, 0, :] / substrate.config.max_weight
+    receptors = derive_receptor_from_weight(
+        weight=weight, method=settings.receptor_derivation, num_nt_types=settings.num_nt_types
+    ) * 2.0 - 1.0
+    base_gains = jnp.abs(weight) * 0.5 + 0.5
+    nt = (default_neurotransmitter(settings.num_nt_types) if neurotransmitter is None
+          else jnp.asarray(neurotransmitter, dtype=jnp.float32))
+    return SubstrateNeuromodulation(receptors, base_gains, nt, settings)
+
+
+def _neuromodulated_forward(substrate: Substrate, inputs: Any,
+                            nm: SubstrateNeuromodulation) -> Any:
+    """Every feed-forward substrate under true neuromodulation: the generation loop's per-genome
+    forward for this mode, operation for operation."""
+    config = substrate.config
+    settings = nm.settings
+    if (settings.modulation_mode not in MODULATION_MODES
+            or settings.node_rule not in NEUROMODULATION_NODE_RULES):
+        raise ValueError(f"unknown modulation mode {settings.modulation_mode!r} or node rule "
+                         f"{settings.node_rule!r}")
+    receptors, base_gains = jnp.asarray(nm.receptors), jnp.asarray(nm.base_gains)
+    if receptors.shape[:2] != substrate.mask.shape or base_gains.shape != substrate.mask.shape:
+        raise ValueError(f"receptors {receptors.shape} and base gains {base_gains.shape} must cover "
+                         f"the substrate's {substrate.mask.shape} (genomes, positions)")
+    inputs = jnp.asarray(inputs, dtype=jnp.float32)
+    neurotransmitter = jnp.asarray(nm.neurotransmitter)
+    per_node_aggregation = substrate.agg_indices is not None
+    agg_indices = (substrate.agg_indices if per_node_aggregation
+                   else jnp.zeros(substrate.mask.shape, dtype=jnp.int32))
+    global_agg_fn = (AGGREGATION_FUNCTIONS[config.global_aggregation]
+                     if config.aggregation_mode == "global" else None)
+    palette = _palette(config)
+    hidden_act_fn = ACTIVATION_FUNCTIONS[config.hidden_activation]
+    output_act_fn = ACTIVATION_FUNCTIONS[config.output_activation]
+    num_nt = int(settings.num_nt_types)
+    # The channels the rule and the inversion read: every one under 'anti', otherwise the first
+    # three and, when it inverts the outputs, the fourth. JAX clamps an index past the end, so a
+    # shorter vector would run silently.
+    needed = num_nt if settings.node_rule == "anti" else min(3, num_nt)
+    if settings.output_inversion and num_nt >= 4:
+        needed = max(needed, 4)
+    if neurotransmitter.ndim != 1 or neurotransmitter.shape[0] < needed:
+        raise ValueError(
+            f"the neurotransmitter vector has shape {tuple(neurotransmitter.shape)}; node rule "
+            f"{settings.node_rule!r} with {num_nt} channels reads {needed} entries "
+            f"(default_neurotransmitter gives {min(num_nt, 4)})"
+        )
+
+    def one(W1, W2, act_idx, agg_idx, receptors_i, base_gains_i):
+        node_fn, operands = true_neuromodulation_node_rule(
+            node_activation_rule('every_iteration', act_idx, hidden_act_fn, palette,
+                                 config.num_activations),
+            receptors_i, base_gains_i, neurotransmitter, settings.modulation_strength, num_nt,
+            settings.modulation_mode, settings.node_rule)
+        drive = input_drive(inputs, W1, agg_idx, global_agg_fn, per_node_aggregation,
+                            config.true_aggregation, _evaluated_aggregations(config))
+        hidden = node_fn(drive, *operands)
+        return invert_outputs(output_act_fn(hidden @ W2), neurotransmitter,
+                              settings.output_inversion, num_nt, settings.node_rule)
+
+    return jax.vmap(one)(substrate.W1, substrate.W2, substrate.act_indices, agg_indices,
+                         receptors, base_gains)
 
 
 # Hidden-to-hidden connections
@@ -928,7 +1167,7 @@ def _recurrent_forward_fn(config: SubstrateConfig, size: int, has_act: bool, has
         config.aggregation_mode,
         config.global_aggregation,
         bool(config.true_aggregation),
-        int(config.num_aggregations),
+        _evaluated_aggregations(config),
         int(config.num_activations),
         config.hh_activation_mode,
         config.hh_aggregation_mode,
@@ -971,14 +1210,14 @@ def _compiled_recurrent_forward(
         true_aggregation=true_aggregation,
         num_aggregations=num_aggregations,
     )
-    hmr = settling_rule == "hmr"
+    drive_once = settling_rule == "drive_once"
 
     def forward(inputs, W1, W2, act_idx, agg_idx, hh_agg_idx, from_idx, to_idx, weights, valid):
         if plain:
             # The loop's plain recurrent path: input matmul, tanh nodes, sigmoid outputs
             drive = inputs @ W1
-            if hmr:
-                hidden = settle_hidden_hmr(
+            if drive_once:
+                hidden = settle_hidden_drive_once(
                     drive,
                     from_idx,
                     to_idx,
@@ -997,7 +1236,7 @@ def _compiled_recurrent_forward(
             drive = input_drive(inputs, W1, agg_idx, **drive_kwargs)
             node_fn = (jnp.tanh if hh_mode == "initial_only"
                        else node_activation(hh_mode, act_idx, hidden_fn, palette, num_activations))
-            if hmr:
+            if drive_once:
                 first_fn = (
                     jnp.tanh
                     if hh_mode == "tanh"
@@ -1009,7 +1248,7 @@ def _compiled_recurrent_forward(
                         num_activations=num_activations,
                     )
                 )
-                hidden = settle_hidden_hmr(
+                hidden = settle_hidden_drive_once(
                     drive,
                     from_idx,
                     to_idx,

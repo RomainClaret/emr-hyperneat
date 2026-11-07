@@ -1,11 +1,11 @@
-"""HMR's names and aliases in the engine.
+"""The prototype's names and aliases in the engine.
 
-Runners written for the frozen HMR engine use names that EMR lacked: NUM_ACTIVATIONS, NT_PRESETS
-with HMR's mnist and iris vectors, the CPPN-output helpers of its neuromodulation variant, the
-attribute names of the per-network activation functions, the multires generation names of its base
-class, configure_offloading's skip_dead_levels and HMR's result keys of run_until_threshold. HMR's
-three context-gated multi-task methods never ran there (they read gate logits nothing set) and are
-refused with a pointer to EMR's own API.
+Runners written for the frozen prototype engine use names that EMR lacked: NUM_ACTIVATIONS,
+NT_PRESETS with the prototype's mnist and iris vectors, the CPPN-output helpers of its
+neuromodulation variant, the attribute names of the per-network activation functions, the multires
+generation names of its base class, configure_offloading's skip_dead_levels and the prototype's
+result keys of run_until_threshold. The prototype's three context-gated multi-task methods never ran
+there (they read gate logits nothing set) and are refused with a pointer to EMR's own API.
 """
 from types import SimpleNamespace
 
@@ -30,32 +30,32 @@ from emr_hyperneat.emrhyperneat import (
     get_cppn_receptor_base_idx,
     get_nt_for_task,
 )
-from hmr_reference import hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import prototype_value, live  # type: ignore[import-not-found]
 
 
 class TestModuleNames:
     def test_num_activations_counts_the_list(self):
         assert NUM_ACTIVATIONS == len(ACTIVATION_LIST) == 18
 
-    def test_num_activations_equals_hmrs(self):
-        assert NUM_ACTIVATIONS == hmr_value(
-            'hmr_names.num_activations', lambda: live('num_activations')
+    def test_num_activations_matches_the_prototype(self):
+        assert NUM_ACTIVATIONS == prototype_value(
+            'aliases.num_activations', lambda: live('num_activations')
         )
 
     def test_nt_presets_is_the_two_type_table(self):
         assert NT_PRESETS is NT_PRESETS_2
 
-    def test_hmr_task_vectors_equal_hmrs(self):
-        hmr = hmr_value('hmr_names.nt_task_vectors', lambda: live('nt_task_vectors'))
+    def test_task_vectors_match_the_prototype(self):
+        recorded = prototype_value('aliases.nt_task_vectors', lambda: live('nt_task_vectors'))
         pairs = (
-            (NT_PRESETS_3_FIBONACCI, hmr['NT_PRESETS_3_FIBONACCI']),
-            (NT_PRESETS_4, hmr['NT_PRESETS_4']),
-            (NT_PRESETS_5, hmr['NT_PRESETS_5']),
-            (NT_PRESETS_6, hmr['NT_PRESETS_6']),
+            (NT_PRESETS_3_FIBONACCI, recorded['NT_PRESETS_3_FIBONACCI']),
+            (NT_PRESETS_4, recorded['NT_PRESETS_4']),
+            (NT_PRESETS_5, recorded['NT_PRESETS_5']),
+            (NT_PRESETS_6, recorded['NT_PRESETS_6']),
         )
-        for mine, hmrs in pairs:
+        for mine, theirs in pairs:
             for task in ('mnist', 'iris'):
-                np.testing.assert_array_equal(np.asarray(mine[task]), np.asarray(hmrs[task]))
+                np.testing.assert_array_equal(np.asarray(mine[task]), np.asarray(theirs[task]))
 
     def test_get_nt_for_task_reads_them(self):
         np.testing.assert_array_equal(np.asarray(get_nt_for_task('mnist', 4)),
@@ -122,15 +122,15 @@ class TestCppnOutputHelpers:
         expected_base = receptor if receptor is not None else algorithm.num_cppn_outputs
         assert get_cppn_receptor_base_idx(df_mode, block_out) == expected_base
 
-    def test_option_b_base_equals_hmrs(self):
-        hmr_base, hmr_outputs = hmr_value(
-            'hmr_names.option_b_outputs', lambda: live('option_b_outputs', 4), inputs=(4,)
+    def test_option_b_base_matches_the_prototype(self):
+        prototype_base, prototype_outputs = prototype_value(
+            'aliases.option_b_outputs', lambda: live('option_b_outputs', 4), inputs=(4,)
         )
         algorithm, block_out = self._built(
             'cppn_output', 'true_neuromodulation_4nt', {'receptor_from_weight': False}
         )
-        assert get_cppn_receptor_base_idx('cppn_output', block_out) == hmr_base == 2
-        assert get_cppn_num_outputs('cppn_output', block_out) == hmr_outputs
+        assert get_cppn_receptor_base_idx('cppn_output', block_out) == prototype_base == 2
+        assert get_cppn_num_outputs('cppn_output', block_out) == prototype_outputs
 
 
 class TestEngineNames:
@@ -191,12 +191,12 @@ class TestEngineNames:
         ('evaluate_multi_task', (None, None)),
         ('run_multi_task_generation', (None, None)),
     ])
-    def test_hmr_multi_task_methods_are_refused(self, name, args):
+    def test_prototype_multi_task_methods_are_refused(self, name, args):
         with pytest.raises(NotImplementedError, match='never ran'):
             getattr(EMRHyperNEAT(), name)(*args)
 
 
-class TestHmrResultKeys:
+class TestPrototypeResultKeys:
     @staticmethod
     def _run(target, generations):
         problem = XORProblem()
@@ -259,10 +259,10 @@ class TestHmrResultKeys:
 
 
 class TestPlainOutputActivation:
-    """HMR's dynamic-functions variant applied the configured output activation in plain mode (no
-    per-node function, aggregation or neuromodulation), where 0.1.0 applied a sigmoid. The plain
-    evaluation equals mode 'global' with a tanh hidden activation bit for bit, so a plain run with
-    another output activation takes that path.
+    """The prototype's dynamic-functions variant applied the configured output activation in plain
+    mode (no per-node function, aggregation or neuromodulation), where 0.1.0 applied a sigmoid. The
+    plain evaluation equals mode 'global' with a tanh hidden activation bit for bit, so a plain run
+    with another output activation takes that path.
     """
 
     @staticmethod
@@ -305,7 +305,7 @@ class TestPlainOutputActivation:
         assert not np.array_equal(plain[0], sigmoid[0])
 
 
-class TestHmrAttributeNames:
+class TestPrototypeAttributeNames:
     def test_aggregation_mode(self):
         algorithm = EMRHyperNEAT()
         algorithm.create_config(create_base_config(population_size=10))
@@ -324,18 +324,18 @@ class TestHmrAttributeNames:
         assert algorithm._depth_offload_enabled is True
 
 
-def _hmr_shaped_true_neuromodulation(population=10, depth=3):
-    """The co-evolving-NT harness's HMR configuration (Option A, tanh receptors, 4 NT types,
-    strength 5.0)."""
+def _prototype_shaped_true_neuromodulation(population=10, depth=3):
+    """The prototype's configuration of the co-evolving-NT harness (Option A, tanh receptors, 4 NT
+    types, strength 5.0)."""
     return {
         'algorithm_params': {
-            'hmrhyperneat': {
+            'emrhyperneat': {
                 'population_size': population,
                 'substrate': {
                     'input_coords': [[-1.0, 0.0], [1.0, 0.0]],
                     'output_coords': [[0.0, 1.0]],
                 },
-                'hmr_hyperneat': {
+                'emr_hyperneat': {
                     'initial_depth': 0,
                     'max_depth': depth,
                     'variance_threshold': 0.03,
@@ -367,17 +367,18 @@ class _TwoInputXOR:
 
 def _as_emr(config):
     params = dict(config['algorithm_params'])
-    block = dict(params.pop('hmrhyperneat'))
-    block['emr_hyperneat'] = dict(block.pop('hmr_hyperneat'), variance_rule='legacy')
+    block = dict(params.pop('emrhyperneat'))
+    block['emr_hyperneat'] = dict(block.pop('emr_hyperneat'), variance_rule='legacy')
     params['emrhyperneat'] = block
     return {**config, 'algorithm_params': params}
 
 
 class TestSingleNetworkEvaluators:
-    """HMR's single-network evaluators of its neuromodulation variant (5 experiment scripts call
-    them): the population evaluator on a population of one, equal to its population row within
-    float32 rounding (a batch of one compiles to another shape), and to HMR's own single-network
-    evaluator on HMR's arrays, as recorded in the research repository (hmr_reference.py).
+    """The prototype's single-network evaluators of its neuromodulation variant (5 experiment
+    scripts call them): the population evaluator on a population of one, equal to its population row
+    within float32 rounding (a batch of one compiles to another shape), and to the prototype's own
+    single-network evaluator on the prototype's arrays, as recorded in the research repository
+    (prototype_reference.py).
     """
 
     XOR_X = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]], dtype=np.float32)
@@ -389,7 +390,7 @@ class TestSingleNetworkEvaluators:
         algorithm = EMRHyperNEAT()
         problem = _TwoInputXOR()
         state = algorithm.initialize(
-            algorithm.create_config(_as_emr(_hmr_shaped_true_neuromodulation())),
+            algorithm.create_config(_as_emr(_prototype_shaped_true_neuromodulation())),
             problem,
             seed=DEFAULT_SEED,
         )
@@ -426,10 +427,10 @@ class TestSingleNetworkEvaluators:
             W1[0], W2[0], rd[0], bg[0], nt, self.XOR_X, self.XOR_Y)) for nt in tasks])
         np.testing.assert_allclose(float(mean), expected, rtol=0, atol=1e-7)
 
-    def test_equal_to_hmrs_on_hmrs_arrays(self):
+    def test_equal_to_the_prototype_on_its_arrays(self):
         genomes = (0, 4, 9)
         args = (
-            _hmr_shaped_true_neuromodulation(),
+            _prototype_shaped_true_neuromodulation(),
             _TwoInputXOR(),
             DEFAULT_SEED,
             genomes,
@@ -437,11 +438,12 @@ class TestSingleNetworkEvaluators:
             self.XOR_X,
             self.XOR_Y,
         )
-        hmr = hmr_value('hmr_names.single_network_on_hmrs_arrays',
-                        lambda: live('single_network_on_hmrs_arrays', *args), inputs=args)
-        W1, W2, rd, bg = hmr['W1'], hmr['W2'], hmr['rd'], hmr['bg']
+        recorded = prototype_value('aliases.single_network_on_prototype_arrays',
+                                   lambda: live('single_network_on_prototype_arrays', *args),
+                                   inputs=args)
+        W1, W2, rd, bg = recorded['W1'], recorded['W2'], recorded['rd'], recorded['bg']
         algorithm, _ = self._emr_arrays()
-        for row, theirs in enumerate(hmr['theirs']):
+        for row, theirs in enumerate(recorded['theirs']):
             ours = float(algorithm._eval_single_network_true_neuromodulated(
                 W1[row], W2[row], rd[row], bg[row], self.NT, self.XOR_X, self.XOR_Y))
             np.testing.assert_allclose(ours, theirs, rtol=0, atol=1e-6)

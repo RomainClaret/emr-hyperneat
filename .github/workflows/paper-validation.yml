@@ -136,10 +136,10 @@ jobs:
               python -m pytest emr_hyperneat/tests/test_paper_validation.py -m "paper and not slow" -q --tb=short
           done
 
-      - name: The two slow findings on the HMR engine of release 0.1.0
-        # TestBioInspiredPaper and TestAggregationOraclePaper call runners that ran the HMR engine
+      - name: The two slow findings on the prototype engine of release 0.1.0
+        # TestBioInspiredPaper and TestAggregationOraclePaper call runners that ran the prototype engine
         # in 0.1.0 and run EMR from 0.2.0, where their values were recorded again; release 0.1.0's
-        # own classes check the HMR versions and their published values.
+        # own classes check the versions that ran the prototype engine and their published values.
         env:
           JAX_PLATFORMS: cpu
           TF_CPP_MIN_LOG_LEVEL: "3"

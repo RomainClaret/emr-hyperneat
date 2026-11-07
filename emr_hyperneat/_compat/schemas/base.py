@@ -9,7 +9,7 @@ All defaults verified against TensorNEAT library source code:
 - tensorneat/genome/gene/node/default.py (bias/response parameters)
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal, Set, Optional
 
 
@@ -131,16 +131,15 @@ class WeightConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"pureples", "tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Connection weight configuration (init + mutation)",
-            "examples": [{
-                "init_mean": 0.0,
-                "init_std": 1.0,
-                "mutate_rate": 0.2,
-                "mutate_power": 0.15
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Connection weight configuration (init + mutation)",
+        "examples": [{
+            "init_mean": 0.0,
+            "init_std": 1.0,
+            "mutate_rate": 0.2,
+            "mutate_power": 0.15
+        }]
+    })
 
 
 class BiasConfig(BaseModel):
@@ -200,16 +199,15 @@ class BiasConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"pureples", "tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Node bias configuration (init + mutation)",
-            "examples": [{
-                "init_mean": 0.0,
-                "init_std": 1.0,
-                "mutate_rate": 0.2,
-                "mutate_power": 0.15
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Node bias configuration (init + mutation)",
+        "examples": [{
+            "init_mean": 0.0,
+            "init_std": 1.0,
+            "mutate_rate": 0.2,
+            "mutate_power": 0.15
+        }]
+    })
 
 
 class ResponseConfig(BaseModel):
@@ -264,15 +262,14 @@ class ResponseConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"pureples", "tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Node response configuration (output scaling)",
-            "examples": [{
-                "init_mean": 1.0,
-                "init_std": 0.0,
-                "mutate_rate": 0.0
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Node response configuration (output scaling)",
+        "examples": [{
+            "init_mean": 1.0,
+            "init_std": 0.0,
+            "mutate_rate": 0.0
+        }]
+    })
 
 
 class ActivationConfig(BaseModel):
@@ -302,15 +299,14 @@ class ActivationConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"pureples", "tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Activation function configuration",
-            "examples": [{
-                "default": "sigmoid",
-                "options": ["sigmoid", "tanh", "relu"],
-                "mutate_rate": 0.1
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Activation function configuration",
+        "examples": [{
+            "default": "sigmoid",
+            "options": ["sigmoid", "tanh", "relu"],
+            "mutate_rate": 0.1
+        }]
+    })
 
 
 class AggregationConfig(BaseModel):
@@ -346,12 +342,11 @@ class AggregationConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"pureples", "tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Aggregation function configuration",
-            "examples": [{
-                "default": "sum",
-                "options": ["sum"],
-                "mutate_rate": 0.0
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Aggregation function configuration",
+        "examples": [{
+            "default": "sum",
+            "options": ["sum"],
+            "mutate_rate": 0.0
+        }]
+    })

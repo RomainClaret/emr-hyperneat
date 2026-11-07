@@ -98,34 +98,34 @@ The scripts' printed headers still say "real 30-generation runs"; this note supe
 
 ## Re-running the experiments from scratch (optional)
 
-The timing benchmarks were measured on specific hardware (Apple Silicon M4 Max CPU; a
-single NVIDIA RTX 2080 Ti 11 GB GPU). The from-scratch runners `scripts/runners/run_gecco2026_experiments.py`
-and `scripts/runners/run_statistical_validation.py` were produced on the original eager-multi-resolution
-implementation, the HMR engine, which release 0.1.0 ships; their published files
-(`gecco2026_*.json`, `statistical_validation_results.json`) reproduce on 0.1.0 with
-`python scripts/replicate.py run emr-hyperneat --release 0.1.0 -- <command>` from the repository
-root. From 0.2.0 both run EMR-HyperNEAT, as the experiments ran, on EMR's defaults except
-HMR's level-0 variance rule and random key split, which `scripts/runners/emr_settings.py` pins (set
-to False, it runs EMR's defaults): the hidden-to-hidden cache is off except in the caching
-ablation's cache arms, and the multi-hop expansion composes each genome's own connections.
-`with_lateral` and `with_self` run the connection classes their names say, which departs from what
-the HMR engine ran: it ran both as hidden_only, and the published files hold those runs, which 0.1.0
-reproduces. `run_statistical_validation.py`'s single run is `run_xor_experiment`
-(`run_hmr_xor_experiment` in 0.1.0). They write to `results/gecco2026_emr/` and
+The timing benchmarks were measured on specific hardware (Apple Silicon M4 Max CPU; a single NVIDIA
+RTX 2080 Ti 11 GB GPU). The from-scratch runners `scripts/runners/run_gecco2026_experiments.py` and
+`scripts/runners/run_statistical_validation.py` were produced on the original eager-multi-resolution
+implementation, the prototype engine, which release 0.1.0 ships; their published files
+(`gecco2026_*.json`, `statistical_validation_results.json`) reproduce on 0.1.0 with `python
+scripts/replicate.py run emr-hyperneat --release 0.1.0 -- <command>` from the repository root. From
+0.2.0 both run EMR-HyperNEAT, as the experiments ran, on EMR's defaults except the prototype's
+level-0 variance rule and random key split, which `scripts/runners/emr_settings.py` pins (set to
+False, it runs EMR's defaults): the hidden-to-hidden cache is off except in the caching ablation's
+cache arms, and the multi-hop expansion composes each genome's own connections. `with_lateral` and
+`with_self` run the connection classes their names say, which departs from what the prototype engine
+ran: it ran both as hidden_only, and the published files hold those runs, which 0.1.0 reproduces.
+`run_statistical_validation.py`'s single run is `run_xor_experiment` (0.1.0 names it after the
+prototype engine). They write to `results/gecco2026_emr/` and
 `results/statistical_validation_emr/`, apart from `data/`. A GPU is needed to reproduce the timing.
 Regenerating the tables/figures above does not require them.
 
 At the validation configuration, one seed per configuration (42 where the row names none) with full
 generation budgets, both engines on one x86 server (two Intel Xeon E5-2683 v4, one CPU per run,
 `XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`, jax 0.6.1), EMR in release 0.2.0 gives the
-right-hand column where the HMR engine of release 0.1.0 gave the left. A cell is the generation of
-the first solve, or not solved, with the best fitness; one seed shows where the two engines agree
-and differ, not a solve rate. The statistical validation gives the same generations and best fitness
-on both engines, seed by seed (feed-forward evaluation, with HMR's level-0 rule and key split
-pinned). The HMR engine's with_lateral and with_self runs equal its hidden_only run, as it ran both
-as hidden_only; EMR runs their classes.
+right-hand column where the prototype engine of release 0.1.0 gave the left. A cell is the
+generation of the first solve, or not solved, with the best fitness; one seed shows where the two
+engines agree and differ, not a solve rate. The statistical validation gives the same generations
+and best fitness on both engines, seed by seed (feed-forward evaluation, with the prototype's
+level-0 rule and key split pinned). The prototype engine's with_lateral and with_self runs equal its
+hidden_only run, as it ran both as hidden_only; EMR runs their classes.
 
-| Run | HMR engine (release 0.1.0) | EMR (release 0.2.0) |
+| Run | Prototype engine (release 0.1.0) | EMR (release 0.2.0) |
 |---|---|---|
 | `run_gecco2026_experiments.py`, preset feedforward, depth 4 | solved at 24 (0.989361) | solved at 12 (0.996287) |
 | `run_gecco2026_experiments.py`, preset hidden_only, depth 4 | solved at 1 (0.999985) | solved at 1 (1.000000) |

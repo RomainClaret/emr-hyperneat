@@ -1,12 +1,13 @@
-"""HMR's live palette strategy.
+"""The prototype's live palette strategy.
 
-HMR's dynamic-functions variant let a runner's strategy object set the palette after each generation
-(`set_palette_strategy`, `dynamic_functions.live_strategy`). When the palette grew, it perturbed a
-share of the population toward the new bins, but it added the strength to column 0 of every node of
-the chosen genomes, which is TensorNEAT's node key, not the bias, and it split `state.randkey` to
-choose them. EMR adds the strength to the bias of the CPPN's activation output node alone and draws
-the genomes from a key folded from `state.randkey`, which stays as it is. The negative control is
-HMR's own function on the same state, as recorded in the research repository (hmr_reference.py).
+The prototype's dynamic-functions variant let a runner's strategy object set the palette after each
+generation (`set_palette_strategy`, `dynamic_functions.live_strategy`). When the palette grew, it
+perturbed a share of the population toward the new bins, but it added the strength to column 0 of
+every node of the chosen genomes, which is TensorNEAT's node key, not the bias, and it split
+`state.randkey` to choose them. EMR adds the strength to the bias of the CPPN's activation output
+node alone and draws the genomes from a key folded from `state.randkey`, which stays as it is. The
+negative control is the prototype's own function on the same state, as recorded in the research
+repository (prototype_reference.py).
 """
 
 import jax
@@ -15,7 +16,7 @@ import pytest
 
 from conftest import (DEFAULT_SEED, EMRHyperNEAT, XORProblem, create_base_config,
                       create_config_with_dynamic_functions)
-from hmr_reference import hmr_value, live  # type: ignore[import-not-found]
+from prototype_reference import prototype_value, live  # type: ignore[import-not-found]
 
 DEPTH, POP = 2, 20
 PALETTE = [0, 1, 2, 3]
@@ -31,8 +32,8 @@ def _config(live_strategy=None, **dynamic_functions):
 
 
 class _Strategy:
-    """A strategy object in HMR's interface: its palette is read after each generation; it records
-    what it is told."""
+    """A strategy object in the prototype's interface: its palette is read after each generation; it
+    records what it is told."""
 
     def __init__(self, palettes):
         self.palettes = palettes      # generation told -> palette from then on
@@ -105,15 +106,15 @@ class TestPerturbation:
                                 jax.tree_util.tree_leaves(state.pop_conns)):
             assert np.all(_equal_or_both_nan(np.asarray(ours), np.asarray(theirs)))
 
-    def test_negative_control_hmrs_function(self):
-        """HMR's function on the same state moves column 0 (the node keys) of every node of the
-        chosen genomes and splits the run's key."""
+    def test_negative_control_the_prototype_function(self):
+        """The prototype's function on the same state moves column 0 (the node keys) of every node
+        of the chosen genomes and splits the run's key."""
         _, state = _after_one_generation(self.LIVE)
         # rate, strength, decay, generation, old and new palette sizes
         settings = (0.25, 0.3, 0.0, 1, 4, 5)
-        after, their_key = hmr_value('live_palette_strategy.hmr_perturbation',
-                                     lambda: live('hmr_perturbation', state, *settings),
-                                     inputs=(state.pop_nodes, state.randkey, settings))
+        after, their_key = prototype_value('live_palette_strategy.prototype_perturbation',
+                                           lambda: live('prototype_perturbation', state, *settings),
+                                           inputs=(state.pop_nodes, state.randkey, settings))
         before = np.asarray(state.pop_nodes)
         keys_moved = ~_equal_or_both_nan(after[:, :, 0], before[:, :, 0])
         assert keys_moved.any()
@@ -173,7 +174,7 @@ class TestLiveStrategy:
         with pytest.raises(ValueError, match='no strategy is set'):
             _run(_config({'enabled': True}), 1)
 
-    def test_the_call_alone_enables_hmrs_defaults(self):
+    def test_the_call_alone_enables_the_prototype_defaults(self):
         algorithm, _, _, _ = _run(_config(), 1, _Strategy({0: PALETTE}))
         assert algorithm._live_strategy == {'perturbation_rate': 0.15, 'perturbation_strength': 0.3,
                                             'perturbation_decay': 0.0}

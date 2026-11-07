@@ -11,7 +11,10 @@ import numpy as np
 
 from emr_hyperneat.emrhyperneat_base import (
     HierarchicalGridStructure,
+    _create_query_fn_for_device,
     _get_device_specific_query_fn,
+    _query_population_vmap_device_aware,
+    _query_sources_in_chunks,
     batch_query_population_positions,
     compute_hierarchical_variances_batch_jit,
     compute_subdivision_masks_batch_jit,
@@ -218,10 +221,10 @@ def substrate_masks(
     Returns:
         (pop_size, total_positions) boolean mask.
 
-    Traceable: it reads the grid's level offsets from its static tuples,
-    the arithmetic of compute_hierarchical_variances_batch and compute_subdivision_masks_batch,
-    whose ``int(grid.level_offsets[level])`` raises ConcretizationTypeError inside ``jax.jit`` and
-    ``lax.while_loop``.
+    Traceable: it reads the grid's level offsets from its static tuples. It shares its arithmetic
+    with compute_hierarchical_variances_batch and compute_subdivision_masks_batch, which read
+    ``int(grid.level_offsets[...])`` (the masks only with return_all_masks) and so raise
+    ConcretizationTypeError inside ``jax.jit`` and ``lax.while_loop``.
     """
     level_variances = compute_hierarchical_variances_batch_jit(
         variance_weights,
@@ -630,36 +633,25 @@ def compute_single_level_variance(
     """
     pop_size = next_level_weights.shape[0]
 
-    if level == 0:
-        # Level 0: variance over the 4 cells from level 1
-        # Level 1 has 16 cells, grouped into 4 blocks of 4
-        child_grid_size = 4  # Level 1 is 4x4
-        parent_grid_size = 2  # Level 0 is 2x2
+    # The variance of each 2x2 block of children at the next level (level 0's four cells from
+    # level 1's 4x4 grid, and so on down)
+    next_level_size = grid.level_sizes_static[level + 1]
+    child_grid_size = int(np.sqrt(next_level_size))
+    parent_grid_size = child_grid_size // 2
 
-        child_grids = next_level_weights.reshape(pop_size, child_grid_size, child_grid_size)
-        reshaped = child_grids.reshape(pop_size, parent_grid_size, 2, parent_grid_size, 2)
-        reshaped = reshaped.transpose(0, 1, 3, 2, 4)
-        blocks = reshaped.reshape(pop_size, parent_grid_size, parent_grid_size, 4)
-        variances = jnp.var(blocks, axis=-1)
-        return variances.reshape(pop_size, parent_grid_size * parent_grid_size)
-    else:
-        # Higher levels: variance of 2x2 child blocks from next level
-        next_level_size = grid.level_sizes_static[level + 1]
-        child_grid_size = int(np.sqrt(next_level_size))
-        parent_grid_size = child_grid_size // 2
-
-        child_grids = next_level_weights.reshape(pop_size, child_grid_size, child_grid_size)
-        reshaped = child_grids.reshape(pop_size, parent_grid_size, 2, parent_grid_size, 2)
-        reshaped = reshaped.transpose(0, 1, 3, 2, 4)
-        blocks = reshaped.reshape(pop_size, parent_grid_size, parent_grid_size, 4)
-        variances = jnp.var(blocks, axis=-1)
-        return variances.reshape(pop_size, parent_grid_size * parent_grid_size)
+    child_grids = next_level_weights.reshape(pop_size, child_grid_size, child_grid_size)
+    reshaped = child_grids.reshape(pop_size, parent_grid_size, 2, parent_grid_size, 2)
+    reshaped = reshaped.transpose(0, 1, 3, 2, 4)
+    blocks = reshaped.reshape(pop_size, parent_grid_size, parent_grid_size, 4)
+    variances = jnp.var(blocks, axis=-1)
+    return variances.reshape(pop_size, parent_grid_size * parent_grid_size)
 
 
 # Multi-Output CPPN Query Functions
 # These functions handle CPPNs with multiple outputs (weight + secondary channels).
 # The key difference from standard query functions is that they preserve
-# the output dimension rather than flattening it.
+# the output dimension rather than flattening it. They run the one-output queries'
+# code (emrhyperneat_base) with their own per-device cache.
 
 # Per-device cache for multi-output query functions
 _per_device_multi_output_vmap_cache: Dict[Tuple[int, int], Any] = {}
@@ -680,26 +672,7 @@ def _create_multi_output_query_fn_for_device(cppn_forward: Any, device_id: int):
         A fresh JIT-compiled query function for this device that returns
         (pop_size, num_positions, num_outputs) arrays
     """
-    devices = jax.devices()
-    device = devices[device_id] if device_id < len(devices) else devices[0]
-
-    with jax.default_device(device):
-        def query_population_vmap_impl(state, inputs, cppns_nodes, cppns_conns,
-                                       cppns_conn_attrs, cppns_node_attrs):
-            """Query all CPPNs at all positions, preserving output dimension."""
-            def query_single_cppn(cppn_tuple):
-                """Query one CPPN at all positions."""
-                # DON'T flatten - preserve (num_positions, num_outputs) shape
-                return jax.vmap(
-                    lambda x: cppn_forward(state, cppn_tuple, x)
-                )(inputs)
-
-            return jax.vmap(
-                query_single_cppn,
-                in_axes=((0, 0, 0, 0),)
-            )((cppns_nodes, cppns_conns, cppns_conn_attrs, cppns_node_attrs))
-
-        return jax.jit(query_population_vmap_impl, device=device)
+    return _create_query_fn_for_device(cppn_forward, device_id, flatten=False)
 
 
 def _get_multi_output_query_fn(device_id: int, cppn_forward: Any):
@@ -735,26 +708,8 @@ def query_cppn_multi_output(
         - [:, :, 0] are weight outputs
         - [:, :, 1] are secondary outputs
     """
-    devices = jax.devices()
-    device = devices[device_id] if device_id < len(devices) else devices[0]
-
-    # Move all inputs to target device
-    state_on_device = jax.tree.map(lambda x: jax.device_put(x, device), state)
-    inputs_on_device = jax.device_put(inputs, device)
-    cppns_on_device = tuple(jax.device_put(arr, device) for arr in cppns_transformed)
-
-    # Get device-specific multi-output query function
-    query_fn = _get_multi_output_query_fn(device_id, cppn_forward)
-
-    with jax.default_device(device):
-        return query_fn(
-            state_on_device,
-            inputs_on_device,
-            cppns_on_device[0],
-            cppns_on_device[1],
-            cppns_on_device[2],
-            cppns_on_device[3]
-        )
+    return _query_population_vmap_device_aware(cppn_forward, state, inputs, cppns_transformed,
+                                               device_id, get_query_fn=_get_multi_output_query_fn)
 
 
 def batch_query_population_positions_multi_output(
@@ -792,20 +747,9 @@ def batch_query_population_positions_multi_output(
         - [:, :, 0] are weight outputs
         - [:, :, 1] are secondary outputs
     """
-    devices = jax.devices()
-    device = devices[device_id] if device_id < len(devices) else devices[0]
-
-    source_coord = jax.device_put(source_coord, device)
-    target_positions = jax.device_put(target_positions, device)
-
-    # Build CPPN inputs: the same rows as the single-output query (see cppn_query_rows).
-    inputs_np = cppn_query_rows(
-        source_coord, target_positions, outgoing, geometry_seeding_enabled, agent_coord
-    )
-    inputs = jax.device_put(inputs_np, device)
-
-    return query_cppn_multi_output(
-        cppn_forward, state, inputs, cppns_transformed, device_id
+    return batch_query_population_positions(
+        state, cppns_transformed, source_coord, target_positions, outgoing, cppn_forward,
+        device_id, geometry_seeding_enabled, agent_coord, query_population=query_cppn_multi_output,
     )
 
 
@@ -844,48 +788,11 @@ def batch_query_population_multi_source_multi_output(
         - [:, :, :, 0] are weight outputs
         - [:, :, :, 1] are secondary outputs
     """
-    devices = jax.devices()
-    device = devices[device_id] if device_id < len(devices) else devices[0]
-
-    source_coords = jax.device_put(source_coords, device)
-    target_positions = jax.device_put(target_positions, device)
-    cppns_transformed = tuple(jax.device_put(arr, device) for arr in cppns_transformed)
-
-    pop_size = cppns_transformed[0].shape[0]
-    num_sources = source_coords.shape[0]
-
-    results_list = []
-
-    for source_idx in range(num_sources):
-        source_coord = source_coords[source_idx]
-
-        chunk_results = []
-        for chunk_start in range(0, pop_size, pop_chunk_size):
-            chunk_end = min(chunk_start + pop_chunk_size, pop_size)
-
-            chunk_cppns = (
-                cppns_transformed[0][chunk_start:chunk_end],
-                cppns_transformed[1][chunk_start:chunk_end],
-                cppns_transformed[2][chunk_start:chunk_end],
-                cppns_transformed[3][chunk_start:chunk_end],
-            )
-
-            chunk_weights_multi = batch_query_population_positions_multi_output(
-                state, chunk_cppns, source_coord, target_positions,
-                outgoing, cppn_forward, device_id, geometry_seeding_enabled,
-                agent_coord=agent_coord,
-            )
-            chunk_weights_multi = jax.device_put(chunk_weights_multi, device)
-            chunk_results.append(chunk_weights_multi)
-
-        # Concatenate chunks
-        chunk_results_np = [np.asarray(c) for c in chunk_results]
-        source_weights_multi = np.concatenate(chunk_results_np, axis=0)
-        results_list.append(source_weights_multi)
-
-    # Stack: (num_sources, pop_size, num_positions, 2)
-    # Transpose to: (pop_size, num_sources, num_positions, 2)
-    stacked = np.stack(results_list, axis=0)
+    # Transposed to (pop_size, num_sources, num_positions, num_outputs) with numpy, left on the host
+    stacked, _ = _query_sources_in_chunks(
+        state, cppns_transformed, source_coords, target_positions, outgoing, cppn_forward,
+        pop_chunk_size, device_id, geometry_seeding_enabled, agent_coord,
+        batch_query_population_positions_multi_output)
     return np.transpose(stacked, (1, 0, 2, 3))
 
 

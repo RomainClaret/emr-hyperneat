@@ -10,7 +10,7 @@ All defaults verified against TensorNEAT library source code:
 - tensorneat/genome/default.py (network structure limits)
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, Literal
 from .base import (
     WeightConfig,
@@ -61,16 +61,15 @@ class MutationConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"pureples", "tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Structural mutation probabilities (topology changes)",
-            "examples": [{
-                "conn_add_prob": 0.2,
-                "conn_delete_prob": 0.2,
-                "node_add_prob": 0.1,
-                "node_delete_prob": 0.1
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Structural mutation probabilities (topology changes)",
+        "examples": [{
+            "conn_add_prob": 0.2,
+            "conn_delete_prob": 0.2,
+            "node_add_prob": 0.1,
+            "node_delete_prob": 0.1
+        }]
+    })
 
 
 class GenomeConfig(BaseModel):
@@ -248,16 +247,15 @@ class GenomeConfig(BaseModel):
         )
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Genome structure and gene configurations",
-            "examples": [{
-                "num_inputs": 2,
-                "num_outputs": 1,
-                "max_nodes": 50,
-                "feed_forward": True
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Genome structure and gene configurations",
+        "examples": [{
+            "num_inputs": 2,
+            "num_outputs": 1,
+            "max_nodes": 50,
+            "feed_forward": True
+        }]
+    })
 
 
 class SpeciesConfig(BaseModel):
@@ -345,15 +343,14 @@ class SpeciesConfig(BaseModel):
         json_schema_extra=impl_meta(supported_by={"tensorneat"})
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Speciation and genomic distance configuration",
-            "examples": [{
-                "compatibility_threshold": 2.0,
-                "max_stagnation": 15,
-                "species_elitism": 2
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Speciation and genomic distance configuration",
+        "examples": [{
+            "compatibility_threshold": 2.0,
+            "max_stagnation": 15,
+            "species_elitism": 2
+        }]
+    })
 
 
 class SelectionConfig(BaseModel):
@@ -422,15 +419,14 @@ class SelectionConfig(BaseModel):
         )
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Selection and reproduction configuration",
-            "examples": [{
-                "genome_elitism": 2,
-                "survival_threshold": 0.1,
-                "crossover_rate": 0.7
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Selection and reproduction configuration",
+        "examples": [{
+            "genome_elitism": 2,
+            "survival_threshold": 0.1,
+            "crossover_rate": 0.7
+        }]
+    })
 
 
 class FitnessConfig(BaseModel):
@@ -479,15 +475,14 @@ class FitnessConfig(BaseModel):
         )
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Fitness evaluation and termination",
-            "examples": [{
-                "threshold": 0.98,
-                "criterion": "max",
-                "normalization": "raw"
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Fitness evaluation and termination",
+        "examples": [{
+            "threshold": 0.98,
+            "criterion": "max",
+            "normalization": "raw"
+        }]
+    })
 
 
 class NEATConfig(BaseModel):
@@ -580,25 +575,24 @@ class NEATConfig(BaseModel):
             raise ValueError("Max generations > 100000 is likely impractical")
         return v
 
-    class Config:
-        json_schema_extra = {
-            "title": "NEAT Configuration",
-            "description": "Complete NEAT algorithm configuration",
-            "examples": [{
-                "population_size": 150,
-                "max_generations": 100,
-                "genome": {
-                    "num_inputs": 2,
-                    "num_outputs": 1,
-                    "max_nodes": 50
-                },
-                "mutation": {
-                    "conn_add_prob": 0.2,
-                    "node_add_prob": 0.1
-                },
-                "selection": {
-                    "genome_elitism": 2,
-                    "survival_threshold": 0.1
-                }
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "title": "NEAT Configuration",
+        "description": "Complete NEAT algorithm configuration",
+        "examples": [{
+            "population_size": 150,
+            "max_generations": 100,
+            "genome": {
+                "num_inputs": 2,
+                "num_outputs": 1,
+                "max_nodes": 50
+            },
+            "mutation": {
+                "conn_add_prob": 0.2,
+                "node_add_prob": 0.1
+            },
+            "selection": {
+                "genome_elitism": 2,
+                "survival_threshold": 0.1
+            }
+        }]
+    })

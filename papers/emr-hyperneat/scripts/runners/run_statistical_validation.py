@@ -5,19 +5,19 @@ Run statistical validation experiments for the EMR-HyperNEAT paper (GECCO 2026).
 This script runs 30+ seeds at key depths (3, 4, 5) to generate
 statistically valid performance data for the paper.
 
-From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's base
-module, which release 0.1.0 ships: from the repository root,
-`python scripts/replicate.py run emr-hyperneat --release 0.1.0 --` followed by a command of
-Usage without its `papers/emr-hyperneat/` prefix runs the original on 0.1.0. The published file,
-data/statistical_validation_results.json, comes from --quick (depths 3 and 4, five seeds). The
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the prototype engine's
+base module, which release 0.1.0 ships: from the repository root, `python scripts/replicate.py run
+emr-hyperneat --release 0.1.0 --` followed by a command of Usage without its `papers/emr-hyperneat/`
+prefix runs the original on 0.1.0. The published file, data/statistical_validation_results.json,
+comes from --quick (depths 3 and 4, five seeds). The
 EMR version runs the experiment as it ran, on EMR's defaults:
     - Population 1000, feed-forward XOR with a bias input, tanh hidden and sigmoid output nodes,
-      up to 100 generations, threshold 0.98, initial_depth 0 (the HMR module ignored
+      up to 100 generations, threshold 0.98, initial_depth 0 (the prototype module ignored
       initial_depth; 0 forces nothing).
-    - HMR's level-0 variance rule and random key stream, as the published runs had them:
-      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+    - The prototype's level-0 variance rule and random key stream, as the published runs had them:
+      USE_PROTOTYPE_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
       extra_randkey_split (False gives EMR's defaults).
-    - run_xor_experiment is the single run (run_hmr_xor_experiment in release 0.1.0).
+    - run_xor_experiment is the single run (release 0.1.0 named it after the prototype engine).
     - Results go to results/statistical_validation_emr/, apart from the published file in data/
       (the data release).
 
@@ -48,7 +48,7 @@ import jax
 import jax.numpy as jnp
 
 from emr_hyperneat.emrhyperneat import EMRHyperNEAT
-from emr_settings import hmr_rule_and_split
+from emr_settings import prototype_rule_and_split
 
 
 @dataclass
@@ -94,13 +94,13 @@ def run_xor_experiment(
     input_coords = [(-1.0, -1.0), (1.0, -1.0), (0.0, -0.5)]  # x1, x2, bias
     output_coords = [(0.0, 1.0)]
 
-    # EMR-HyperNEAT config, with HMR's level-0 rule and key split, which the published runs used
-    # and emr_settings pins.
+    # EMR-HyperNEAT config, with the prototype's level-0 rule and key split, which the published
+    # runs used and emr_settings pins.
     emr_config = {
         'initial_depth': 0,
         'max_depth': depth,
         'variance_threshold': 0.03,
-        **hmr_rule_and_split(),
+        **prototype_rule_and_split(),
     }
 
     config_dict = {

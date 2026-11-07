@@ -28,8 +28,8 @@ Conditions (ordered by priority):
 Total: 7 conditions x 30 seeds = 210 runs
 
 Results saved to: papers/emr-neuromodulation/results/nt_geometry_ablation_emr/ (this script runs the
-shared runner, which runs EMR; the published 210 runs, on the HMR engine, are the data release's
-results/nt_geometry_ablation/, which a run here never reads or overwrites)
+shared runner, which runs EMR; the published 210 runs, on the prototype engine, are the data
+release's results/nt_geometry_ablation/, which a run here never reads or overwrites)
 
 Usage:
     python papers/emr-neuromodulation/scripts/runners/benchmark_nt_geometry_ablation.py

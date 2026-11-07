@@ -8,7 +8,7 @@ This script runs:
 3. Recurrence preset comparison (feedforward through full_recurrent)
 4. Depth scaling study (depths 3-6)
 
-From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the HMR engine's
+From release 0.2.0 this runner runs EMR-HyperNEAT. The published runs used the prototype engine's
 unified-extended variant, which release 0.1.0 ships: from the repository root,
 `python scripts/replicate.py run emr-hyperneat --release 0.1.0 --` followed by a command of
 Usage without its `papers/emr-hyperneat/` prefix runs the original on 0.1.0. The EMR version
@@ -21,11 +21,11 @@ runs the experiments as they ran, on EMR's defaults except where noted:
       it on; the caching ablation keeps its cache arms on, since the cache is what it measures.
     - The multi-hop expansion composes each genome's own connections (masked, EMR's default);
       the published runs composed them through the population's union of active positions.
-    - with_lateral and with_self run the connection classes their names say. HMR's variant ran
-      both as hidden_only (its connection mask dropped their lateral and self connections), so
+    - with_lateral and with_self run the connection classes their names say. The prototype's variant
+      ran both as hidden_only (its connection mask dropped their lateral and self connections), so
       these two arms depart from the published runs, which release 0.1.0 reproduces.
-    - HMR's level-0 variance rule and random key stream, as the published runs had them:
-      USE_HMR_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
+    - The prototype's level-0 variance rule and random key stream, as the published runs had them:
+      USE_PROTOTYPE_RULE_AND_SPLIT in emr_settings.py pins variance_rule legacy and
       extra_randkey_split (False gives EMR's defaults).
     - Results go to results/gecco2026_emr/; the published files are in data/ (the data release).
 
@@ -59,7 +59,7 @@ import jax
 import jax.numpy as jnp
 
 from emr_hyperneat.emrhyperneat import EMRHyperNEAT
-from emr_settings import hmr_rule_and_split
+from emr_settings import prototype_rule_and_split
 
 
 @dataclass
@@ -117,7 +117,7 @@ def run_single_experiment(
 
     The hidden-to-hidden cache is off unless hh_cache_enabled is True (the published runs had it
     on; the caching ablation turns it on in its cache arms). with_lateral and with_self run the
-    connection classes their names say, where HMR's unified-extended variant ran both as
+    connection classes their names say, where the prototype's unified-extended variant ran both as
     hidden_only.
     """
 
@@ -125,13 +125,13 @@ def run_single_experiment(
     input_coords = [(-1.0, -1.0), (1.0, -1.0), (0.0, -0.5)]  # x1, x2, bias
     output_coords = [(0.0, 1.0)]
 
-    # EMR-HyperNEAT config with recurrence settings, with HMR's level-0 rule and key split, which
-    # the published runs used and emr_settings pins.
+    # EMR-HyperNEAT config with recurrence settings, with the prototype's level-0 rule and key
+    # split, which the published runs used and emr_settings pins.
     emr_config = {
         'initial_depth': 0,
         'max_depth': depth,
         'variance_threshold': 0.03,
-        **hmr_rule_and_split(),
+        **prototype_rule_and_split(),
         'recurrence': {
             'preset': preset,
             'iteration_level': iteration_level,

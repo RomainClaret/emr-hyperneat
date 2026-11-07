@@ -36,14 +36,14 @@ SEED = 42
 CAP = 40
 
 
-def _hmr(config):
+def _emr(config):
     return config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
 
 
 def _recurrent(**recurrence):
     config = create_config_with_recurrence("full_recurrent", max_depth=DEPTH, population_size=POP,
                                            iteration_level=1, hh_cache_enabled=False)
-    _hmr(config)["recurrence"].update(recurrence)
+    _emr(config)["recurrence"].update(recurrence)
     return config
 
 
@@ -208,13 +208,13 @@ class TestDiscoveryPolicies:
     def test_every_execution_mode_applies_the_policy(self, full_sets, mode):
         uncapped, largest, _full, _metrics = full_sets
         config = _recurrent(max_sparse_conns=CAP, sparse_cap_policy="grow")
-        _hmr(config)["execution"] = {"mode": mode}
+        _emr(config)["execution"] = {"mode": mode}
         algo, problem, state = _setup(config)
         with pytest.warns(SparseCapWarning, match=r"max_sparse_conns grew"):
             algo.run_generation(state, problem)
         assert algo.extended_config.max_sparse_conns == engine.grown_sparse_cap(largest, None)
         refusing = _recurrent(max_sparse_conns=CAP)
-        _hmr(refusing)["execution"] = {"mode": mode}
+        _emr(refusing)["execution"] = {"mode": mode}
         algo, problem, state = _setup(refusing)
         with pytest.raises(SparseCapExceeded):
             algo.run_generation(state, problem)
@@ -250,7 +250,7 @@ class TestSetter:
     def test_a_feed_forward_configuration_has_no_cap_to_set(self):
         config = create_config_with_recurrence("full_recurrent", max_depth=DEPTH, population_size=POP,
                                                iteration_level=1, hh_cache_enabled=False)
-        _hmr(config)["recurrence"] = {"preset": "feedforward", "iteration_level": 0}
+        _emr(config)["recurrence"] = {"preset": "feedforward", "iteration_level": 0}
         algo, _problem, _state = _setup(config)
         with pytest.raises(ValueError, match=r"set_sparse_cap needs a configuration with hidden-to-hidden"):
             algo.set_sparse_cap(max_sparse_conns=100)
@@ -280,7 +280,7 @@ class TestRunRecord:
     def test_a_feed_forward_run_has_no_record(self):
         config = create_config_with_recurrence("full_recurrent", max_depth=DEPTH, population_size=POP,
                                                iteration_level=1, hh_cache_enabled=False)
-        _hmr(config)["recurrence"] = {"preset": "feedforward", "iteration_level": 0}
+        _emr(config)["recurrence"] = {"preset": "feedforward", "iteration_level": 0}
         algo, problem, state = _setup(config)
         result = algo.run_until_threshold(state, problem, target_fitness=2.0, max_generations=1)
         assert "sparse_cap" not in result

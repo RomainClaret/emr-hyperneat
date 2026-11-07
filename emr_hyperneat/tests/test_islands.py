@@ -3,12 +3,12 @@ generation by generation in lockstep, and exchange their best genomes every migr
 generations.
 
 Island i is SINGLE_GPU's run at its own population and at island_seed(seed, i): the run's seed for
-island 0, a seed drawn from (seed, i) by numpy's SeedSequence for the others, never HMR's seed + i,
-which made island 1 of seed 42 island 0 of seed 43. So each island must equal that SINGLE_GPU run
-bit for bit: every generation's fitness vector, the best-fitness history and the final state, key
-included. Placement (emr_hyperneat.islands.devices, or island i on device i mod the visible ones)
-must change nothing but where the arrays live. The configuration is checked at create_config, each
-refusal naming its key.
+island 0, a seed drawn from (seed, i) by numpy's SeedSequence for the others, never the prototype's
+seed + i, which made island 1 of seed 42 island 0 of seed 43. So each island must equal that
+SINGLE_GPU run bit for bit: every generation's fitness vector, the best-fitness history and the
+final state, key included. Placement (emr_hyperneat.islands.devices, or island i on device i mod the
+visible ones) must change nothing but where the arrays live. The configuration is checked at
+create_config, each refusal naming its key.
 
 Migration: after generation M (a multiple of migration_interval) each island's best `migrants`
 genomes of its own evaluation go, with the fitness they earned, to its receivers (ring, star or
@@ -126,7 +126,7 @@ class TestIslandSeed:
         assert self.seeds_shared(engine.island_seed) == 0
 
     def test_negative_control_seed_plus_island(self):
-        """HMR's seed + i: island 1 of seed 42 is island 0 of seed 43."""
+        """The prototype's seed + i: island 1 of seed 42 is island 0 of seed 43."""
         assert self.seeds_shared(lambda seed, island: seed + island) > 0
 
     def test_seeds_are_positive_32_bit_and_fixed(self):
@@ -268,7 +268,7 @@ class TestConfiguration:
         self.refused(config, r'islands \[0, 1\] of \[15, 15\] genomes hold no more than '
                              r'neat_selection.genome_elitism 15')
 
-    def test_hmr_island_config_object_stays_refused(self):
+    def test_prototype_island_config_object_stays_refused(self):
         with pytest.raises(ValueError, match='island_config configure base-class strategies'):
             EMRHyperNEAT(strategy=MultiGPUStrategy.ISLAND_MODEL, island_config=object())
 
@@ -319,9 +319,9 @@ class TestRoute:
             ), f'island {index}: another fitness vector than SINGLE_GPU'
             assert island['history'] == reference['history']
             assert digest(island['state']) == reference['state']
-        # The negative control: island 1 against SINGLE_GPU at HMR's seed 43
-        hmr = single_gpu_run(config_of, populations[1], 43, told)
-        assert runs[1] != hmr['fitness'] and digest(result['islands'][1]['state']) != hmr['state']
+        # The negative control: island 1 against SINGLE_GPU at the prototype's seed 43
+        seed_43 = single_gpu_run(config_of, populations[1], 43, told)
+        assert runs[1] != seed_43['fitness'] and digest(result['islands'][1]['state']) != seed_43['state']
 
         # The records: the best over islands and generations, the best last-generation champion's
         # island

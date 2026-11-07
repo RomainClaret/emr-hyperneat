@@ -1,4 +1,4 @@
-"""Palette Evolution Strategies for HMR-HyperNEAT.
+"""Palette Evolution Strategies for the prototype engine.
 
 This module contains different palette evolution strategies to compare
 their effectiveness at discovering useful activation functions (like sin

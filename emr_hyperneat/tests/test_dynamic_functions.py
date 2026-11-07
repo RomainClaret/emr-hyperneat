@@ -140,8 +140,8 @@ class TestGlobalMode:
     def test_global_mode_activations(self, algorithm, xor_problem, activation):
         """Verify global mode with different activations works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': activation,
             'output_activation': 'sigmoid',
@@ -205,8 +205,8 @@ class TestWeightInterpretationMode:
     def test_interpretation_methods(self, algorithm, xor_problem, interpretation):
         """Verify all interpretation methods work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 4,
             'interpretation': interpretation,
@@ -239,8 +239,8 @@ class TestWeightInterpretationMode:
         magnitude_bio uses biologically-inspired weight magnitude binning.
         """
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 6,
             'interpretation': 'magnitude_bio',
@@ -253,10 +253,10 @@ class TestWeightInterpretationMode:
 
     def test_hierarchical_sparsity_interpretation(self, algorithm, xor_problem):
         """hierarchical_sparsity runs: magnitude_bio indices, then each level keeps its fraction of
-        every sample's active values (HMR's; 0.1.0 ran the name as magnitude_bio)."""
+        every sample's active values (the prototype's; 0.1.0 ran the name as magnitude_bio)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 4,
             'interpretation': 'hierarchical_sparsity',
@@ -268,10 +268,10 @@ class TestWeightInterpretationMode:
 
     def test_sparsity_threshold_interpretation(self, algorithm, xor_problem):
         """sparsity_threshold runs: magnitude_bio indices, then a per-node kept fraction from the
-        incoming weight magnitude (HMR's)."""
+        incoming weight magnitude (the prototype's)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 4,
             'interpretation': 'sparsity_threshold',
@@ -283,10 +283,10 @@ class TestWeightInterpretationMode:
 
     def test_stp_inspired_interpretation(self, algorithm, xor_problem):
         """stp_inspired runs: magnitude_bio indices, incoming weights scaled by a per-node
-        depression (HMR's)."""
+        depression (the prototype's)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 4,
             'interpretation': 'stp_inspired',
@@ -297,10 +297,11 @@ class TestWeightInterpretationMode:
         assert_no_errors(result, "stp_inspired interpretation failed")
 
     def test_combined_interpretation(self, algorithm, xor_problem):
-        """combined runs: indices from magnitude, variance and the sign ratio together (HMR's)."""
+        """combined runs: indices from magnitude, variance and the sign ratio together (the
+        prototype's)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 6,
             'interpretation': 'combined',
@@ -316,8 +317,8 @@ class TestWeightInterpretationMode:
     def test_extended_interpretation_methods(self, algorithm, xor_problem, interpretation):
         """Verify all extended interpretation methods work with parametrization."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'num_activations': 4,
             'interpretation': interpretation,
@@ -338,8 +339,8 @@ class TestWeightInterpretationMode:
 
         palette = [0, 4, 5, 13]  # tanh, sin, gauss, osc_adapt: positions 1-3 are not members
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'weight_interpretation',
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {'mode': 'weight_interpretation',
                                     'interpretation': interpretation, 'palette': palette}
         run_quick_evolution(algorithm, config, xor_problem, generations=2)
         record = algorithm.get_best_activation_indices()
@@ -350,9 +351,9 @@ class TestWeightInterpretationMode:
 
     @pytest.mark.parametrize('interpretation', ['magnitude', 'combined', 'sign', 'variance'])
     def test_index_interpretations_decode_their_own_indices(self, interpretation):
-        """Each of these interpretations decodes its own indices, HMR's `magnitude` (magnitude_bio
-        inverted) and `combined` included: generation 1 (the seeded population in both runs) differs
-        from magnitude_bio's."""
+        """Each of these interpretations decodes its own indices, the prototype's `magnitude`
+        (magnitude_bio inverted) and `combined` included: generation 1 (the seeded population in
+        both runs) differs from magnitude_bio's."""
         _, indices = _fitness_and_indices({'mode': 'weight_interpretation', 'num_activations': 6,
                                            'interpretation': interpretation})
         _, reference = _fitness_and_indices({'mode': 'weight_interpretation', 'num_activations': 6,
@@ -450,10 +451,10 @@ def _random_indices(dynamic_functions=None, aggregation=None, seed=DEFAULT_SEED,
 class TestRandomScopes:
     """The random modes' draw.
 
-    Scope 'genome', the default, draws each population slot independently from the run's key, as
-    HMR drew its negative controls. 0.1.0 drew one assignment for every genome from a fixed key, so
-    every genome and every seed of a random-control arm had the same functions: that draw is scope
-    'shared', kept bit for bit to reproduce such runs.
+    Scope 'genome', the default, draws each population slot independently from the run's key, as the
+    prototype drew its negative controls. 0.1.0 drew one assignment for every genome from a fixed
+    key, so every genome and every seed of a random-control arm had the same functions: that draw is
+    scope 'shared', kept bit for bit to reproduce such runs.
     """
 
     @pytest.mark.parametrize('mode', ['random_fixed', 'random_generation'])
@@ -652,8 +653,8 @@ class TestActivationFunctions:
     def test_activation_function_works(self, algorithm, xor_problem, activation):
         """Verify each activation function works in global mode."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': activation,
             'output_activation': 'sigmoid',
@@ -694,8 +695,8 @@ class TestActivationPalettes:
         """A palette given by name (dynamic_functions.palette, not `activation_palette`, which EMR
         refuses) reaches every hidden node."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'palette': ['tanh', 'sin', 'relu'],
             'interpretation': 'sign',
@@ -790,7 +791,7 @@ class TestComprehensiveDynamicFunctions:
 
 
 class TestModularMode:
-    """Tests for modular dynamic function mode: HMR's three orthogonal layers (activation,
+    """Tests for modular dynamic function mode: the prototype's three orthogonal layers (activation,
     sparsity, scaling) and its aggregation method.
 
     Each layer combination equals the weight interpretation it composes, bit for bit; a
@@ -939,8 +940,8 @@ class TestModularMode:
     def test_modular_mode_initializes(self, algorithm, xor_problem):
         """Verify modular mode initializes without errors."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'num_activations': 6,
             'modular': {
@@ -957,8 +958,8 @@ class TestModularMode:
     def test_modular_mode_runs_generation(self, algorithm, xor_problem):
         """Verify modular mode can run generations."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'num_activations': 6,
         }
@@ -973,8 +974,8 @@ class TestModularMode:
         Its effect is checked by TestModularMode.test_layers_equal_their_weight_interpretation.
         """
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'modular': {
                 'activation_method': activation_method,
@@ -992,8 +993,8 @@ class TestModularMode:
         TestModularMode.test_each_layer_changes_the_evaluation_not_the_indices.
         """
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'modular': {
                 'sparsity_method': sparsity_method,
@@ -1021,8 +1022,8 @@ class TestBioInspiredActivations:
     def test_bio_activation_works(self, algorithm, xor_problem, activation):
         """Verify each bio-inspired activation function works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': activation,
             'output_activation': 'sigmoid',
@@ -1036,8 +1037,8 @@ class TestBioInspiredActivations:
     def test_burst_activation_oscillatory(self, algorithm, xor_problem):
         """Verify burst activation (tanh + sine) works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': 'burst',
             'output_activation': 'sigmoid',
@@ -1052,8 +1053,8 @@ class TestBioInspiredActivations:
     def test_resonator_activation_damped_sine(self, algorithm, xor_problem):
         """Verify resonator activation (damped sine) works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': 'resonator',
             'output_activation': 'sigmoid',
@@ -1067,8 +1068,8 @@ class TestBioInspiredActivations:
     def test_osc_adapt_activation(self, algorithm, xor_problem):
         """Verify osc_adapt activation (oscillatory + adaptive) works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'global',
             'hidden_activation': 'osc_adapt',
             'output_activation': 'sigmoid',
@@ -1096,8 +1097,8 @@ class TestNamedPalettes:
     def test_named_palette_initializes(self, algorithm, xor_problem, palette_name):
         """Verify each named palette initializes without errors."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
             'palette': palette_name,
@@ -1110,8 +1111,8 @@ class TestNamedPalettes:
     def test_oscillatory_palettes_run(self, algorithm, xor_problem, palette_name):
         """Verify oscillatory palettes can run generations."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 4,
             'palette': palette_name,
@@ -1123,8 +1124,8 @@ class TestNamedPalettes:
     def test_sin_only_palette_for_parity(self, algorithm, parity3_problem):
         """Verify sin_only palette is effective for parity problems."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'palette': 'sin_only',
         }
@@ -1140,8 +1141,8 @@ class TestNamedPalettes:
     def test_bio_adaptive_palette(self, algorithm, xor_problem):
         """Verify bio_adaptive palette works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'palette': 'bio_adaptive',
         }
@@ -1152,8 +1153,8 @@ class TestNamedPalettes:
     def test_full_palette_all_activations(self, algorithm, xor_problem):
         """Verify full palette with all 18 activations works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'palette': 'full',
         }
@@ -1184,10 +1185,10 @@ class TestSparsityConfiguration:
         assert not np.array_equal(fitness(0.40), fitness(0.90))
 
     def test_quantile_sparsity_counts_active_nodes_only(self):
-        """HMR took the quantile over every position, inactive ones included at the value their
-        function gives at zero input; here only active nodes count. With an inactive node at 1.0
-        (gauss at 0), HMR's median of [0.1, 0.5, 0.7, 0.9, 1.0] is 0.7 and drops -0.5; over the four
-        active values it is 0.5."""
+        """The prototype took the quantile over every position, inactive ones included at the value
+        their function gives at zero input; here only active nodes count. With an inactive node at
+        1.0 (gauss at 0), the prototype's median of [0.1, 0.5, 0.7, 0.9, 1.0] is 0.7 and drops -0.5;
+        over the four active values it is 0.5."""
         hidden = jnp.array([[0.1, -0.5, 0.9, 1.0, 0.7]])
         mask = jnp.array([True, True, True, False, True])
         kept = sparsify_by_quantile(hidden, jnp.full(5, 0.5), mask)
@@ -1207,8 +1208,8 @@ class TestSparsityConfiguration:
     def test_sparsity_threshold_level_0(self, algorithm, xor_problem):
         """Verify level_0 sparsity threshold works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'modular': {
                 'sparsity_method': 'threshold',
@@ -1224,8 +1225,8 @@ class TestSparsityConfiguration:
     def test_sparsity_threshold_level_2_plus(self, algorithm, xor_problem):
         """Verify level_2_plus sparsity threshold works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'modular': {
                 'sparsity_method': 'threshold',
@@ -1243,8 +1244,8 @@ class TestSparsityConfiguration:
     def test_sparsity_wta_k_percent(self, algorithm, xor_problem):
         """Verify winner-take-all sparsity with k_percent works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'modular': {
                 'sparsity_method': 'wta',
@@ -1261,8 +1262,8 @@ class TestSparsityConfiguration:
     def test_wta_k_percent_values(self, algorithm, xor_problem, wta_k):
         """Verify different WTA k percentages work."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'modular': {
                 'sparsity_method': 'wta',
@@ -1277,9 +1278,9 @@ class TestSparsityConfiguration:
 
 
 class TestCriticalPeriods:
-    """dynamic_functions.critical_periods is not implemented (HMR's variants parse it and print a
-    line, and nothing changes a mutation rate), so `enabled: True` raises; a disabled block is
-    accepted."""
+    """dynamic_functions.critical_periods is not implemented (the prototype's variants parse it and
+    print a line, and nothing changes a mutation rate), so `enabled: True` raises; a disabled block
+    is accepted."""
 
     def test_disabled_is_accepted(self):
         config = create_base_config()
@@ -1303,8 +1304,8 @@ class TestDynamicFunctionsEdgeCases:
     def test_num_activations_2(self, algorithm, xor_problem):
         """Verify minimum number of activations works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 2,
         }
@@ -1316,8 +1317,8 @@ class TestDynamicFunctionsEdgeCases:
     def test_num_activations_8(self, algorithm, xor_problem):
         """Verify larger number of activations works."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'num_activations': 8,
         }
@@ -1329,8 +1330,8 @@ class TestDynamicFunctionsEdgeCases:
     def test_empty_dynamic_functions_config(self, algorithm, xor_problem):
         """Verify empty dynamic functions config works (uses defaults)."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -1340,8 +1341,8 @@ class TestDynamicFunctionsEdgeCases:
         """A two-function palette given by indices in dynamic_functions.palette reaches every hidden
         node."""
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'weight_interpretation',
             'palette': [0, 4],
             'interpretation': 'sign',
@@ -1357,8 +1358,8 @@ class TestDynamicFunctionsEdgeCases:
         node under cppn_output."""
         names = ['tanh', 'sin', 'relu', 'sigmoid', 'gauss', 'identity']
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'cppn_output',
             'palette': names,
         }
@@ -1374,8 +1375,8 @@ class TestDynamicFunctionsEdgeCases:
         fixed tanh).
         """
         config = create_base_config()
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {
             'mode': 'modular',
             'num_activations': 6,
             'modular': {
@@ -1497,12 +1498,12 @@ def _with_raw_queries(dynamic_functions, aggregation=None):
     return algorithm, raw if raw.ndim == 4 else raw[..., None]
 
 
-class TestHmrReads:
-    """cppn_read 'input_mean' and weight_source 'raw': HMR's dynamic-functions and aggregation
-    variants averaged a node's function channel over its input-to-node queries, where EMR reads the
-    node's self-connection, and their weight interpretations read the raw weight channel, where EMR
-    reads W1 (scaled and thresholded). Opt-ins, for runs that reproduce HMR's; checked against the
-    queries recomputed outside the loop."""
+class TestPrototypeReads:
+    """cppn_read 'input_mean' and weight_source 'raw': the prototype's dynamic-functions and
+    aggregation variants averaged a node's function channel over its input-to-node queries, where
+    EMR reads the node's self-connection, and their weight interpretations read the raw weight
+    channel, where EMR reads W1 (scaled and thresholded). Opt-ins, for runs that reproduce the
+    prototype's; checked against the queries recomputed outside the loop."""
 
     def test_input_mean_is_the_channel_averaged_over_the_input_queries(self):
         algorithm, raw = _with_raw_queries(
@@ -1599,5 +1600,5 @@ class TestHmrReads:
             'mode': 'cppn_output', 'cppn_read': 'input_mean'}
         algorithm = EMRHyperNEAT()
         algorithm.create_config(config)
-        with pytest.raises(ValueError, match="HMR's reads"):
+        with pytest.raises(ValueError, match="the prototype's reads"):
             algorithm.substrate_config()

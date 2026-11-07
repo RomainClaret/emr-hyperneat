@@ -12,7 +12,7 @@ All defaults verified against TensorNEAT library and YAML configs:
 - configs/implementations/tensorneat/hyperneat_default.yaml
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Literal
 from .neat_schema import NEATConfig, SpeciesConfig, SelectionConfig
 from .base import (
@@ -51,15 +51,14 @@ class CPPNActivationConfig(BaseModel):
         description="Probability of changing CPPN node activation function"
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "CPPN activation functions (spatial pattern generation)",
-            "examples": [{
-                "default": "sigmoid",
-                "options": ["sigmoid", "tanh", "sin", "gauss"],
-                "mutate_rate": 0.1
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "CPPN activation functions (spatial pattern generation)",
+        "examples": [{
+            "default": "sigmoid",
+            "options": ["sigmoid", "tanh", "sin", "gauss"],
+            "mutate_rate": 0.1
+        }]
+    })
 
 
 class CPPNMutationConfig(BaseModel):
@@ -97,14 +96,13 @@ class CPPNMutationConfig(BaseModel):
         description="Probability of deleting CPPN node"
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "CPPN structural mutation probabilities",
-            "examples": [{
-                "conn_add_prob": 0.2,
-                "node_add_prob": 0.1
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "CPPN structural mutation probabilities",
+        "examples": [{
+            "conn_add_prob": 0.2,
+            "node_add_prob": 0.1
+        }]
+    })
 
 
 class CPPNGenomeConfig(BaseModel):
@@ -180,17 +178,16 @@ class CPPNGenomeConfig(BaseModel):
         description="CPPN activation function configuration"
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "CPPN genome structure and gene configurations",
-            "examples": [{
-                "num_inputs": 4,
-                "num_outputs": 1,
-                "max_nodes": 50,
-                "min_value": -5.0,
-                "max_value": 5.0
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "CPPN genome structure and gene configurations",
+        "examples": [{
+            "num_inputs": 4,
+            "num_outputs": 1,
+            "max_nodes": 50,
+            "min_value": -5.0,
+            "max_value": 5.0
+        }]
+    })
 
 
 class CPPNConfig(BaseModel):
@@ -236,21 +233,20 @@ class CPPNConfig(BaseModel):
         description="CPPN selection and reproduction configuration"
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "CPPN evolution configuration for HyperNEAT",
-            "examples": [{
-                "population_size": 150,
-                "genome": {
-                    "num_inputs": 4,
-                    "num_outputs": 1,
-                    "max_nodes": 50
-                },
-                "selection": {
-                    "genome_elitism": 2
-                }
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "CPPN evolution configuration for HyperNEAT",
+        "examples": [{
+            "population_size": 150,
+            "genome": {
+                "num_inputs": 4,
+                "num_outputs": 1,
+                "max_nodes": 50
+            },
+            "selection": {
+                "genome_elitism": 2
+            }
+        }]
+    })
 
 
 class SubstrateConfig(BaseModel):
@@ -293,16 +289,15 @@ class SubstrateConfig(BaseModel):
         description="Activation function for substrate hidden layers"
     )
 
-    class Config:
-        json_schema_extra = {
-            "description": "Substrate network configuration (CPPN-generated weights)",
-            "examples": [{
-                "weight_threshold": 0.3,
-                "max_weight": 5.0,
-                "activate_time": 10,
-                "output_activation": "sigmoid"
-            }]
-        }
+    model_config = ConfigDict(json_schema_extra={
+        "description": "Substrate network configuration (CPPN-generated weights)",
+        "examples": [{
+            "weight_threshold": 0.3,
+            "max_weight": 5.0,
+            "activate_time": 10,
+            "output_activation": "sigmoid"
+        }]
+    })
 
 
 class HyperNEATConfig(NEATConfig):
@@ -335,24 +330,23 @@ class HyperNEATConfig(NEATConfig):
         description="Substrate network configuration"
     )
 
-    class Config:
-        json_schema_extra = {
-            "title": "HyperNEAT Configuration",
-            "description": "Complete HyperNEAT algorithm configuration (NEAT + CPPN + Substrate)",
-            "examples": [{
+    model_config = ConfigDict(json_schema_extra={
+        "title": "HyperNEAT Configuration",
+        "description": "Complete HyperNEAT algorithm configuration (NEAT + CPPN + Substrate)",
+        "examples": [{
+            "population_size": 150,
+            "max_generations": 100,
+            "algorithm": "hyperneat",
+            "cppn": {
                 "population_size": 150,
-                "max_generations": 100,
-                "algorithm": "hyperneat",
-                "cppn": {
-                    "population_size": 150,
-                    "genome": {
-                        "num_inputs": 4,
-                        "num_outputs": 1
-                    }
-                },
-                "substrate": {
-                    "weight_threshold": 0.3,
-                    "activate_time": 10
+                "genome": {
+                    "num_inputs": 4,
+                    "num_outputs": 1
                 }
-            }]
-        }
+            },
+            "substrate": {
+                "weight_threshold": 0.3,
+                "activate_time": 10
+            }
+        }]
+    })

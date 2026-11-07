@@ -141,9 +141,38 @@ of width 0, and the outputs the feed-forward forward gives with every column zer
 activation of zero). A mask the library builds always keeps the four positions of the coarsest
 level.
 
-Neuromodulation, multi-task, swarm mode, the weight-interpretation and random function modes,
-the union h->h discovery, dense discovery and the h->h cache are outside the API's scope, and
-`substrate_config` refuses them.
+True neuromodulation (level 4) of a feed-forward substrate is in the API as the loop runs it, with
+receptors from the weights. `substrate_config` carries the configuration's settings in
+`SubstrateConfig.neuromodulation` (a `NeuromodulationSettings`), and `substrate_forward` then applies
+the loop's node rule and output inversion, bit for bit. `substrate_neuromodulation(substrate)`
+returns what the nodes read, a `SubstrateNeuromodulation`: each hidden position's receptor densities
+and base gain, derived from its first input weight as the loop derives them, and the
+neurotransmitter vector (by default the loop's single-task vector, `default_neurotransmitter`). A
+caller may build its own, for example from another summary of a node's weights through
+`derive_receptor_from_weight`, and pass it as `substrate_forward(substrate, inputs,
+neuromodulation=...)`: the loop's rule applies to whatever it is given. Under neuromodulation the
+configured output activation applies, as in the loop. An aggregation palette
+(`aggregation.palette`, any subset of `AGGREGATION_LIST` in any order) is decoded as the loop decodes
+it (`SubstrateConfig.aggregation_palette`).
+
+The substrate's own steps are public as well, with parameters the API keeps from release to release
+(`tests/test_substrate_api.py` pins them): `get_hierarchical_grid(max_depth)` (the candidate
+positions by level), `cppn_query_rows` (the CPPN's input rows for one endpoint against many),
+`compute_hierarchical_variances_batch` (the variance per level that the mask thresholds),
+`cppn_output_function_indices` (a node's function index from a CPPN channel),
+`substrate_weight_matrices` (pruned, locality-scaled `W1` and `W2`) and `self_connection_rows`.
+`SUBSTRATE_CAPABILITIES` names what the API covers, for a caller that checks before it asks:
+`sparse_cap_policy`, `neuromodulation`, `aggregation_palette` and `substrate_steps`. What a node
+computes, without the rest of the engine, is in `emr_hyperneat.vocabulary`: the activation and
+aggregation functions, the neurotransmitter vectors, `derive_receptor_from_weight`, the node rule
+(`true_neuromodulation_node_fn`) and `invert_outputs`, each the engine's own object.
+
+Outside the API's scope, and refused by `substrate_config`: neuromodulation other than true
+neuromodulation of a feed-forward substrate with receptors from the weights (other modes, receptors
+from dedicated CPPN outputs or from the self-connection query, branch gating, a recurrent substrate),
+multi-task, swarm mode, LEO, palette evolution, the weight-interpretation and random function modes,
+an execution mode other than `standard`, the union h->h discovery, dense discovery and the h->h
+cache.
 
 ### The recurrent path: multi-hop expansion and the h->h cache
 
@@ -232,6 +261,11 @@ canonical rule instead.)
   each chunk to the device only to evaluate it. It is the only mode that reaches depth 11+, where
   the matrices exceed device memory outright.
 
+The three share the subdivision rule as one function, not as copies: a cell is reached when its
+parent was reached and subdivides, forced up to `initial_depth` and by variance above the threshold
+after it. The standard path's masks, the streaming build and depth offload's level loop, which
+both of offload's generations run, each call it.
+
 `streaming` swaps one step inside the normal generation loop, so it composes with everything else
 the loop does. `depth_offload` cannot: never materializing the full matrices means its build and its
 evaluation are fused, so it replaces the generation rather than a step within it. That asymmetry is
@@ -257,21 +291,21 @@ each?
 | `hybrid` | the query over a grid of `population_devices x position_devices` devices; the evaluation by genomes over all of them | as `population_pmap` | as `population_pmap`, on four or more devices |
 | `island_model` | the **population**, as islands that evolve apart in lockstep and exchange their best genomes | nothing: each island is a `single_gpu` run on its device | a population-structure experiment: it changes the evolution (each island selects within itself), not only where it runs. Configuration: [`islands`](configuration.md#islands-the-island-model) |
 
-The parser also accepts thirteen older alias names and maps them onto these nine:
-`multi_gpu`, `data_parallel` and `pipeline_chunked` become `full_pipeline_parallel`;
-`pmap_parallel` becomes `eval_only_parallel`; `population_parallel_sequential` and
-`persistent_parallel` become `population_parallel_process`; `population_parallel` becomes
-`population_pmap`; `position_pmap`, `shard_map`, `cppn_chunked` and `position_sharding_chunked`
-become `position_sharding`; `island_model_v2` becomes `island_model`; `baseline` becomes
-`single_gpu`. In 0.1.0 the configuration key ran `cppn_chunked` as `streaming` and
-`position_sharding_chunked` as `full_pipeline_parallel`, and warned at the names of the split routes
-and the island model and ran `single_gpu`; the HMR engine ran the two chunked names as a CPPN query
-split by grid position. The constructor's `strategy` argument maps the same names the same way
-(`STRATEGY_NAME_MAP` in `emr_hyperneat.emrhyperneat`), so every `MultiGPUStrategy` member has a
-route. In 0.1.0 only `streaming`, `eval_only_parallel` and `population_parallel_process` kept their
-multi-device route through the constructor: it mapped `full_pipeline_parallel`, `multi_gpu`,
-`data_parallel` and `cppn_chunked` to strategies without one and kept the other aliases as they
-were, so such a run took the one-device loop under the requested name.
+The parser also accepts thirteen older alias names and maps them onto these nine: `multi_gpu`,
+`data_parallel` and `pipeline_chunked` become `full_pipeline_parallel`; `pmap_parallel` becomes
+`eval_only_parallel`; `population_parallel_sequential` and `persistent_parallel` become
+`population_parallel_process`; `population_parallel` becomes `population_pmap`; `position_pmap`,
+`shard_map`, `cppn_chunked` and `position_sharding_chunked` become `position_sharding`;
+`island_model_v2` becomes `island_model`; `baseline` becomes `single_gpu`. In 0.1.0 the
+configuration key ran `cppn_chunked` as `streaming` and `position_sharding_chunked` as
+`full_pipeline_parallel`, and warned at the names of the split routes and the island model and ran
+`single_gpu`; the prototype engine ran the two chunked names as a CPPN query split by grid position.
+The constructor's `strategy` argument maps the same names the same way (`STRATEGY_NAME_MAP` in
+`emr_hyperneat.emrhyperneat`), so every `MultiGPUStrategy` member has a route. In 0.1.0 only
+`streaming`, `eval_only_parallel` and `population_parallel_process` kept their multi-device route
+through the constructor: it mapped `full_pipeline_parallel`, `multi_gpu`, `data_parallel` and
+`cppn_chunked` to strategies without one and kept the other aliases as they were, so such a run took
+the one-device loop under the requested name.
 
 Speed is deliberately absent from this table. The per-strategy ratios that used to sit in the
 code's docstrings traced to a development note with no result file behind them, and later
@@ -333,7 +367,8 @@ Everything is under `emr_hyperneat/`.
 | Module | Role |
 |---|---|
 | `__init__.py` | The public surface: `EMRHyperNEAT` and the substrate API below. |
-| `substrate.py` | The substrate outside the generation loop, feed-forward or with hidden-to-hidden connections: `SubstrateConfig`, `substrate_queries`, `query_substrate`, `build_substrate`, `substrate_forward`, `hh_query_rows`, `build_recurrent_substrate`, `query_recurrent_substrate`. See [The substrate on its own](#the-substrate-on-its-own). |
+| `substrate.py` | The substrate outside the generation loop, feed-forward or with hidden-to-hidden connections: `SubstrateConfig`, `substrate_queries`, `query_substrate`, `build_substrate`, `substrate_forward`, `hh_query_rows`, `build_recurrent_substrate`, `query_recurrent_substrate`; true neuromodulation (`NeuromodulationSettings`, `substrate_neuromodulation`, `SubstrateNeuromodulation`), the substrate's steps and `SUBSTRATE_CAPABILITIES`. See [The substrate on its own](#the-substrate-on-its-own). |
+| `vocabulary.py` | What a node computes, without TensorNEAT or the configuration schemas: the activation and aggregation functions, the neurotransmitter vectors, the neuromodulated node rule and the output inversion, each the engine's own object. |
 | `emrhyperneat.py` | The `EMRHyperNEAT` class and the feature layer: per-node dynamic activation/aggregation, neuromodulation, multi-task, the h->h cache, and the config dataclasses. The class is assembled from the mixins in `engine/`, and every name of the engine is importable from here, as when the engine was this one file: `ACTIVATION_LIST` (the 18 activations), `PALETTE_CONFIGS`, the presets, the dataclasses. |
 | `emrhyperneat_base.py` | The engine beneath the class: eager multi-resolution substrate discovery, recurrence/cache config, the `MultiGPUStrategy` names (`emrhyperneat.py` routes them), and the **TensorNEAT integration seam**. |
 | `execution/` | The three execution modes: how a generation moves its intermediate arrays through memory. `ExecutionMode` and `ExecutionConfig` in `__init__.py`, memory arithmetic in `chunking.py`, and the two non-standard strategies in `streaming.py` and `offload.py`. See [Configuration](configuration.md#execution-mode). |
@@ -349,8 +384,8 @@ it evolves.
 | Module | Role |
 |---|---|
 | `_compat/` | A small vendored **compatibility shim** that keeps the package self-contained: it provides `BaseAlgorithm` + `AlgorithmMetrics` (the base class and the metrics object), the Pydantic config schemas, the **TensorNEAT adapter**, and the config/parameter manager. No external framework is required. |
-| `engine/` | The engine's code by concern, behind `emrhyperneat.py`: the configuration vocabulary, the node functions and palettes, settling, neuromodulation, multi-task, LEO, the substrate build and CPPN queries, evaluation, h->h discovery, the device splits and islands, the pmap kernels, and the class's methods as mixins (one generation, the routes, configuration parsing, the execution modes, multi-task evaluation, the multi-device pipelines, the champion and continual learning, palettes, HMR's names). The docstring of `emrhyperneat.py` maps them. Import from `emrhyperneat`. |
-| `node_list.py` | HMR's node-list recurrent model, opt-in with `recurrence.network_model: node_list`: a whole population's networks on the leaves of a complete quadtree, discovered in one compiled call. See [Configuration](configuration.md#hmrs-node-list-model). |
+| `engine/` | The engine's code by concern, behind `emrhyperneat.py`: the configuration vocabulary, the node functions and palettes, settling, neuromodulation, multi-task, LEO, the substrate build and CPPN queries, evaluation, h->h discovery, the device splits and islands, the pmap kernels, and the class's methods as mixins (one generation, the routes, configuration parsing, the execution modes, multi-task evaluation, the multi-device pipelines, the champion and continual learning, palettes, the prototype's names). The docstring of `emrhyperneat.py` maps them. Import from `emrhyperneat`. |
+| `node_list.py` | The prototype's node-list recurrent model, opt-in with `recurrence.network_model: node_list`: a whole population's networks on the leaves of a complete quadtree, discovered in one compiled call. See [Configuration](configuration.md#the-prototypes-node-list-model). |
 | `tests/` | The test suite (see [Testing](testing.md)), including `test_paper_validation.py`, which re-runs the simple paper experiments. |
 
 ## The TensorNEAT seam (the black box)

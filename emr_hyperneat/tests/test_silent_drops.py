@@ -19,11 +19,11 @@ def _emr(config):
     return config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
 
-class TestNeuromodulationLevelFlagsAgainstHmrModeNames:
-    """HMR merged a block's level flags into the preset its mode named (get_neuromodulation_config:
-    the custom values update the preset's) and evaluated the highest level set. The translation of
-    HMR's names dropped the flags, so 'xdg_style' with modulatory_neurons true ran context gating
-    where HMR ran modulatory neurons."""
+class TestNeuromodulationLevelFlagsAgainstPrototypeModeNames:
+    """The prototype merged a block's level flags into the preset its mode named
+    (get_neuromodulation_config: the custom values update the preset's) and evaluated the highest
+    level set. The translation of the prototype's names dropped the flags, so 'xdg_style' with
+    modulatory_neurons true ran context gating where the prototype ran modulatory neurons."""
 
     @pytest.mark.parametrize('block, flag', [
         ({'enabled': True, 'mode': 'xdg_style', 'modulatory_neurons': True}, 'modulatory_neurons'),
@@ -80,7 +80,7 @@ def test_modular_aggregation_method_outside_modular_aggregation_raises():
 
 
 class TestMultiTaskCallSettings:
-    """run_generation_multitask's call forms read their settings from the call (HMR's
+    """run_generation_multitask's call forms read their settings from the call (the prototype's
     MultiTaskConfig form) or from a configuration object set by hand, where create_config's checks
     never ran."""
 
@@ -111,7 +111,7 @@ class TestMultiTaskCallSettings:
         (dict(generalist_bonus_type='bogus'), 'generalist_bonus_type'),
         (dict(confusion_eval_frequency=1), 'confusion_eval_frequency'),
     ])
-    def test_hmr_call_form_refuses_what_it_would_ignore(self, settings, match):
+    def test_prototype_call_form_refuses_what_it_would_ignore(self, settings, match):
         from emr_hyperneat.emrhyperneat import MultiTaskConfig
         algorithm, state = self._setup()
         with pytest.raises(ValueError, match=match):

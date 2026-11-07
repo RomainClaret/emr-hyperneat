@@ -26,7 +26,7 @@ does, is also set in the engine modules that hold it (`_EngineFacade`, at the en
 - `engine.parallel`: device splits, strategy names, islands; `engine.pmap`: the pmap kernels
 - the mixins: `generation_mixin` (a generation), `routes_mixin` (run_until_threshold),
   `configuration_mixin`, `modes_mixin`, `multitask_mixin`, `multi_device_mixin`,
-  `champion_mixin`, `palette_mixin`, `hmr_names_mixin`
+  `champion_mixin`, `palette_mixin`, `aliases_mixin`
 
 Neuromodulation features (4 levels):
 - Level 1: Static Gating - one gate per hidden node, derived from its own input weights, or per
@@ -252,7 +252,7 @@ from emr_hyperneat.engine.leo import (
     LEO_MODES,
     compute_leo_validity_mask,
     compute_leo_validity_mask_replacement,
-    leo_sparsification_hmr_compound,
+    leo_sparsification_compound_unrescaled,
     leo_sparsify,
     vectorized_weight_sparsification_leo_replacement,
     vectorized_weight_sparsification_with_leo,
@@ -307,7 +307,7 @@ from emr_hyperneat.engine.functions import (
     AGGREGATION_FUNCTIONS,
     AGGREGATION_INTERPRETATIONS,
     AGGREGATION_LIST,
-    HMR_READS,
+    PROTOTYPE_READS,
     INDEX_DECODES,
     LIVE_STRATEGY_KEY,
     LIVE_STRATEGY_KEYS,
@@ -320,7 +320,8 @@ from emr_hyperneat.engine.functions import (
     PALETTE_EVOLUTION_DECODES,
     PALETTE_EVOLUTION_KEYS,
     RANDOM_SCOPES,
-    _parse_hmr_reads,
+    _parse_prototype_reads,
+    _segment_extreme_2d,
     activation_interpretation_signal,
     aggregation_from_weight_interpretation,
     compute_aggregation_correction_factors,
@@ -355,27 +356,27 @@ from emr_hyperneat.engine.settling import (
     _NODE_RULES,
     _SETTLE_STEPS,
     _SETTLE_STEPS_ADDITIVE,
-    _SETTLE_STEPS_HMR,
+    _SETTLE_STEPS_DRIVE_ONCE,
     _STABLE_NODE_FNS,
-    _hmr_recurrent_delta,
+    _drive_once_recurrent_delta,
     _is_stable_node_fn,
     _node_rule,
     _recurrent_input,
     _stable_settle_step,
     _stable_settle_step_additive,
-    _stable_settle_step_hmr,
+    _stable_settle_step_drive_once,
     node_activation,
     node_activation_rule,
     settle_hidden,
     settle_hidden_additive,
-    settle_hidden_hmr,
+    settle_hidden_drive_once,
 )
 from emr_hyperneat.engine.neuromodulation import (
     CUSTOM_LEVEL_TRANSLATIONS,
-    HMR_LEVEL_MODES,
-    HMR_NAMED_MODE_LEVELS,
-    HMR_NEUROMODULATION_MODES,
-    HMR_OPTION_B_MODES,
+    PROTOTYPE_LEVEL_MODES,
+    PROTOTYPE_NAMED_MODE_LEVELS,
+    PROTOTYPE_NEUROMODULATION_MODES,
+    PROTOTYPE_OPTION_B_MODES,
     MODULATION_MODES,
     MODULATORY_BUNDLES,
     MODULATORY_OPTIONS,
@@ -394,7 +395,7 @@ from emr_hyperneat.engine.neuromodulation import (
     _neuromodulated_rule,
     _neuromodulation_block_of,
     _refuse_level_flags_against_named_mode,
-    _translate_hmr_neuromodulation,
+    _translate_prototype_neuromodulation,
     apply_gate_scaling,
     check_modulatory_options,
     cppn_modulatory_masks,
@@ -511,7 +512,7 @@ from emr_hyperneat.engine.pmap import (
     _pmap_eval_single_dense,
     _pmap_eval_single_hybrid,
 )
-from emr_hyperneat.engine.hmr_names_mixin import HMRNamesMixin
+from emr_hyperneat.engine.aliases_mixin import AliasesMixin
 from emr_hyperneat.engine.palette_mixin import PaletteMixin
 from emr_hyperneat.engine.modes_mixin import ModesMixin
 from emr_hyperneat.engine.champion_mixin import ChampionMixin
@@ -522,7 +523,7 @@ from emr_hyperneat.engine.configuration_mixin import ConfigurationMixin
 from emr_hyperneat.engine.generation_mixin import GenerationMixin
 
 
-class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, RoutesMixin,
+class EMRHyperNEAT(AliasesMixin, PaletteMixin, ModesMixin, ChampionMixin, RoutesMixin,
                    MultiDeviceMixin, MultiTaskMixin, ConfigurationMixin, GenerationMixin,
                    EMRHyperNEATMultiGPU):
     """Unified Extended EMR-HyperNEAT with Dynamic Functions + Neuromodulation.
@@ -576,15 +577,15 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
           index_decode: 'tanh'       # tanh (0.1.0's; a palette of 9+ never reaches its end entries)
                                      # or uniform (every entry, equal bins); aggregation has its own
           cppn_read: 'self'          # cppn_output channel at the node's self-connection, or
-                                     # input_mean (HMR's)
-          weight_source: 'w1'        # interpretations read W1, or raw (HMR's: the unmasked weight
+                                     # input_mean (the prototype's)
+          weight_source: 'w1'        # interpretations read W1, or raw (the prototype's: the unmasked weight
                                      # channel)
           palette: 'sin_only'        # optional: a preset name, or ACTIVATION_LIST indices or names
           interpretation: 'magnitude_bio'  # weight_interpretation: magnitude_bio, variance, sign,
                                            # magnitude, combined, hierarchical_sparsity,
                                            # sparsity_threshold, stp_inspired
           sparsity: {level_0: 0.05, level_1: 0.20, level_2_plus: 0.40}  # fractions kept
-          modular:                   # mode 'modular' (HMR's three layers), and aggregation mode
+          modular:                   # mode 'modular' (the prototype's three layers), and aggregation mode
                                      # 'modular'
             activation_method: 'magnitude_bio'  # none (tanh), magnitude_bio, magnitude, sign,
                                                 # variance
@@ -692,7 +693,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
 
     #: Accepted values for `dynamic_functions.mode`. `create_config` rejects anything else,
     #: which would otherwise fall through the activation dispatch and silently run the fixed
-    #: tanh/sigmoid baseline. 'modular' runs HMR's three layers (the modular block).
+    #: tanh/sigmoid baseline. 'modular' runs the prototype's three layers (the modular block).
     DYNAMIC_FUNCTION_MODES = frozenset({
         'disabled',
         'global',
@@ -822,10 +823,10 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
             'max_sparse_conns_ceiling',
         }
     )
-    #: Keys of the recurrence block the grid model alone reads: under network_model 'node_list'
-    #: each raises when present. hh_cache_enabled and settling_rule raise only at a value the node
-    #: list does not take (true, 'hmr'). max_connections is HMR's node-list cap, which nothing read
-    #: either (HMR padded to 500 whatever it said).
+    #: Keys of the recurrence block the grid model alone reads: under network_model 'node_list' each
+    #: raises when present. hh_cache_enabled and settling_rule raise only at a value the node list
+    #: does not take (true, 'drive_once'). max_connections is the prototype's node-list cap, which
+    #: nothing read either (the prototype padded to 500 whatever it said).
     NODE_LIST_REFUSED_RECURRENCE_KEYS = (
         'max_connections', 'max_sparse_conns', 'multi_hop_algorithm', 'hop_decay_factor',
         'multi_hop_second_factor', 'hh_refresh_interval', 'hh_mask_change_threshold',
@@ -835,11 +836,11 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
     #: Keys of the leo and geometry_seeding blocks EMR reads; any other key raises (a misspelled key
     #: would leave the run on the default). The execution block's keys are EXECUTION_KEYS.
     LEO_KEYS = frozenset({'enabled', 'threshold', 'mode', 'output_index'})
-    #: Keys of the dynamic_functions block EMR reads (_parse_dynamic_functions_config). Any other key
-    #: raises rather than leaving a run without what its configuration asks for (HMR's aggregation
-    #: runners nest `aggregation` here; others set `activation_palette`). `palette_evolution` is
-    #: the built-in palette evolution (:func:`parse_palette_evolution`), `live_strategy` HMR's live
-    #: palette strategy (:func:`parse_live_strategy`).
+    #: Keys of the dynamic_functions block EMR reads (_parse_dynamic_functions_config). Any other
+    #: key raises rather than leaving a run without what its configuration asks for (the prototype's
+    #: aggregation runners nest `aggregation` here; others set `activation_palette`).
+    #: `palette_evolution` is the built-in palette evolution (:func:`parse_palette_evolution`),
+    #: `live_strategy` the prototype's live palette strategy (:func:`parse_live_strategy`).
     DYNAMIC_FUNCTIONS_KEYS = frozenset(
         {
             'mode',
@@ -953,7 +954,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
                 f"strategy {strategy.name} has no route in EMRHyperNEAT; the names are "
                 f"{sorted(STRATEGY_NAME_MAP)} (and SINGLE_GPU_PYTHON_LOOP)")
         # The four sharding configurations configured the base class's own implementations of the
-        # HMR engine's strategies, which this package no longer has, so nothing would read them:
+        # the prototype engine's strategies, which this package no longer has, so nothing would read them:
         # they raise.
         given = [key for key, value in (('position_config', position_config),
                                         ('island_config', island_config),
@@ -1016,7 +1017,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         # (emr_hyperneat.weight_threshold)
         self.weight_threshold: float = WEIGHT_THRESHOLD
 
-        # HMR's live palette strategy: the checked block, the runner's strategy object
+        # The prototype's live palette strategy: the checked block, the runner's strategy object
         # (set_palette_strategy), and the generations and best fitnesses the object has been told
         self._live_strategy: Optional[Dict[str, Any]] = None
         self._palette_strategy: Any = None
@@ -1054,7 +1055,8 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         # How channels and weight-interpretation signals become indices (INDEX_DECODES)
         self.df_index_decode: str = 'tanh'
         self.agg_index_decode: str = 'tanh'
-        # Where cppn_output reads its channel and what the weight interpretations read (HMR_READS)
+        # Where cppn_output reads its channel and what the weight interpretations read
+        # (PROTOTYPE_READS)
         self.df_cppn_read: str = 'self'
         self.df_weight_source: str = 'w1'
         self.agg_cppn_read: str = 'self'
@@ -1210,7 +1212,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         the neat_* blocks (`_neat_operator_block`). 0.1.0 ignored it without a word.
 
         Nothing is checked without an emr_hyperneat block: the base class then warns that every
-        setting takes its default, or refuses an HMR-shaped configuration. A ``preset``,
+        setting takes its default, or refuses one that names another engine's blocks. A ``preset``,
         ``config_file`` or ``overrides`` with a value never gets here (`refuse_file_configuration`).
 
         Args:
@@ -1263,38 +1265,38 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         self._generation_loop_cache = {}
         # Parse extended configuration BEFORE calling parent
         algo_params = params.get('algorithm_params', {}).get('emrhyperneat', params)
-        hmr_config = algo_params.get('emr_hyperneat', {})
+        emr_block = algo_params.get('emr_hyperneat', {})
         # A missing block is warned about once, in the base create_config that
         # `super()` reaches below; warning here too would double it.
-        _refuse_unknown_keys('emr_hyperneat', hmr_config, self.EMR_HYPERNEAT_KEYS)
+        _refuse_unknown_keys('emr_hyperneat', emr_block, self.EMR_HYPERNEAT_KEYS)
         self._refuse_unknown_outer_keys(params, algo_params)
-        if hmr_config.get('iteration_level', 1) != 1:
+        if emr_block.get('iteration_level', 1) != 1:
             raise ValueError(
                 "emr_hyperneat.iteration_level is not read (the multi-hop level is "
                 "recurrence.iteration_level); 0.1.0 ignored a value other than 1, with a "
                 "deprecation warning")
 
         # Opt-in reproduction flag (default False -> EMR's existing behavior is unchanged).
-        # When True, EMR performs HMR's extra per-generation pre-ask jax.random.split.
-        # HMR's default (extra_randkey_split=True) produced the published results, so this
-        # lets reproduction benchmarks recover HMR's exact per-seed trajectories in EMR.
+        # When True, EMR performs the prototype's extra per-generation pre-ask jax.random.split.
+        # The prototype's default (extra_randkey_split=True) produced the published results, so this
+        # lets reproduction benchmarks recover the prototype's exact per-seed trajectories in EMR.
         # Stored under a distinct name so the base class's own `extra_randkey_split`
         # attribute (which defaults True) cannot leak in; every route of run_until_threshold
         # reads this one (0.1.0's FULL_PIPELINE_PARALLEL read the base attribute).
-        self._repro_extra_randkey_split = hmr_config.get('extra_randkey_split', False)
+        self._repro_extra_randkey_split = emr_block.get('extra_randkey_split', False)
 
         # Check if geometry seeding is enabled - need to set CPPN num_inputs to 7
-        geo_config = hmr_config.get('geometry_seeding', {})
+        geo_config = emr_block.get('geometry_seeding', {})
         _refuse_unknown_keys('geometry_seeding', geo_config, self.GEOMETRY_SEEDING_KEYS)
-        _refuse_unknown_keys('leo', hmr_config.get('leo', {}), self.LEO_KEYS)
-        _refuse_unknown_keys('execution', hmr_config.get('execution') or {}, EXECUTION_KEYS)
+        _refuse_unknown_keys('leo', emr_block.get('leo', {}), self.LEO_KEYS)
+        _refuse_unknown_keys('execution', emr_block.get('execution') or {}, EXECUTION_KEYS)
         geo_seeding_enabled = geo_config.get('enabled', False)
 
         # Auto-compute required CPPN outputs from dynamic_functions + aggregation config
-        dynamic_funcs = hmr_config.get('dynamic_functions', {})
-        agg_config_section = hmr_config.get('aggregation', {})
+        dynamic_funcs = emr_block.get('dynamic_functions', {})
+        agg_config_section = emr_block.get('aggregation', {})
         required_outputs = 1  # weight always needs output 0
-        if hmr_config.get('leo', {}).get('enabled', False):
+        if emr_block.get('leo', {}).get('enabled', False):
             # LEO's expression output, channel LEO_CHANNEL, counted: otherwise a LEO-only
             # configuration would build a one-output CPPN, and reading channel 1 of it would
             # return the weight (JAX clamps out-of-range indices).
@@ -1306,7 +1308,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         # Neuromodulation's dedicated outputs (Option B's receptors, a CPPN gate, the modulatory
         # factor and node type), after every other channel
         required_outputs += len(
-            neuromodulation_cppn_channels(hmr_config.get('neuromodulation', {}))
+            neuromodulation_cppn_channels(emr_block.get('neuromodulation', {}))
         )
 
         # Allow explicit override (for ablation configs like 2-output variants)
@@ -1350,7 +1352,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         self._auto_num_cppn_outputs = required_outputs
 
         # Parse fitness rescaling (converts 1-MSE fitness to R² for compressed landscapes)
-        rescale_var = hmr_config.get('fitness_rescale_variance', None)
+        rescale_var = emr_block.get('fitness_rescale_variance', None)
         if rescale_var is not None and not rescale_var > 0:
             # A variance that is not positive raises rather than leaving the run on 1-MSE
             raise ValueError(f"emr_hyperneat.fitness_rescale_variance must be a positive variance, got "
@@ -1368,9 +1370,9 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
             raise ValueError(f"emr_hyperneat.fitness_mode must be one of {FITNESS_MODES}, got "
                              f"{self.fitness_mode!r}; 0.1.0 scored an unknown name as MSE")
         # The input-to-hidden and hidden-to-output pruning threshold: WEIGHT_THRESHOLD unless set.
-        # HMR's unified model pruned at band_threshold in its hybrid mode, which its recipe sets
-        # here.
-        weight_threshold = hmr_config.get('weight_threshold', WEIGHT_THRESHOLD)
+        # The prototype's unified model pruned at band_threshold in its hybrid mode, which its
+        # recipe sets here.
+        weight_threshold = emr_block.get('weight_threshold', WEIGHT_THRESHOLD)
         if isinstance(weight_threshold, bool) or not isinstance(weight_threshold, numbers.Real) \
                 or not 0.0 <= weight_threshold < self.max_weight:
             raise ValueError(
@@ -1379,10 +1381,10 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
                 f"got {weight_threshold!r}"
             )
         self.weight_threshold = float(weight_threshold)
-        # HMR's base-engine memory and speed settings: checked, and inert here. The base class
-        # parses them and only its own generation reads them; this class computes the
+        # The prototype's base-engine memory and speed settings: checked, and inert here. The base
+        # class parses them and only its own generation reads them; this class computes the
         # reached-position mask alone (what skip_unused_masks selected) and narrows the evaluation
-        # by compaction, so no value changes a result (tests/test_hmr_base_settings.py).
+        # by compaction, so no value changes a result (tests/test_prototype_base_settings.py).
         for key in ('fuse_w1_computation', 'skip_unused_masks'):
             if not isinstance(getattr(self, key), bool):
                 raise ValueError(f"emr_hyperneat.{key} must be a bool, got {getattr(self, key)!r}")
@@ -1396,10 +1398,10 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
                 "emr_hyperneat.sparse_forward_threshold must be an integer >= -1 (-1 dense, 0 "
                 f"sparse, above 0 sparse above that many positions), got {threshold!r}"
             )
-        recurrence_section = hmr_config.get('recurrence', {})
+        recurrence_section = emr_block.get('recurrence', {})
 
         # Parse multi_gpu_strategy from config (string -> enum)
-        strategy_str = hmr_config.get('multi_gpu_strategy', None)
+        strategy_str = emr_block.get('multi_gpu_strategy', None)
         if strategy_str is not None:
             strategy_str_upper = strategy_str.upper()
             # 5 available GPU strategies
@@ -1425,12 +1427,12 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
                     f"Unknown multi_gpu_strategy {strategy_str!r}; the names are "
                     f"{sorted(strategy_map)}")
         # The split routes' device grid, checked against the strategy the configuration ends with
-        self._parallel_grid = parse_parallel_grid(hmr_config.get('parallel'), self.strategy)
+        self._parallel_grid = parse_parallel_grid(emr_block.get('parallel'), self.strategy)
         # The island model's islands, checked against the population and the elitism the
         # base class built; each island's engine is built from this configuration, its population
         # and strategy replaced
         self._island_plan = parse_islands(
-            hmr_config.get('islands'),
+            emr_block.get('islands'),
             self.strategy,
             int(self.population_size),
             int(self.neat_algo.species_controller.genome_elitism),
@@ -1446,7 +1448,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         # LEO (Link Expression Output): a CPPN output that gates whether a connection is
         # expressed, read from channel LEO_CHANNEL. Parsed before the dynamic functions,
         # whose per-node outputs take the channels after it.
-        leo_config = hmr_config.get('leo', {})
+        leo_config = emr_block.get('leo', {})
         self.use_leo = bool(leo_config.get('enabled', False))
         self.leo_threshold = float(leo_config.get('threshold', 0.2))
         self.leo_mode = leo_config.get('mode', 'compound')
@@ -1461,24 +1463,24 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
             )
         if (
             self.use_leo
-            and self.leo_mode == 'hmr_compound'
-            and hmr_config.get('locality_radius') is not None
+            and self.leo_mode == 'compound_unrescaled'
+            and emr_block.get('locality_radius') is not None
         ):
-            # HMR applied the locality penalty to the scaled weight, EMR's LEO paths to the
-            # tanh-normalized one; no runner combined them
+            # The prototype applied the locality penalty to the scaled weight, EMR's LEO paths to
+            # the tanh-normalized one; no runner combined them
             raise ValueError(
-                "leo.mode 'hmr_compound' with locality_radius is refused: HMR applied the penalty "
-                "after scaling the weight, EMR's LEO paths before"
+                "leo.mode 'compound_unrescaled' with locality_radius is refused: the prototype "
+                "applied the penalty after scaling the weight, EMR's LEO paths before"
             )
         if self.use_leo and self.verbose:
             print(f"[EMR-HyperNEAT] LEO ENABLED (threshold={self.leo_threshold}, "
                   f"mode={self.leo_mode}, channel {LEO_CHANNEL})")
 
         # Parse dynamic functions configuration
-        self._parse_dynamic_functions_config(hmr_config)
+        self._parse_dynamic_functions_config(emr_block)
 
         # Parse neuromodulation configuration (4 levels + multi-task)
-        self._parse_neuromodulation_config(hmr_config)
+        self._parse_neuromodulation_config(emr_block)
 
         # Parse streaming configuration
         # Parse execution mode (memory residency). `enable_streaming: true` is
@@ -1487,7 +1489,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         # Updates the existing object rather than replacing it, so options set
         # imperatively before create_config survive the parse.
         self.execution_config = parse_execution_config(
-            hmr_config, base=self.execution_config
+            emr_block, base=self.execution_config
         )
         self._apply_execution_config()
         # The generation loop selects its build step from this flag, so resolve
@@ -1499,19 +1501,19 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         self.enable_streaming = (
             self.execution_config.resolve(self.max_depth) is ExecutionMode.STREAMING
         )
-        self._streaming_verbose = hmr_config.get('streaming_verbose', False)
+        self._streaming_verbose = emr_block.get('streaming_verbose', False)
         # variance_rule applies on every execution mode, including one chosen at run time: streaming
         # and depth_offload take the legacy level-0 rule through legacy_level0_variance.
 
         # Parse locality radius for geometry seeding (distance-based weight penalty)
         # None = no penalty (default), positive float = penalty for distances > radius
-        self.locality_radius = hmr_config.get('locality_radius', None)
+        self.locality_radius = emr_block.get('locality_radius', None)
         if self.locality_radius is not None and self.verbose:
             print(f"[EMR-HyperNEAT] Locality radius enabled: {self.locality_radius}")
 
         # Parse geometry seeding configuration (Risi & Stanley 2012 paper approach)
         # This adds distance as an explicit CPPN input and seeds initial topology
-        geo_config = hmr_config.get('geometry_seeding', {})
+        geo_config = emr_block.get('geometry_seeding', {})
         self.geometry_seeding_enabled = geo_config.get('enabled', False)
         self.geometry_seeding_weight = geo_config.get('seed_weight', -1.0)
         if self.geometry_seeding_enabled and self.verbose:
@@ -1534,7 +1536,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         self._node_list_settings = None
         self._cached_node_list = None
         if self.network_model == 'node_list':
-            self._configure_node_list(hmr_config, algo_params, recurrence_section)
+            self._configure_node_list(emr_block, algo_params, recurrence_section)
 
         # The island model's migration, checked once everything above is parsed
         if self._island_plan is not None and self._island_plan.migration_interval > 0:
@@ -1543,7 +1545,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         self._check_feature_combinations()
         return config
 
-    def _configure_node_list(self, hmr_config: Dict[str, Any], algo_params: Dict[str, Any],
+    def _configure_node_list(self, emr_block: Dict[str, Any], algo_params: Dict[str, Any],
                              recurrence_section: Dict[str, Any]) -> None:
         """Check a node-list configuration and keep its settings.
 
@@ -1557,7 +1559,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         the generation.
 
         Args:
-            hmr_config: The emr_hyperneat block.
+            emr_block: The emr_hyperneat block.
             algo_params: algorithm_params.emrhyperneat.
             recurrence_section: The recurrence block.
 
@@ -1576,20 +1578,21 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         if (depth is None or isinstance(self.max_depth, bool)
                 or not 1 <= depth <= node_list.MAX_DEPTH):
             refused.append(f"max_depth {self.max_depth!r} (the quadtree depth of the leaves: an "
-                           f"integer from 1 to {node_list.MAX_DEPTH}; from depth 6 HMR's own build "
-                           f"dropped every hidden connection, and a genome's search is "
+                           f"integer from 1 to {node_list.MAX_DEPTH}; from depth 6 the prototype's "
+                           f"own build dropped every hidden connection, and a genome's search is "
                            f"4^(2 max_depth) leaf pairs)")
         if (isinstance(self.max_weight, bool) or not isinstance(self.max_weight, numbers.Real)
                 or not self.max_weight > 0):
             refused.append(f"max_weight {self.max_weight!r} (a positive number)")
         for key in ('variance_threshold', 'division_threshold', 'initial_depth', 'variance_rule'):
-            if key in hmr_config:
+            if key in emr_block:
                 refused.append(f"emr_hyperneat.{key} (the node list has no variance step: every "
-                               f"leaf is a candidate, as in HMR's model, whose active-leaf mask "
+                               f"leaf is a candidate, as in the prototype's model, whose active-leaf mask "
                                f"was all true)")
-        if 'weight_threshold' in hmr_config:
+        if 'weight_threshold' in emr_block:
             refused.append("emr_hyperneat.weight_threshold (the grid's pruning; the node list "
-                           "sparsifies at HMR's fixed 0.2 and keeps a connection by the band test)")
+                           "sparsifies at the prototype's fixed 0.2 and keeps a connection by the "
+                           "band test)")
         for key in self.NODE_LIST_REFUSED_RECURRENCE_KEYS:
             if key in recurrence_section:
                 refused.append(f"recurrence.{key} (the grid model's)")
@@ -1598,7 +1601,7 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
                            "network every generation)")
         if self._settling_rule != 'emr':
             refused.append(f"recurrence.settling_rule {self._settling_rule!r} (the node list "
-                           f"settles by HMR's node-list update)")
+                           f"settles by the prototype's node-list update)")
         config = self.extended_config
         hidden_to_hidden = config is not None and bool(config.allow_hidden_to_hidden)
         rounds = int(config.iteration_level) if hidden_to_hidden else 0
@@ -1636,14 +1639,14 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
                 or cppn_genome.get('num_inputs', 5) != 5):
             refused.append("a CPPN other than 5 inputs and 1 output (the node list reads the "
                            "weight output alone)")
-        execution = hmr_config.get('execution') or {}
+        execution = emr_block.get('execution') or {}
         if execution.get('generation_loop', 'python') != 'python':
-            # HMR's GPU loop compiles the plain feed-forward generation only
+            # The prototype's GPU loop compiles the plain feed-forward generation only
             refused.append(
                 f"execution.generation_loop {execution['generation_loop']!r} (the node list "
                 f"runs the Python loop)"
             )
-        if (hmr_config.get('enable_streaming') or set(execution) - {'mode', 'generation_loop'}
+        if (emr_block.get('enable_streaming') or set(execution) - {'mode', 'generation_loop'}
                 or execution.get('mode', 'auto') not in ('auto', 'standard')):
             refused.append("an execution block other than mode standard or auto, or "
                            "enable_streaming (the node list has one execution path)")
@@ -1709,8 +1712,9 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
         # Call parent initialize first
         state = super().initialize(config, problem, seed)
 
-        # Palette evolution's state is the run's: HMR kept it across initialize, so a reused object
-        # started from the previous run's best fitness and palette. The key is HMR's (seed + 12345).
+        # Palette evolution's state is the run's: the prototype kept it across initialize, so a
+        # reused object started from the previous run's best fitness and palette. The key is the
+        # prototype's (seed + 12345).
         evolution = getattr(self, 'df_palette_evolution', None)
         if evolution is not None:
             self._palette_mask = evolution['initial_mask'].copy()
@@ -1777,8 +1781,8 @@ class EMRHyperNEAT(HMRNamesMixin, PaletteMixin, ModesMixin, ChampionMixin, Route
     def run_generation_vmapped_multires(
         self, state: Any, problem: Any, skip_metrics: bool = False
     ) -> Tuple[Any, AlgorithmMetrics]:
-        """HMR's name, which its base class bound to its Python loop: this class's generation
-        (run_generation). The base class's binding (run_generation_vmapped_multires =
+        """The prototype's name, which its base class bound to its Python loop: this class's
+        generation (run_generation). The base class's binding (run_generation_vmapped_multires =
         run_generation_verbose) named the base class's own loop, which skips this class's
         evaluation."""
         return self.run_generation(state, problem, skip_metrics)

@@ -67,35 +67,35 @@ ULP_SENSITIVE = 1e-4
 ULP_OUTPUT_SENSITIVE = GPU_TRAJECTORY_RTOL
 
 
-def _hmr(config):
+def _emr(config):
     return config["algorithm_params"]["emrhyperneat"]["emr_hyperneat"]
 
 
 def _recurrent(preset, level=1, **recurrence):
     config = create_config_with_recurrence(preset, max_depth=DEPTH, population_size=POP,
                                            iteration_level=level, hh_cache_enabled=False)
-    _hmr(config)["recurrence"].update(recurrence)
+    _emr(config)["recurrence"].update(recurrence)
     return config
 
 
 def _per_node(preset="full_recurrent", level=1, **recurrence):
     config = create_config_with_dynamic_functions(
         "cppn_output_4", recurrence_preset=preset, max_depth=DEPTH, population_size=POP)
-    _hmr(config)["recurrence"].update(iteration_level=level, hh_cache_enabled=False, **recurrence)
+    _emr(config)["recurrence"].update(iteration_level=level, hh_cache_enabled=False, **recurrence)
     return config
 
 
 def _hh_aggregation():
     config = create_config_with_combined_recurrence("full_recurrent", max_depth=DEPTH, population_size=POP)
-    _hmr(config)["recurrence"].update(iteration_level=1, hh_cache_enabled=False)
-    _hmr(config)["aggregation"]["hh_aggregation_mode"] = "dynamic"
+    _emr(config)["recurrence"].update(iteration_level=1, hh_cache_enabled=False)
+    _emr(config)["aggregation"]["hh_aggregation_mode"] = "dynamic"
     return config
 
 
 def _hh_aggregation_uniform():
     config = _hh_aggregation()
-    _hmr(config)["dynamic_functions"]["index_decode"] = "uniform"
-    _hmr(config)["aggregation"]["index_decode"] = "uniform"
+    _emr(config)["dynamic_functions"]["index_decode"] = "uniform"
+    _emr(config)["aggregation"]["index_decode"] = "uniform"
     return config
 
 
@@ -108,6 +108,7 @@ CONFIGS = {
     "per_node_L2": lambda: _per_node("full_recurrent", 2),
     "hh_aggregation": _hh_aggregation,
     "hh_aggregation_uniform": _hh_aggregation_uniform,
+    "drive_once_rule": lambda: _per_node("full_recurrent", 1, settling_rule="drive_once"),
 }
 
 
@@ -461,7 +462,7 @@ EMPTY = (0, 7, POP - 1)
 def _geometry_7d():
     config = create_config_with_geometry_seeding("default", recurrence_preset="full_recurrent", max_depth=DEPTH,
                                                  population_size=POP)
-    _hmr(config)["recurrence"].update(iteration_level=1, hh_cache_enabled=False)
+    _emr(config)["recurrence"].update(iteration_level=1, hh_cache_enabled=False)
     return config
 
 

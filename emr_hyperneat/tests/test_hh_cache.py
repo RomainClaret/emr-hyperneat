@@ -116,8 +116,8 @@ class TestCacheWithEvolution:
     def test_cache_enabled_in_evolution(self, algorithm, xor_problem):
         """Verify cache is used during evolution when enabled."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_refresh_interval'] = 3
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_refresh_interval'] = 3
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -163,8 +163,8 @@ class TestCacheRefreshIntervals:
     def test_refresh_intervals(self, algorithm, xor_problem, interval):
         """Verify different refresh intervals work."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_refresh_interval'] = interval
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_refresh_interval'] = interval
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -174,8 +174,8 @@ class TestCacheRefreshIntervals:
     def test_frequent_refresh(self, algorithm, xor_problem):
         """Verify frequent cache refresh works."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_refresh_interval'] = 1  # Every generation
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_refresh_interval'] = 1  # Every generation
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -185,8 +185,8 @@ class TestCacheRefreshIntervals:
     def test_infrequent_refresh(self, algorithm, xor_problem):
         """Verify infrequent cache refresh works."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_refresh_interval'] = 20  # Every 20 generations
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_refresh_interval'] = 20  # Every 20 generations
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -201,8 +201,8 @@ class TestCacheMaskChangeThreshold:
     def test_mask_change_thresholds(self, algorithm, xor_problem, threshold):
         """Verify different mask change thresholds work."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_mask_change_threshold'] = threshold
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_mask_change_threshold'] = threshold
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -230,8 +230,8 @@ class TestCacheWithFeatures:
     def test_cache_with_dynamic_functions(self, algorithm, xor_problem):
         """Verify cache works with dynamic functions."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['dynamic_functions'] = {'mode': 'cppn_output', 'num_activations': 4}
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=QUICK_GENERATIONS)
 
@@ -241,8 +241,8 @@ class TestCacheWithFeatures:
     def test_cache_with_neuromodulation(self, algorithm, xor_problem):
         """Verify cache works with neuromodulation."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['neuromodulation'] = {
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['neuromodulation'] = {
             'enabled': True,
             'mode': 'true_neuromodulation',
             'num_nt_types': 4,
@@ -311,8 +311,8 @@ class TestComprehensiveCache:
     def test_intervals_achieve_fitness(self, algorithm, xor_problem, interval):
         """Verify all intervals can achieve fitness."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        hmr['recurrence']['hh_refresh_interval'] = interval
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        emr_block['recurrence']['hh_refresh_interval'] = interval
 
         result = run_quick_evolution(algorithm, config, xor_problem, generations=15)
 
@@ -332,8 +332,8 @@ class TestCacheDefault:
     def test_default_is_off(self, algorithm, xor_problem):
         """A recurrence section without the key parses to hh_cache_enabled False."""
         config = create_config_with_recurrence('hidden_only', hh_cache_enabled=True)
-        hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-        del hmr['recurrence']['hh_cache_enabled']
+        emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+        del emr_block['recurrence']['hh_cache_enabled']
         config_obj = algorithm.create_config(config)
         algorithm.initialize(config_obj, xor_problem, seed=DEFAULT_SEED)
 

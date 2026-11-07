@@ -362,7 +362,7 @@ DYNAMIC_FUNCTION_PRESETS = {
     'cppn_output_4': {'mode': 'cppn_output', 'num_activations': 4},
     'cppn_output_6': {'mode': 'cppn_output', 'num_activations': 6},
     'weight_interp_sign': {'mode': 'weight_interpretation', 'num_activations': 4, 'interpretation': 'sign'},
-    # Named after the interpretation it runs: magnitude_bio (HMR's 'magnitude', a separate
+    # Named after the interpretation it runs: magnitude_bio (the prototype's 'magnitude', a separate
     # interpretation, is its inverse)
     'weight_interp_magnitude_bio': {'mode': 'weight_interpretation', 'num_activations': 6,
                                     'interpretation': 'magnitude_bio'},
@@ -451,16 +451,16 @@ def create_config_with_recurrence(
         raise ValueError(f"Unknown recurrence preset: {preset}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     rec_config = RECURRENCE_PRESETS[preset].copy()
     rec_config['iteration_level'] = iteration_level
     rec_config['hh_cache_enabled'] = hh_cache_enabled
-    hmr['recurrence'] = rec_config
+    emr_block['recurrence'] = rec_config
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['aggregation'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['aggregation'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -478,26 +478,26 @@ def create_config_with_dynamic_functions(
         raise ValueError(f"Unknown dynamic functions mode: {mode}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     df_config = DYNAMIC_FUNCTION_PRESETS[mode].copy()
     if hh_activation_mode is not None:
         df_config['hh_activation_mode'] = hh_activation_mode
     df_config.update(overrides)
-    hmr['dynamic_functions'] = df_config
+    emr_block['dynamic_functions'] = df_config
 
     if df_config.get('mode') == 'global':
         substrate = config['algorithm_params']['emrhyperneat']['substrate']
         substrate['hidden_activation'] = df_config.get('hidden_activation', 'tanh')
         substrate['output_activation'] = df_config.get('output_activation', 'sigmoid')
 
-    hmr['aggregation'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['aggregation'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -515,20 +515,20 @@ def create_config_with_aggregation(
         raise ValueError(f"Unknown aggregation mode: {mode}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     agg_config = AGGREGATION_PRESETS[mode].copy()
     agg_config['hh_aggregation_mode'] = hh_aggregation_mode
     agg_config.update(overrides)
-    hmr['aggregation'] = agg_config
+    emr_block['aggregation'] = agg_config
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -545,19 +545,19 @@ def create_config_with_neuromodulation(
         raise ValueError(f"Unknown neuromodulation mode: {mode}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     nm_config = NEUROMODULATION_PRESETS[mode].copy()
     nm_config.update(overrides)
-    hmr['neuromodulation'] = nm_config
+    emr_block['neuromodulation'] = nm_config
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['aggregation'] = {'mode': 'disabled'}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['aggregation'] = {'mode': 'disabled'}
 
     return config
 
@@ -571,19 +571,19 @@ def create_config_with_streaming(
 ) -> Dict[str, Any]:
     """Create configuration with streaming mode enabled."""
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
-    hmr['enable_streaming'] = enable_streaming
-    hmr['population_chunk_size'] = population_chunk_size
+    emr_block['enable_streaming'] = enable_streaming
+    emr_block['population_chunk_size'] = population_chunk_size
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['aggregation'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['aggregation'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -615,8 +615,8 @@ def create_config_with_multi_task(
         'hidden_activation': 'tanh',
     }
 
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
-    hmr['multitask'] = {
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block['multitask'] = {
         'enabled': True,
         'num_tasks': len(task_names),
         'task_names': task_names,
@@ -652,16 +652,16 @@ def create_config_with_leo(
         raise ValueError(f"Unknown LEO preset: {preset}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     leo_config = LEO_PRESETS[preset].copy()
     leo_config.update(overrides)
-    hmr['leo'] = leo_config
+    emr_block['leo'] = leo_config
 
     # LEO requires CPPN with 2 outputs when enabled. EMR counts LEO's output itself, so this
     # helper sets the CPPN genome's output count only (emr_hyperneat.num_cppn_outputs is not a
@@ -674,9 +674,9 @@ def create_config_with_leo(
             config['algorithm_params']['emrhyperneat']['cppn']['genome'] = {}
         config['algorithm_params']['emrhyperneat']['cppn']['genome']['num_outputs'] = 2
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['aggregation'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['aggregation'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -708,20 +708,20 @@ def create_config_with_geometry_seeding(
         raise ValueError(f"Unknown geometry seeding preset: {preset}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     gs_config = GEOMETRY_SEEDING_PRESETS[preset].copy()
     gs_config.update(overrides)
-    hmr['geometry_seeding'] = gs_config
+    emr_block['geometry_seeding'] = gs_config
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['aggregation'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['aggregation'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -749,24 +749,24 @@ def create_config_with_combined_recurrence(
         Configuration dictionary with combined activation+aggregation+recurrence.
     """
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
-    hmr['dynamic_functions'] = {
+    emr_block['dynamic_functions'] = {
         'mode': 'cppn_output',
         'num_activations': num_activations,
         'output_activation': 'sigmoid',
     }
-    hmr['aggregation'] = {
+    emr_block['aggregation'] = {
         'mode': 'cppn_output',
         'num_aggregations': num_aggregations,
         'use_true_aggregation': True,
     }
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 
@@ -798,18 +798,18 @@ def create_config_with_leo_and_geometry_seeding(
         raise ValueError(f"Unknown geometry seeding preset: {gs_preset}")
 
     config = create_base_config(max_depth=max_depth, population_size=population_size)
-    hmr = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
+    emr_block = config['algorithm_params']['emrhyperneat']['emr_hyperneat']
 
     if recurrence_preset in RECURRENCE_PRESETS:
-        hmr['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
+        emr_block['recurrence'] = RECURRENCE_PRESETS[recurrence_preset].copy()
     else:
-        hmr['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
+        emr_block['recurrence'] = {'preset': 'feedforward', 'iteration_level': 0}
 
     # Apply LEO config
     leo_config = LEO_PRESETS[leo_preset].copy()
     if 'leo' in overrides:
         leo_config.update(overrides.pop('leo'))
-    hmr['leo'] = leo_config
+    emr_block['leo'] = leo_config
 
     # LEO requires CPPN with 2 outputs when enabled
     if leo_config.get('enabled', False):
@@ -823,11 +823,11 @@ def create_config_with_leo_and_geometry_seeding(
     gs_config = GEOMETRY_SEEDING_PRESETS[gs_preset].copy()
     if 'geometry_seeding' in overrides:
         gs_config.update(overrides.pop('geometry_seeding'))
-    hmr['geometry_seeding'] = gs_config
+    emr_block['geometry_seeding'] = gs_config
 
-    hmr['dynamic_functions'] = {'mode': 'disabled'}
-    hmr['aggregation'] = {'mode': 'disabled'}
-    hmr['neuromodulation'] = {'enabled': False}
+    emr_block['dynamic_functions'] = {'mode': 'disabled'}
+    emr_block['aggregation'] = {'mode': 'disabled'}
+    emr_block['neuromodulation'] = {'enabled': False}
 
     return config
 

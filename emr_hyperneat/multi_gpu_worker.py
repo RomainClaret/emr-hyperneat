@@ -158,10 +158,11 @@ def evaluate_shard_worker(
 
             else:
                 # Dense evaluation (no h->h)
+                from emr_hyperneat.emrhyperneat import dense_substrate_forward
+
                 def eval_single_dense(w1, w2):
                     """Evaluate single network without h->h connections."""
-                    hidden = jnp.tanh(inputs @ w1)
-                    outputs = jax.nn.sigmoid(hidden @ w2)
+                    outputs = dense_substrate_forward(inputs, w1, w2)
                     errors = jnp.mean((outputs - targets) ** 2, axis=1)
                     return 1.0 - jnp.mean(errors)
 

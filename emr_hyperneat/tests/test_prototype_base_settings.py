@@ -1,6 +1,7 @@
-"""HMR's base-engine memory and speed settings on this engine.
+"""The prototype's base-engine memory and speed settings on this engine.
 
-sparse_forward_threshold, fuse_w1_computation and skip_unused_masks tuned HMR's base-engine
+sparse_forward_threshold, fuse_w1_computation and skip_unused_masks tuned the prototype's
+base-engine
 generation: a sparse forward pass over active positions, a fused weight expression, and masks B and
 C skipped. The base class still parses them, and nothing reads them. This class computes the
 reached-position mask alone and narrows the evaluation by compaction, so every value runs the same

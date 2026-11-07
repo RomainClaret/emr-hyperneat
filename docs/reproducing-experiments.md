@@ -6,16 +6,16 @@ result data, and how the experiments map onto the algorithm.
 
 ## Choosing a release
 
-Each paper names the release its code was published with: the four papers below name **0.1.0**
-(tag `v0.1.0`). A later paper names the first release that contains its folder, and its runners
-reproduce its recorded runs on that release, which its
-[paper-validation tests](testing.md#the-paper-validation-tests) check. Release tags never move.
-The code of a paper's runners and analysis scripts is not edited after its release (0.2.0 rewrote
-only their comments and docstrings: apart from docstrings, their syntax trees match 0.1.0's), with
-two exceptions: in 0.2.0 the scripts that ran the HMR engine became EMR versions, since 0.2.0 no
-longer ships that engine, and the neuromodulation validator `probe_emr_config.py`, which failed at
-import in 0.1.0, finds the shared runner. Each paper's README names them and how their published
-runs reproduce on 0.1.0.
+Each paper names the release its code was published with: the four papers below name **0.1.0** (tag
+`v0.1.0`). A later paper names the first release that contains its folder, and its runners reproduce
+its recorded runs on that release, which its [paper-validation
+tests](testing.md#the-paper-validation-tests) check. Release tags never move. The code of a paper's
+runners and analysis scripts is not edited after its release (0.2.0 rewrote only their comments and
+docstrings: apart from docstrings, their syntax trees match 0.1.0's), with two exceptions: in 0.2.0
+the scripts that ran the prototype engine became EMR versions, since 0.2.0 no longer ships that
+engine, and the neuromodulation validator `probe_emr_config.py`, which failed at import in 0.1.0,
+finds the shared runner. Each paper's README names them and how their published runs reproduce on
+0.1.0.
 
 **With the script.** `scripts/replicate.py` builds a release in its own checkout,
 `.replicate/v<release>/`: a git worktree of the release tag, with the TensorNEAT submodule and a
@@ -60,16 +60,20 @@ otherwise. On 0.2.0, on a CPU:
   it passes `neat_species` (compatibility 2.5, stagnation 40), which 0.1.0 ignored and 0.2.0
   applies. A run for XOR and AND at population 50, seed 42, matches 0.1.0 through generation 4
   and differs from generation 5; with `neat_species` set to 0.1.0's defaults (3.0 and 20) it
-  matches 0.1.0 bit for bit. The paper's numbers come from the HMR engine, which the runner of
+  matches 0.1.0 bit for bit. The paper's numbers come from the prototype engine, which the runner of
   release 0.1.0 can select through its `backend` parameter and which 0.2.0 removes.
-- The runners whose published runs used the HMR engine are EMR versions, so their results differ
-  from the published runs: each paper's README gives the comparison, and the published runs
+- The runners whose published runs used the prototype engine are EMR versions, so their results
+  differ from the published runs: each paper's README gives the comparison, and the published runs
   reproduce on 0.1.0.
 - The pinned stack is unchanged, and so are the analysis scripts, but for the per-node paper's
-  `_validate_emr_port.py`, which compares EMR with HMR's trajectories recorded on 0.1.0, and the
-  neuromodulation validator's import of the shared runner. 0.2.0 does not ship the frozen HMR
-  module. A run in which a genome's fitness is NaN can differ, since 0.2.0 ranks that genome last
-  (in 0.1.0 the NaN reached selection).
+  `_validate_emr_port.py`, which compares EMR with the prototype's trajectories recorded on 0.1.0,
+  and the neuromodulation validator's import of the shared runner. 0.2.0 does not ship the frozen
+  prototype module. A run in which a genome's fitness is NaN can differ, since 0.2.0 ranks that
+  genome last (in 0.1.0 the NaN reached selection).
+
+0.3.0 gives these papers the results 0.2.0 gives: it renames the settings named after the
+prototype engine, adds opt-in features to the substrate API, and merges duplicated code, each
+merge equal in effect to the code it replaces.
 
 The paper-validation tests check each paper's recorded values on every release.
 
@@ -128,23 +132,24 @@ python <analysis_or_figure_script>.py
 
 ## Which experiments use which engine
 
-Not every published number came from the current `EMRHyperNEAT` class. Some came from the **HMR
-engine**, the **frozen HMR module** that release 0.1.0 ships (`emr_hyperneat/_hmr_frozen/`
-there; 0.2.0 removed it), which is bit-for-bit equivalent to EMR on the shared paths when EMR is
-pinned to `variance_rule: legacy` (the package default is `canonical`) and given no `neat_*`
-settings, and reproduces the exact numbers in the published tables on that release:
+Not every published number came from the current `EMRHyperNEAT` class. Some came from the
+**prototype engine**, a frozen module that release 0.1.0 ships (0.2.0 removed it), which is
+bit-for-bit equivalent to EMR on
+the shared paths when EMR is pinned to `variance_rule: legacy` (the package default is `canonical`)
+and given no `neat_*` settings, and reproduces the exact numbers in the published tables on that
+release:
 
 - **EMR (current class), published on EMR:** the `emr-dynamic-functions` E1/E2/E7/E8/E9 runners.
-- **EMR from 0.2.0, published on the HMR engine:** the `emr-neuromodulation` indirect-encoding
+- **EMR from 0.2.0, published on the prototype engine:** the `emr-neuromodulation` indirect-encoding
   runner; the `emr-dynamic-functions` E3/E4/E5 runners; the `emr-dynamic-functions-bio-inspired`
   bio-palette runners; and the `emr-hyperneat` optional from-scratch runners. Each runs its
-  experiment as it ran, on EMR's defaults apart from HMR's level-0 variance rule (and, for the
-  runners the frozen module ran, its random key split), which it pins, and writes apart from the
+  experiment as it ran, on EMR's defaults apart from the prototype's level-0 variance rule (and, for
+  the runners the frozen module ran, its random key split), which it pins, and writes apart from the
   published runs; the published runs reproduce on 0.1.0
   (`python scripts/replicate.py run <paper> --release 0.1.0 -- <command>`).
-- **Checked against HMR's recorded values:** the `emr-dynamic-functions` validator
-  `scripts/analysis/_validate_emr_port.py` compares EMR with HMR's trajectories of its 18 cells,
-  recorded on 0.1.0 (`scripts/analysis/hmr_trajectories.json`).
+- **Checked against the prototype's recorded values:** the `emr-dynamic-functions` validator
+  `scripts/analysis/_validate_emr_port.py` compares EMR with the prototype's trajectories of its 18
+  cells, recorded on 0.1.0 (`scripts/analysis/prototype_trajectories.json`).
 - **Neither (plain JAX):** the `emr-dynamic-functions` E6 gradient-descent baseline.
 
 The per-paper `REPRODUCIBILITY.md` / `BENCHMARK_RESULTS.md` / `EXPERIMENT_RESULTS.md` files are the
@@ -162,7 +167,7 @@ yourself (the GECCO paper's headline). For that:
   2+ visible devices; the worker plumbing lives in `emr_hyperneat/multi_gpu_worker.py`.
 - The `papers/emr-hyperneat` from-scratch runners (`scripts/runners/run_gecco2026_experiments.py`,
   `scripts/runners/run_statistical_validation.py`) are the worked examples. They run EMR-HyperNEAT
-  from 0.2.0 (their published files came from the HMR engine) and require a GPU.
+  from 0.2.0 (their published files came from the prototype engine) and require a GPU.
 
 Multi-GPU needs 2+ visible devices and engages **only through `run_until_threshold`** (a
 `run_generation` loop stays single-device). `full_pipeline_parallel` runs on one device
