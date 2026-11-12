@@ -9,6 +9,8 @@ the settling states, a genome with no active position, the recurrence fields of 
 refuses.
 """
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -17,6 +19,8 @@ import pytest
 from conftest import (  # type: ignore[import-not-found]
     GPU_TRAJECTORY_RTOL,
     XORProblem,
+    assert_close_across_programs,
+    cpu_multi_threaded_eigen,
     create_config_with_combined_recurrence,
     create_config_with_dynamic_functions,
     create_config_with_geometry_seeding,
@@ -55,15 +59,22 @@ GPU_FORWARD_ATOL = 1e-3
 #: A genome whose fitness moves by more than this under a one-ulp perturbation of its weights settles chaotically; on a
 #: GPU its loop and API fitness may differ by anything, so the comparison leaves it out (at most a quarter of them).
 ULP_SENSITIVE = 1e-4
-# Two forwards of one substrate agree bit for bit on the CPU. On a GPU, two compilations of the forward (with and
-# without return_states) may round differently, and with dynamic h->h aggregation one compilation differs from itself:
-# the settling sums each node's h->h inputs with a scatter-add, which a GPU accumulates in no fixed order. On an RTX
-# 2080 Ti (jax 0.6.1) the forwards of the six other configurations were the same bit for bit every time;
-# hh_aggregation's, run five times on the same arrays, moved genome 6 by up to 0.17 and genome 19 by 4e-4, whose
-# outputs one ulp in the weights moves by 0.14 and 4.9e-4, and every other genome by at most 1.1e-6.
-#: On a GPU, two forwards of one substrate are compared in the genomes whose outputs one ulp in the weights moves by at
-#: most this, relative to them; the others may differ by anything, so the comparison leaves them out (at most a
-#: quarter of them).
+# Two forwards of one substrate agree bit for bit on the CPU within one compilation, and so do two
+# compilations of the forward (with and without return_states) under single-threaded Eigen
+# (XLA_FLAGS=--xla_cpu_multi_thread_eigen=false; an Apple M4 Max, a Xeon E5-2683 v4). Under XLA's
+# default multi-threaded Eigen an AVX2 CPU rounds the two compilations apart (the Xeon: 1 to 11 of
+# 80 outputs, at most 1.2e-6), so there (conftest's cpu_multi_threaded_eigen) every genome is
+# compared within conftest's CPU_CROSS_PROGRAM_ULPS, which every genome of these configurations
+# held on the Xeon under XLA's defaults. On a GPU, two compilations of the forward may round
+# differently, and with dynamic h->h aggregation one compilation differs from itself: the settling
+# sums each node's h->h inputs with a scatter-add, which a GPU accumulates in no fixed order. On an
+# RTX 2080 Ti (jax 0.6.1) the forwards of the six other configurations were the same bit for bit
+# every time; hh_aggregation's, run five times on the same arrays, moved genome 6 by up to 0.17 and
+# genome 19 by 4e-4, whose outputs one ulp in the weights moves by 0.14 and 4.9e-4, and every other
+# genome by at most 1.1e-6.
+#: On a GPU, two forwards of one substrate are compared in the genomes whose outputs one ulp in the
+#: weights moves by at most this, relative to them; the others may differ by anything, so the
+#: comparison leaves them out (at most a quarter of them).
 ULP_OUTPUT_SENSITIVE = GPU_TRAJECTORY_RTOL
 
 
@@ -164,7 +175,8 @@ def _assert_same_program_outputs(actual, desired, atol_cpu=0.0):
 
 def _steady_genomes(substrate, inputs, draws=3):
     """Per genome, whether one ulp in its weights (the draws of `_ulp_response`) moves each of its outputs by at most
-    ULP_OUTPUT_SENSITIVE relative to it. Every genome on the CPU, where nothing consults it."""
+    ULP_OUTPUT_SENSITIVE relative to it: at least three quarters of the genomes on a GPU; every
+    genome on the CPU, where the comparisons cover them all."""
     if exact_backend():
         return np.ones(np.asarray(substrate.mask).shape[0], dtype=bool)
     rng = np.random.default_rng(0)
@@ -182,7 +194,8 @@ def _steady_genomes(substrate, inputs, draws=3):
         relative = np.divide(change, np.abs(outputs), out=np.where(change > 0, np.inf, 0.0), where=outputs != 0)
         moved = np.maximum(moved, relative.reshape(len(moved), -1).max(axis=1))
     steady = moved <= ULP_OUTPUT_SENSITIVE
-    assert steady.mean() >= 0.75, f"{int((~steady).sum())} of {steady.size} genomes' outputs sensitive to one ulp"
+    assert steady.mean() >= 0.75, (
+        f"{int((~steady).sum())} of {steady.size} genomes' outputs sensitive to one ulp")
     return steady
 
 
@@ -194,6 +207,18 @@ def _assert_same_forward(actual, desired, steady):
     else:
         np.testing.assert_allclose(np.asarray(actual)[steady], np.asarray(desired)[steady],
                                    rtol=GPU_TRAJECTORY_RTOL, atol=0.0)
+
+
+def _assert_same_forward_across_programs(actual: Any, desired: Any, steady: np.ndarray) -> None:
+    """`_assert_same_forward` for two compiled programs (the forward with and without
+    return_states): bit for bit on the CPU under single-threaded Eigen; under multi-threaded Eigen
+    (cpu_multi_threaded_eigen), where an AVX2 CPU rounds the two apart (a Xeon E5-2683 v4 put five
+    cases apart), every genome within CPU_CROSS_PROGRAM_ULPS ulps of the outputs' scale; on a GPU
+    as `_assert_same_forward`."""
+    if exact_backend() and cpu_multi_threaded_eigen():
+        assert_close_across_programs(np.asarray(actual), np.asarray(desired))
+    else:
+        _assert_same_forward(actual, desired, steady)
 
 
 @pytest.mark.parametrize("name", sorted(CONFIGS))
@@ -337,7 +362,8 @@ def test_states_end_on_the_settled_layer(name):
     outputs, states = substrate_forward(substrate, inputs, return_states=True)
     steps = substrate.config.activate_time
     assert steps == algo.activate_time
-    _assert_same_forward(outputs, substrate_forward(substrate, inputs), _steady_genomes(substrate, inputs))
+    _assert_same_forward_across_programs(outputs, substrate_forward(substrate, inputs),
+                                         _steady_genomes(substrate, inputs))
     output_fn = ACTIVATION_FUNCTIONS[substrate.config.output_activation]
     assert len(states) == POP
     for genome, settled in enumerate(states):
@@ -512,7 +538,7 @@ def test_a_genome_with_no_active_position(name):
     built = build_recurrent_substrate(edited, outputs)
     forward, states = substrate_forward(built, inputs, return_states=True)
     steady = _steady_genomes(built, inputs)
-    _assert_same_forward(substrate_forward(built, inputs), forward, steady)
+    _assert_same_forward_across_programs(substrate_forward(built, inputs), forward, steady)
     feed_forward = np.asarray(substrate_forward(_feed_forward(built), inputs))
     # The edited mask with the population's connections: the forward drops every connection of a cleared node
     stale = np.asarray(substrate_forward(edited, inputs, return_states=True)[0])

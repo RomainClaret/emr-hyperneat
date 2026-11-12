@@ -353,6 +353,7 @@ from emr_hyperneat.engine.functions import (
 )
 from emr_hyperneat.engine.settling import (
     HH_ACTIVATION_MODES,
+    SoftmaxCompletion,
     _NODE_RULES,
     _SETTLE_STEPS,
     _SETTLE_STEPS_ADDITIVE,
@@ -365,11 +366,13 @@ from emr_hyperneat.engine.settling import (
     _stable_settle_step,
     _stable_settle_step_additive,
     _stable_settle_step_drive_once,
+    full_grid_softmax,
     node_activation,
     node_activation_rule,
     settle_hidden,
     settle_hidden_additive,
     settle_hidden_drive_once,
+    softmax_axis_multiplicity,
 )
 from emr_hyperneat.engine.neuromodulation import (
     CUSTOM_LEVEL_TRANSLATIONS,
@@ -392,10 +395,12 @@ from emr_hyperneat.engine.neuromodulation import (
     NT_TASK_PRESETS,
     NeuromodulationConfig,
     NodeRule,
+    _neuromodulated_input,
     _neuromodulated_rule,
     _neuromodulation_block_of,
     _refuse_level_flags_against_named_mode,
     _translate_prototype_neuromodulation,
+    _true_neuromodulation_terms,
     apply_gate_scaling,
     check_modulatory_options,
     cppn_modulatory_masks,
@@ -415,6 +420,7 @@ from emr_hyperneat.engine.neuromodulation import (
     neuromodulation_cppn_channels,
     option_b_receptor_outputs,
     resolve_modulatory_options,
+    softmax_missing_virtual,
     true_neuromodulation_node_fn,
     true_neuromodulation_node_rule,
 )

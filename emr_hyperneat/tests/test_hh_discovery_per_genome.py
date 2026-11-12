@@ -24,6 +24,8 @@ What must hold:
 - the corrected decay: on a 4-node chain at level 3 the 3-hop term carries decay^2, not decay^3.
 """
 
+from typing import Any, Dict
+
 import jax
 import numpy as np
 import pytest
@@ -31,6 +33,7 @@ import pytest
 from conftest import (
     EMRHyperNEAT,
     XORProblem,
+    cpu_multi_threaded_eigen,
     create_config_with_recurrence,
     DEFAULT_SEED,
     create_config_with_leo,
@@ -70,6 +73,23 @@ _U32 = float(np.finfo(np.float32).eps) / 2   # float32 unit roundoff, 2**-24
 _REFERENCE_SAFETY = 2.0
 # Fitness off the CPU: up to 3.1e-5 apart at generation 0 on two RTX 2080 Ti.
 _FIT_ATOL = 0.0 if _ON_CPU else 1e-4
+# At level 2 the union and the per-genome discovery are two compiled programs whose products run
+# over (U, U) and (S, S) arrays. Under single-threaded Eigen (XLA_FLAGS set to
+# --xla_cpu_multi_thread_eigen=false, as the nightly workflow runs) the comparison is four ulps of
+# each weight and no absolute allowance. An Apple M4 Max gives identical weights, under XLA's
+# defaults too. On a Xeon E5-2683 v4 under the flag one genome of hidden_only had 16 of its 1,146
+# weights differ, the largest by one ulp of max_weight (2.4e-7, at a weight of 2.0), and the other
+# presets were identical; this comparison passes there under the flag. AVX-512 Xeons pass under
+# XLA's defaults. Under XLA's default multi-threaded Eigen an AVX2 CPU rounds the two further
+# apart (a threaded product's summation order is the likely cause), which moves a weight by ulps
+# at max_weight's scale whatever the weight's own magnitude: the differences arise in sums whose
+# scale max_weight sets. The Xeon E5-2683 v4 put full_recurrent's genome 8 of 30 one ulp of
+# max_weight 3 apart (2.4e-7) and genome 28 17 ulps apart (4.05e-6). So on the CPU under
+# multi-threaded Eigen only (conftest's cpu_multi_threaded_eigen) that comparison allows 64 ulps of
+# max_weight (1.5e-5 at 3), the GPU's level-two bound (_atol), 3.8 times the largest difference
+# seen; a wrong formula (the raw second factor, the decayed carry) moves a weight by 1e-2 or more
+# (_reference_multi_hop), 650 times the allowance.
+_CPU_LEVEL_TWO_ULPS_OF_MAX_WEIGHT = 64
 
 
 def _atol(settings, level):
@@ -77,6 +97,16 @@ def _atol(settings, level):
     if _ON_CPU:
         return 0.0
     return (8 if level == 1 else 64) * float(np.spacing(np.float32(settings['max_weight'])))
+
+
+def _atol_across_programs(settings: Dict[str, Any], level: int) -> float:
+    """`_atol` for two compiled programs at ``level`` 2 or more: on the CPU under multi-threaded
+    Eigen (conftest's cpu_multi_threaded_eigen) _CPU_LEVEL_TWO_ULPS_OF_MAX_WEIGHT ulps of
+    max_weight rather than 0; elsewhere `_atol`, 0 on the CPU."""
+    if _ON_CPU and cpu_multi_threaded_eigen():
+        spacing = float(np.spacing(np.float32(settings['max_weight'])))
+        return _CPU_LEVEL_TWO_ULPS_OF_MAX_WEIGHT * spacing
+    return _atol(settings, level)
 
 
 def _run(mode, preset, iteration_level, act_mode, depth, population, generations=2, second_factor=None,
@@ -281,9 +311,12 @@ class TestMultiHopSemantics:
     def test_union_masked_equals_per_genome_at_level_two(self, preset):
         hh_u, fit_u, _m, _p, settings = _run('union', preset, 2, 'disabled', 3, 30, second_factor='masked')
         hh_p, fit_p, _m, _p, _ = _run('per_genome', preset, 2, 'disabled', 3, 30)
-        # (U, U) against (S, S) products: the same terms summed in another order; 3 ulps observed once.
-        total = _assert_same_connections(hh_u, hh_p, 'union masked against per_genome', ulps=4 * _ULPS_DIRECT,
-                                         atol=_atol(settings, 2))
+        # (U, U) against (S, S) products: the same terms summed in another order; 3 ulps observed
+        # once, and on an AVX2 CPU under XLA's default multi-threaded Eigen up to 17 ulps of
+        # max_weight (_CPU_LEVEL_TWO_ULPS_OF_MAX_WEIGHT, only there).
+        total = _assert_same_connections(hh_u, hh_p, 'union masked against per_genome',
+                                         ulps=4 * _ULPS_DIRECT,
+                                         atol=_atol_across_programs(settings, 2))
         assert total > 0
         for gen, (a, b) in enumerate(zip(fit_u, fit_p)):
             # The products run over different shapes ((U, U) against (S, S)); identical on this CPU,

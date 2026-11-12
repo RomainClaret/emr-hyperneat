@@ -1,6 +1,7 @@
 """One generation: run_generation, the standard generation (run_generation_verbose) and the compiled
 feed-forward core, the query and evaluation backends, the forward built per configuration, and the
 records a generation leaves."""
+import functools
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -23,6 +24,7 @@ from emr_hyperneat.engine.evaluation import (
     evaluate_population_on_device,
 )
 from emr_hyperneat.engine.functions import (
+    ACTIVATION_FUNCTIONS,
     AGGREGATION_FUNCTIONS,
     AGGREGATION_LIST,
     activation_interpretation_signal,
@@ -47,6 +49,7 @@ from emr_hyperneat.engine.metrics import (
     species_summary,
     topology_summary,
 )
+from emr_hyperneat.engine.multitask import compute_modulation_with_branch_gating
 from emr_hyperneat.engine.neuromodulation import (
     _neuromodulated_rule,
     apply_gate_scaling,
@@ -58,14 +61,18 @@ from emr_hyperneat.engine.neuromodulation import (
     modulatory_masks,
     modulatory_neuron_masks,
     modulatory_node_rule,
+    softmax_missing_virtual,
     true_neuromodulation_node_rule,
 )
 from emr_hyperneat.engine.parallel import evaluate_population_split, query_population_split
 from emr_hyperneat.engine.settling import (
+    SoftmaxCompletion,
+    full_grid_softmax,
     node_activation_rule,
     settle_hidden,
     settle_hidden_additive,
     settle_hidden_drive_once,
+    softmax_axis_multiplicity,
 )
 from emr_hyperneat.engine.substrate_build import (
     apply_locality_penalty_to_weights,
@@ -147,6 +154,170 @@ class GenerationMixin:
             # Single-task mode: use standard implementation
             return self.run_generation_verbose(state, problem, skip_metrics)
 
+    def _true_neuromodulation_receptors(
+        self, W1: Optional[jnp.ndarray], self_conn: Optional[jnp.ndarray]
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """True neuromodulation's receptor densities and base gains at the positions of ``W1`` (pop,
+        inputs, positions) or of ``self_conn`` (pop, positions, CPPN outputs), from the configured
+        source.
+
+        Option A derives them from a weight per position: the first input's (default) or the
+        self-connection query's weight output (neuromodulation.use_self_connection_query). Option B
+        reads dedicated CPPN outputs at the self-connection. The generation calls this on the arrays
+        it evaluates, and `_softmax_completion` on the positions a compacted axis leaves out.
+        """
+        num_nt = self.neuromod_config.num_nt_types
+        receptor_derivation = self.neuromod_config.receptor_derivation
+        if self.neuromod_config.receptor_from_weight:
+            # Option A: Derive receptor densities from weights
+            # W1 shape: (pop, num_inputs, num_positions)
+            #
+            # Use first input's weights (not mean) to match original's single-value-per-position
+            # approach. The original uses CPPN output at self-connection coordinates
+            # (x,y,x,y,bias), which gives one value per position. Using first input's weights
+            # approximates this by giving one value per position rather than averaging multiple
+            # values.
+            #
+            # This is important for receptor_densities because:
+            # - mean() smooths out the values, losing the variation needed for diverse modulation
+            # - first input gives a consistent per-position property similar to self-connection
+            #   query
+            # Choose the per-position weight source for receptor/base-gain.
+            if (getattr(self.neuromod_config, 'use_self_connection_query', False)
+                    and self_conn is not None):
+                # Exact reproduction of the prototype and the paper: raw CPPN self-connection
+                # query at (x,y,x,y,bias); index 0 = weight output, the same source the prototype
+                # uses (weight_values = self_conn_outputs[:, :, 0]). Already bounded ~[-1, 1].
+                weight_normalized = self_conn[:, :, 0]
+            else:
+                # Default EMR approximation: first input's weight, normalized to ~[-1, 1].
+                # W1 = tanh(cppn_output) * max_weight, so W1/max_weight ~= tanh(cppn_output).
+                weight_for_receptor = W1[:, 0, :]  # (pop, num_positions) - use first input
+                weight_normalized = weight_for_receptor / self.max_weight
+
+            receptor_densities = derive_receptor_from_weight(
+                weight=weight_normalized, method=receptor_derivation, num_nt_types=num_nt
+            )  # (pop, num_positions, num_nt)
+
+            # Convert to [-1, 1] range to match Option B (enables both excitatory and inhibitory)
+            # This matches the prototype's neuromodulation variant
+            receptor_densities = receptor_densities * 2.0 - 1.0
+
+            # Base gains: derived from weight magnitude, range [0.5, 1.0]
+            # Use normalized weight (already in [-1, 1]) to match original
+            base_gains = jnp.abs(weight_normalized) * 0.5 + 0.5
+        else:
+            # Option B (the prototype's formulas): each NT type's receptor density is a dedicated
+            # CPPN output at the node's self-connection, tanh-bounded; the base gain comes from the
+            # weight output there. The prototype's clip to +-10 and its NaN guards are kept (the
+            # clip does nothing on the CPPN's tanh-bounded outputs). With four NT types the rule
+            # reads three receptors (the fourth NT channel inverts the outputs), so the fourth
+            # output has no effect, as in the prototype.
+            base = self._cppn_output_indices['receptor']
+            receptor_densities = jnp.tanh(
+                jnp.clip(self_conn[:, :, base : base + num_nt], -10.0, 10.0)
+            )
+            receptor_densities = jnp.where(jnp.isnan(receptor_densities), 0.0, receptor_densities)
+            base_gains = jnp.abs(jnp.clip(self_conn[:, :, 0], -10.0, 10.0)) * 0.5 + 0.5
+            base_gains = jnp.where(jnp.isnan(base_gains), 0.75, base_gains)
+        return receptor_densities, base_gains
+
+    def _global_softmax_hidden(self) -> bool:
+        """Whether the one hidden activation of every node is the global 'softmax' and a settling
+        step applies it (hh_activation_mode other than 'tanh')."""
+        return (self._hidden_act_fn is ACTIVATION_FUNCTIONS['softmax']
+                and self.hh_activation_mode != 'tanh')
+
+    def _missing_positions_softmax_terms(
+        self, evaluated: Any, pop_size: int, num_inputs: int
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """The receptor densities and base gains true neuromodulation derives at the grid positions
+        an axis holding the ceiling positions ``evaluated`` leaves out, and the positions each entry
+        stands for.
+
+        Every such position has zero weights for every genome (it is outside each genome's mask),
+        so under Option A from the first input weight they all derive the receptors of a zero
+        weight: one entry stands for all of them. From the self-connection query's weight output or
+        from dedicated CPPN outputs (Option B) each derives its own, from the ceiling-sized query
+        (_cached_self_conn): one entry per position.
+
+        Returns:
+            ``(receptors, base_gains, multiplicity)``: (pop, entries, num_nt), (pop, entries),
+            (entries,).
+        """
+        cfg = self.neuromod_config
+        ceiling = int(self._cached_W1.shape[-1])
+        missing = np.setdiff1d(np.arange(ceiling), np.asarray(evaluated))
+        if cfg.receptor_from_weight and not (getattr(cfg, 'use_self_connection_query', False)
+                                             and self._cached_self_conn is not None):
+            zero = jnp.zeros((pop_size, num_inputs, 1), dtype=self._cached_W1.dtype)
+            receptors, base_gains = self._true_neuromodulation_receptors(zero, None)
+            return receptors, base_gains, jnp.asarray([missing.size], dtype=jnp.float32)
+        receptors, base_gains = self._true_neuromodulation_receptors(
+            None, self._cached_self_conn[:, missing, :])
+        return receptors, base_gains, jnp.ones((missing.size,), dtype=jnp.float32)
+
+    def _softmax_virtual_positions(
+        self, evaluated: Any, pop_size: int, num_inputs: int, length: int,
+        neurotransmitter: jnp.ndarray, modulation_mode: str, branch_mode: str,
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """evaluate_with_neurotransmitter's virtual positions of full_grid_softmax after a compacted
+        generation: per genome, the multiplicity (length + 1,) and the virtual position's receptors,
+        base gain and grid coordinates, under the call's vector, modulation mode and branch gating
+        (`softmax_missing_virtual`).
+
+        Args:
+            evaluated: The ceiling positions the compact axis holds (_cached_active_indices).
+            pop_size, num_inputs: The evaluated W1's population and inputs.
+            length: The compact axis' length (padding included).
+            neurotransmitter, modulation_mode, branch_mode: The call's.
+        """
+        receptors, base_gains, multiplicity = self._missing_positions_softmax_terms(
+            evaluated, pop_size, num_inputs)
+        coordinates = None
+        if branch_mode != 'none':
+            # Branch gating reads each missing position's region: one entry per position
+            grid = get_hierarchical_grid(self.max_depth).all_positions
+            ceiling = int(self._cached_W1.shape[-1])
+            coordinates = grid[np.setdiff1d(np.arange(ceiling), np.asarray(evaluated))]
+            if multiplicity.shape[0] != coordinates.shape[0]:
+                receptors = jnp.broadcast_to(receptors, (pop_size, coordinates.shape[0],
+                                                         receptors.shape[-1]))
+                base_gains = jnp.broadcast_to(base_gains, (pop_size, coordinates.shape[0]))
+                multiplicity = jnp.ones((coordinates.shape[0],), dtype=jnp.float32)
+        num_nt = int(neurotransmitter.shape[-1])
+
+        def virtual(receptors_g, base_gains_g):
+            modulation = None if coordinates is None else compute_modulation_with_branch_gating(
+                receptors_g, neurotransmitter, coordinates, branch_mode)
+            return softmax_missing_virtual(
+                receptors_g, base_gains_g, multiplicity, neurotransmitter,
+                self.neuromod_config.modulation_strength, num_nt, modulation_mode,
+                self.neuromod_config.node_rule, modulation)
+
+        receptor_v, gain_v, count, pick = jax.vmap(virtual)(receptors, base_gains)
+        position_v = (jnp.zeros((pop_size, 2), dtype=jnp.float32) if coordinates is None
+                      else coordinates[pick])
+        return (softmax_axis_multiplicity(len(evaluated), length, count), receptor_v, gain_v,
+                position_v)
+
+    def _softmax_completion(
+        self, eval_positions: Any, ceiling_positions: int, real: int, length: int, pop_size: int,
+        W1: jnp.ndarray, neuromod_data: Optional[Dict[str, Any]],
+    ) -> SoftmaxCompletion:
+        """What `_build_forward` needs to evaluate the whole grid's softmax on this generation's
+        compacted axis (full_grid_softmax): the real positions and the axis' length, the count it
+        leaves out of the ceiling and, under true neuromodulation, the receptors and base gains
+        derived at the positions left out (`_missing_positions_softmax_terms`)."""
+        missing = int(ceiling_positions) - int(real)
+        if neuromod_data is None or neuromod_data['mode'] != 'true_neuromodulation':
+            return SoftmaxCompletion(real=int(real), length=int(length), missing=missing)
+        receptors, base_gains, multiplicity = self._missing_positions_softmax_terms(
+            eval_positions, pop_size, int(W1.shape[1]))
+        return SoftmaxCompletion(real=int(real), length=int(length), missing=missing,
+                                 receptors=receptors, base_gains=base_gains,
+                                 multiplicity=multiplicity)
+
     def _build_forward(
         self,
         W1: jnp.ndarray,
@@ -164,6 +335,7 @@ class GenerationMixin:
         node_masks: Optional[jnp.ndarray] = None,
         sparsity_quantiles: Optional[jnp.ndarray] = None,
         wta_k_percent: Optional[float] = None,
+        softmax_completion: Optional[SoftmaxCompletion] = None,
     ) -> Tuple[Callable, Tuple, bool]:
         """This generation's per-genome forward and the population arrays it runs on.
 
@@ -173,6 +345,11 @@ class GenerationMixin:
         drive, activation, neuromodulation); the recurrent one settles it with
         :func:`settle_hidden`, so without hidden-to-hidden connections the two compute the
         same arithmetic (bit for bit on CPU but for the exception :func:`settle_hidden` names).
+        With ``softmax_completion`` (a compacted axis under a global ``'softmax'`` hidden
+        activation) the recurrent forward settles one more position, the virtual one of
+        :func:`full_grid_softmax`, and drops it before the outputs; the genome arguments then carry
+        its multiplicity (and under true neuromodulation its receptors and base gain) after the
+        arrays its mode reads.
 
         Args:
             W1, W2: Population weight matrices as evaluated (compacted on the recurrent path).
@@ -192,6 +369,9 @@ class GenerationMixin:
             wta_k_percent: The fraction of active values winner-take-all keeps, or None. Sparsity is
                 applied by the feed-forward dynamic evaluation only (configuration refuses it
                 elsewhere).
+            softmax_completion: The compacted axis and the missing positions
+                (`_softmax_completion`), when the global 'softmax' hidden activation settles on it;
+                read on the recurrent path only.
 
         Returns:
             ``(forward_one, genome_args, chunk_by_scan)``. ``forward_one(inputs, *args)`` is
@@ -200,6 +380,18 @@ class GenerationMixin:
             evaluation, which the plain recurrent path has always used.
         """
         recurrent = sparse_hh is not None
+        # The whole grid's softmax on a compacted axis (full_grid_softmax), a trace-time branch:
+        # every other configuration, and softmax on the whole grid, builds the forward it builds
+        # without it. The settling applies the configured activation unless hh_activation_mode is
+        # 'tanh'; the per-node modes never apply softmax.
+        completion = (softmax_completion
+                      if recurrent and act_indices is None and self.hh_activation_mode != 'tanh'
+                      else None)
+        multiplicity = None
+        if completion is not None:
+            multiplicity = softmax_axis_multiplicity(
+                completion.real, completion.length,
+                jnp.full((pop_size,), completion.missing, jnp.float32))
         palette = self.df_palette
         num_activations = self.df_num_activations
         hidden_fn = self._hidden_act_fn if self._hidden_act_fn is not None else jnp.tanh
@@ -225,38 +417,48 @@ class GenerationMixin:
             hh_args = (sparse_hh.from_indices, sparse_hh.to_indices, sparse_hh.weights,
                        sparse_hh.valid_mask, hh_agg_indices)
 
-        def activation(act_idx):
+        def activation(act_idx, multiplicity_i=None):
             # A settling step applies hh_activation_mode's activation; a dense pass the
             # configured one.
             if recurrent and hh_mode == 'initial_only':
                 return jnp.tanh, ()  # The prototype's later steps (settling_rule 'drive_once' only)
+            if multiplicity_i is not None:
+                return full_grid_softmax, (multiplicity_i,)
             return node_activation_rule(hh_mode if recurrent else 'every_iteration', act_idx,
                                         hidden_fn, palette, num_activations)
 
-        def first_activation(act_idx):
+        def first_activation(act_idx, multiplicity_i=None):
             # The prototype's rule applies the configured activation at its first step ('tanh' mode:
             # tanh there too)
             if hh_mode == 'tanh':
                 return jnp.tanh, ()
+            if multiplicity_i is not None:
+                return full_grid_softmax, (multiplicity_i,)
             return node_activation_rule(
                 'every_iteration', act_idx, hidden_fn, palette, num_activations
             )
 
         settling_rule = self._settling_rule
 
-        def hidden_state(inputs, W1_i, agg_idx, node, hh, first=None, update=None):
+        def hidden_state(inputs, W1_i, agg_idx, node, hh, first=None, update=None, virtual=False):
             node_fn, node_operands = node
             drive = input_drive(inputs, W1_i, agg_idx, **drive_kwargs)
             if not recurrent:
                 return node_fn(drive, *node_operands)
             from_idx, to_idx, hh_w, valid, hh_agg_idx = hh
+            if virtual:
+                # full_grid_softmax's virtual position after the axis: a zero-weight position (zero
+                # drive, no connection, every aggregation of nothing 0), dropped before the outputs
+                drive = jnp.concatenate([drive, jnp.zeros_like(drive[:, :1])], axis=1)
+                if hh_agg_idx is not None:
+                    hh_agg_idx = jnp.concatenate([hh_agg_idx, jnp.zeros_like(hh_agg_idx[:1])])
             if settling_rule == 'drive_once' and update is not None:
                 # The neuromodulated rule of the prototype's FULL variant: the node of the drive
                 # with the configured activation (first), then activate_time steps of h +
                 # update(recurrent(h))
                 first_fn, first_operands = first
                 update_fn, update_operands = update
-                return settle_hidden_additive(
+                hidden = settle_hidden_additive(
                     first_fn(drive, *first_operands),
                     from_idx,
                     to_idx,
@@ -266,35 +468,55 @@ class GenerationMixin:
                     update_fn,
                     update_operands,
                 )
-            if settling_rule == 'drive_once':
+            elif settling_rule == 'drive_once':
                 # The prototype's rule: the first step applies the configured activation (first),
                 # the later ones the settling activation (node: tanh under 'initial_only' or 'tanh')
                 first_fn, first_operands = first if first is not None else node
-                return settle_hidden_drive_once(drive, from_idx, to_idx, hh_w, valid, activate_time,
-                                                first_fn, node_fn, hh_agg_idx, hh_agg_mode, num_hh_agg,
-                                                first_operands=first_operands, step_operands=node_operands)
-            return settle_hidden(drive, from_idx, to_idx, hh_w, valid, activate_time, node_fn,
-                                 hh_agg_idx, hh_agg_mode, num_hh_agg, node_operands=node_operands)
+                hidden = settle_hidden_drive_once(drive, from_idx, to_idx, hh_w, valid,
+                                                  activate_time, first_fn, node_fn, hh_agg_idx,
+                                                  hh_agg_mode, num_hh_agg,
+                                                  first_operands=first_operands,
+                                                  step_operands=node_operands)
+            else:
+                hidden = settle_hidden(drive, from_idx, to_idx, hh_w, valid, activate_time, node_fn,
+                                       hh_agg_idx, hh_agg_mode, num_hh_agg,
+                                       node_operands=node_operands)
+            return hidden[:, :-1] if virtual else hidden
 
         if neuromod_data is not None:
             mode = neuromod_data['mode']
 
-            def gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh):
+            def gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh, multiplicity_i=None):
                 """The forward under per-node gates: static gating's, and context gating's once its
                 gates are known."""
-                node = gated_node_rule(activation(act_idx), gates)
+                virtual = multiplicity_i is not None
+                if virtual:
+                    # The virtual position's gate scales its own state alone, which no softmax reads
+                    # again (its input stays the zero drive under 'emr'; 'drive_once' updates it
+                    # through tanh) and the outputs drop
+                    gates = jnp.concatenate([gates, jnp.ones_like(gates[:1])])
+                node = gated_node_rule(activation(act_idx, multiplicity_i), gates)
                 first, update = (
                     (
-                        gated_node_rule(first_activation(act_idx), gates),
+                        gated_node_rule(first_activation(act_idx, multiplicity_i), gates),
                         (_neuromodulated_rule('gain', jnp.tanh), (gates,)),
                     )
                     if recurrent and settling_rule == 'drive_once'
                     else (None, None)
                 )
-                h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update)
+                h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update, virtual)
                 return output_fn(h @ W2_i)
 
             if mode == 'static_gating':
+                if completion is not None:
+                    def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, gates, multiplicity_i,
+                                    *hh):
+                        return gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh,
+                                             multiplicity_i)
+                    return forward_one, (W1, W2, act_indices, agg_args,
+                                         neuromod_data['static_gates'],
+                                         multiplicity) + hh_args, False
+
                 def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, gates, *hh):
                     return gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh)
                 return forward_one, (W1, W2, act_indices, agg_args,
@@ -324,6 +546,17 @@ class GenerationMixin:
             if mode == 'context_gating':
                 context_influence = neuromod_data['context_influence']
                 context_idx = self._multitask_state.get('current_task_idx', 0)
+
+                if completion is not None:
+                    def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, base_g, ctx_mod,
+                                    multiplicity_i, *hh):
+                        gates = jax.nn.sigmoid(base_g + context_influence * ctx_mod[context_idx])
+                        return gated_forward(inputs, W1_i, W2_i, act_idx, agg_idx, gates, hh,
+                                             multiplicity_i)
+                    return forward_one, (W1, W2, act_indices, agg_args,
+                                         neuromod_data['base_gates'],
+                                         neuromod_data['context_modulation'],
+                                         multiplicity) + hh_args, False
 
                 def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, base_g, ctx_mod, *hh):
                     gates = jax.nn.sigmoid(base_g + context_influence * ctx_mod[context_idx])
@@ -374,6 +607,47 @@ class GenerationMixin:
                 use_output_inversion = neuromod_data['use_output_inversion']
                 num_nt = neuromod_data['num_nt']
                 node_rule = neuromod_data['node_rule']
+
+                if completion is not None:
+                    # Each genome's virtual position: the receptors and base gain of its missing
+                    # position with the largest softmax input at a zero drive, under this forward's
+                    # vector and settings (softmax_missing_virtual), and how many positions it
+                    # stands for
+                    virtual_receptors, virtual_gains, count, _ = jax.vmap(functools.partial(
+                        softmax_missing_virtual, multiplicity=completion.multiplicity,
+                        neurotransmitter=neurotransmitter, mod_strength=mod_strength, num_nt=num_nt,
+                        modulation_mode=modulation_mode, rule=node_rule))(completion.receptors,
+                                                                          completion.base_gains)
+                    multiplicity = softmax_axis_multiplicity(completion.real, completion.length,
+                                                             count)
+
+                    def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, receptors, base_g,
+                                    multiplicity_i, receptor_v, gain_v, *hh):
+                        receptors = jnp.concatenate([receptors, receptor_v[None]], axis=0)
+                        base_g = jnp.concatenate([base_g, gain_v[None]])
+                        node = true_neuromodulation_node_rule(activation(act_idx, multiplicity_i),
+                                                              receptors, base_g, neurotransmitter,
+                                                              mod_strength, num_nt, modulation_mode,
+                                                              node_rule)
+                        first, update = (
+                            (
+                                true_neuromodulation_node_rule(
+                                    first_activation(act_idx, multiplicity_i), receptors, base_g,
+                                    neurotransmitter, mod_strength, num_nt, modulation_mode,
+                                    node_rule),
+                                true_neuromodulation_node_rule(
+                                    (jnp.tanh, ()), receptors, base_g, neurotransmitter,
+                                    mod_strength, num_nt, modulation_mode, node_rule),
+                            )
+                            if settling_rule == 'drive_once' else (None, None))
+                        h = hidden_state(inputs, W1_i, agg_idx, node, hh, first, update,
+                                         virtual=True)
+                        return invert_outputs(output_fn(h @ W2_i), neurotransmitter,
+                                              use_output_inversion, num_nt, node_rule)
+                    return forward_one, (W1, W2, act_indices, agg_args,
+                                         neuromod_data['receptor_densities'],
+                                         neuromod_data['base_gains'], multiplicity,
+                                         virtual_receptors, virtual_gains) + hh_args, False
 
                 def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, receptors, base_g, *hh):
                     node = true_neuromodulation_node_rule(activation(act_idx), receptors, base_g,
@@ -442,6 +716,12 @@ class GenerationMixin:
                     num_activations=num_activations, **drive_kwargs,
                 )
             return forward_one, (W1, W2, act_indices, agg_args), False
+        if dynamic and completion is not None:
+            def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, multiplicity_i, *hh):
+                h = hidden_state(inputs, W1_i, agg_idx, activation(act_idx, multiplicity_i), hh,
+                                 first=first_activation(act_idx, multiplicity_i), virtual=True)
+                return output_fn(h @ W2_i)
+            return forward_one, (W1, W2, act_indices, agg_args, multiplicity) + hh_args, False
         if dynamic:
             def forward_one(inputs, W1_i, W2_i, act_idx, agg_idx, *hh):
                 h = hidden_state(inputs, W1_i, agg_idx, activation(act_idx), hh,
@@ -795,10 +1075,16 @@ class GenerationMixin:
         self._cached_masks_A = gen.masks
         self._cached_self_conn = None
         self._cached_sparse_hh = None
+        self._cached_active_indices = None
         self._cached_act_indices = None
         self._cached_hh_agg_indices = None
         self._cached_ih_agg_indices = None
         positions = gen.W1.shape[2]
+        # The arrays this generation evaluated, the same ones (evaluate_with_neurotransmitter reads
+        # these)
+        self._cached_eval_W1 = gen.W1
+        self._cached_eval_W2 = gen.W2
+        self._cached_eval_sparse_hh = None
         self._cached_fitnesses = gen.fitnesses
 
         return self._finish_generation(
@@ -1448,17 +1734,28 @@ class GenerationMixin:
         # multi-task, two-module and per-task-activation paths, every one with
         # "Incompatible shapes for broadcasting" at generation 0.
         #
+        # The list form of run_generation_multitask blocks it too, without an enabled multitask
+        # block: it sets _multitask_inner_generation around this call, so the receptors its tasks
+        # read share the ceiling-sized weights' axis.
+        #
         # Caching the compact matrices instead would make multi-task self-consistent
         # but would change what every other consumer of _cached_W1 receives.
         _neuromod_mode = getattr(self.neuromod_config, 'mode', None) if self.neuromod_config else None
         _multitask_on = (self.multitask_config is not None
                          and getattr(self.multitask_config, 'enabled', False))
-        _compaction_blocked = _neuromod_mode == 'modulatory_neurons' or _multitask_on
+        _compaction_blocked = (_neuromod_mode == 'modulatory_neurons' or _multitask_on
+                               or self._multitask_inner_generation)
 
         # In-generation view of the self-connection query. Compaction narrows
         # this local; self._cached_self_conn stays ceiling-sized for multi-task.
         self_conn_eval = self._cached_self_conn
         ceiling_positions = W1.shape[2] if W1.ndim > 2 else W1.shape[1]
+        # Which ceiling positions survived compaction, or None when nothing was compacted: what a
+        # compact index means in substrate terms. evaluate_with_neurotransmitter reads it for the
+        # grid coordinates of the evaluated positions under branch gating (the arrays it evaluates
+        # are the _cached_eval_* below). Reset on every generation before the compaction decision,
+        # so a generation that does not compact, blocked or not, leaves no stale indices.
+        self._cached_active_indices = None
         # The ceiling-sized mask, and the ceiling position of every evaluated position (None:
         # the identity), for evaluate_on_data's substrate statistics.
         masks_full = masks_A
@@ -1504,6 +1801,7 @@ class GenerationMixin:
                     masks_A = masks_A[:, _active.indices]
                 eval_positions = _active.indices
                 sparse_hh = remap_sparse_hh(sparse_hh, _active)
+                self._cached_active_indices = _active.indices
                 # The self-connection query above ran over h_grid.all_positions, so
                 # it is still ceiling-sized while everything else is compact, and
                 # the `cppn_output` modes read act/agg indices straight off it.
@@ -1780,6 +2078,16 @@ class GenerationMixin:
         self._cached_hh_agg_indices = hh_agg_indices
         self._cached_ih_agg_indices = ih_agg_indices
 
+        # Evaluation-time weights and connections, on the same position axis as the three index
+        # arrays above and as the receptors derived below. Separate names, not a reassignment of
+        # _cached_W1: that one is deliberately ceiling-sized so multi-task evaluation and the h->h
+        # cache keep global indices. evaluate_with_neurotransmitter reads these: they differ from
+        # the ceiling-sized arrays after a compaction (compact) and under STP (short-term
+        # plasticity) scaling (W1 times the STP depression), and are the same arrays otherwise.
+        self._cached_eval_W1 = W1
+        self._cached_eval_W2 = W2
+        self._cached_eval_sparse_hh = sparse_hh
+
         # Neuromodulation: derive receptor densities, base gains, and gates
         # Storage for neuromodulation data (set to None if disabled)
         neuromod_data = None
@@ -1904,62 +2212,8 @@ class GenerationMixin:
                 # NT vectors times receptor densities -> gain modulation
                 num_nt = self.neuromod_config.num_nt_types
                 mod_strength = self.neuromod_config.modulation_strength
-                receptor_derivation = self.neuromod_config.receptor_derivation
-
-                if self.neuromod_config.receptor_from_weight:
-                    # Option A: Derive receptor densities from weights
-                    # W1 shape: (pop, num_inputs, num_positions)
-                    #
-                    # Use first input's weights (not mean) to match original's single-value-per-position approach.
-                    # The original uses CPPN output at self-connection coordinates (x,y,x,y,bias),
-                    # which gives one value per position. Using first input's weights approximates this
-                    # by giving one value per position rather than averaging multiple values.
-                    #
-                    # This is important for receptor_densities because:
-                    # - mean() smooths out the values, losing the variation needed for diverse modulation
-                    # - first input gives a consistent per-position property similar to self-connection query
-                    # Choose the per-position weight source for receptor/base-gain.
-                    if (getattr(self.neuromod_config, 'use_self_connection_query', False)
-                            and self_conn_eval is not None):
-                        # Exact reproduction of the prototype and the paper: raw CPPN
-                        # self-connection query at (x,y,x,y,bias); index 0 = weight output, the
-                        # same source the prototype uses (weight_values = self_conn_outputs[:, :,
-                        # 0]). Already bounded ~[-1, 1].
-                        weight_normalized = self_conn_eval[:, :, 0]
-                    else:
-                        # Default EMR approximation: first input's weight, normalized to ~[-1, 1].
-                        # W1 = tanh(cppn_output) * max_weight, so W1/max_weight ~= tanh(cppn_output).
-                        weight_for_receptor = W1[:, 0, :]  # (pop, num_positions) - use first input
-                        weight_normalized = weight_for_receptor / self.max_weight
-
-                    receptor_densities = derive_receptor_from_weight(
-                        weight=weight_normalized, method=receptor_derivation, num_nt_types=num_nt
-                    )  # (pop, num_positions, num_nt)
-
-                    # Convert to [-1, 1] range to match Option B (enables both excitatory and inhibitory)
-                    # This matches the prototype's neuromodulation variant
-                    receptor_densities = receptor_densities * 2.0 - 1.0
-
-                    # Base gains: derived from weight magnitude, range [0.5, 1.0]
-                    # Use normalized weight (already in [-1, 1]) to match original
-                    base_gains = jnp.abs(weight_normalized) * 0.5 + 0.5
-                else:
-                    # Option B (the prototype's formulas): each NT type's receptor density is a
-                    # dedicated CPPN output at the node's self-connection, tanh-bounded; the base
-                    # gain comes from the weight output there. The prototype's clip to +-10 and its
-                    # NaN guards are kept (the clip does nothing on the CPPN's tanh-bounded
-                    # outputs). With four NT types the rule reads three receptors (the fourth NT
-                    # channel inverts the outputs), so the fourth output has no effect, as in the
-                    # prototype.
-                    base = self._cppn_output_indices['receptor']
-                    receptor_densities = jnp.tanh(
-                        jnp.clip(self_conn_eval[:, :, base : base + num_nt], -10.0, 10.0)
-                    )
-                    receptor_densities = jnp.where(
-                        jnp.isnan(receptor_densities), 0.0, receptor_densities
-                    )
-                    base_gains = jnp.abs(jnp.clip(self_conn_eval[:, :, 0], -10.0, 10.0)) * 0.5 + 0.5
-                    base_gains = jnp.where(jnp.isnan(base_gains), 0.75, base_gains)
+                receptor_densities, base_gains = self._true_neuromodulation_receptors(
+                    W1, self_conn_eval)
 
                 # Store for use in evaluation
                 neuromod_data['receptor_densities'] = receptor_densities
@@ -1989,11 +2243,19 @@ class GenerationMixin:
         # evaluate_on_data's held-out score both come from it (see _build_forward).
         recurrent = (sparse_hh is not None
                      and self._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH)
+        # A global 'softmax' hidden activation on a compacted axis evaluates the whole grid's
+        # softmax there (full_grid_softmax)
+        softmax_completion = (self._softmax_completion(eval_positions, ceiling_positions,
+                                                       total_positions, eval_length, pop_size, W1,
+                                                       neuromod_data)
+                              if recurrent and eval_positions is not None and act_indices is None
+                              and self._global_softmax_hidden() else None)
         forward_one, genome_args, chunk_by_scan = self._build_forward(
             W1, W2, sparse_hh if recurrent else None, neuromod_data, act_indices,
             hh_agg_indices, ih_agg_indices, ih_global_agg_fn, use_dynamic_eval,
             use_ih_aggregation, pop_size, eval_length,
             node_masks=masks_A, sparsity_quantiles=sparsity_quantiles, wta_k_percent=wta_k_percent,
+            softmax_completion=softmax_completion,
         )
         fitnesses = self._evaluate_population(
             forward_one, genome_args, chunk_by_scan, eval_chunk_size, inputs_batch, targets_batch

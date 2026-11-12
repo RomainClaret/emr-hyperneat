@@ -392,7 +392,8 @@ def test_capabilities_and_public_steps():
     from emr_hyperneat import emrhyperneat as engine
     from emr_hyperneat import emrhyperneat_base as base
     assert api.SUBSTRATE_CAPABILITIES == frozenset(
-        {"sparse_cap_policy", "neuromodulation", "aggregation_palette", "substrate_steps"})
+        {"sparse_cap_policy", "neuromodulation", "aggregation_palette", "substrate_steps",
+         "recurrent_neuromodulation", "compiled_forward"})
     assert api.get_hierarchical_grid is base.get_hierarchical_grid
     assert api.cppn_query_rows is base.cppn_query_rows
     assert api.compute_hierarchical_variances_batch is base.compute_hierarchical_variances_batch
@@ -443,14 +444,17 @@ def _streaming():
 
 
 def _neuromodulated_recurrent():
+    # True neuromodulation of a recurrent substrate is described
+    # (test_substrate_recurrent_neuromodulation.py); with receptors from dedicated CPPN outputs it
+    # is not. A named maker, so the feed-forward case's test id below stays what it is.
     return create_config_with_neuromodulation(
         "true_neuromodulation_4nt", recurrence_preset="hidden_only",
-        max_depth=DEPTH, population_size=POP)
+        max_depth=DEPTH, population_size=POP, receptor_from_weight=False)
 
 
 @pytest.mark.parametrize("make, reason", [
     (_recurrent_union, "hh_discovery_mode"),
-    (_neuromodulated_recurrent, "true neuromodulation with hidden-to-hidden connections"),
+    (_neuromodulated_recurrent, "receptor_from_weight false"),
     (lambda: _neuromodulated(receptor_from_weight=False), "receptor_from_weight false"),
     (lambda: _neuromodulated(use_self_connection_query=True), "use_self_connection_query"),
     (lambda: create_config_with_neuromodulation(

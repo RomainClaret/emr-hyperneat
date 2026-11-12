@@ -8,6 +8,7 @@ This module provides:
 - Test result dataclass
 """
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
@@ -1223,9 +1224,97 @@ def exact_backend() -> bool:
     evaluates exact shapes, run both modes exact. GPU kernels are selected by shape
     (tiling, fusion, the tree order of a reduction), so on a GPU the same arithmetic
     differs in the last float32 bits between variants, and the tests assert agreement to
-    float32 rounding instead.
+    float32 rounding instead. The other measured CPU exceptions are listed at
+    CPU_CROSS_PROGRAM_ULPS.
     """
     return jax.default_backend() == 'cpu'
+
+
+def cpu_multi_threaded_eigen() -> bool:
+    """Whether the default backend is the CPU under XLA's default multi-threaded Eigen.
+
+    True on the CPU unless XLA_FLAGS sets ``--xla_cpu_multi_thread_eigen`` to false: ``=false``
+    in any case or ``=0``, quoted or not, the last setting winning. That is how XLA reads the
+    variable (jax 0.6.1 on an Apple M4 Max, each spelling in its own process): those spellings ran
+    single-threaded; the bare flag, ``=true`` and a later ``=true`` multi-threaded; and a value XLA
+    cannot read (``=no``, ``=f``, ``=off``) stopped the process when the backend started. Under
+    multi-threaded Eigen a Xeon E5-2683 v4 (AVX2, Advanced Vector Extensions 2) rounds two compiled
+    programs of one computation apart, so the comparisons of two programs that are bit for bit
+    under single-threaded Eigen take an allowance there (CPU_CROSS_PROGRAM_ULPS). XLA reads the
+    variable when the backend starts, so this reflects the process's setting as long as nothing
+    changes it afterwards.
+    """
+    if jax.default_backend() != 'cpu':
+        return False
+    threaded = True
+    for flag in os.environ.get('XLA_FLAGS', '').split():
+        name, has_value, value = flag.partition('=')
+        if name == '--xla_cpu_multi_thread_eigen':
+            # XLA reads a quoted value without its quotes (="false" runs single-threaded)
+            value = value.strip('\'"')
+            threaded = not (has_value and value.lower() in ('false', '0'))
+    return threaded
+
+
+#: Two compiled programs of one computation on the CPU, as measured (jax 0.6.1). Without
+#: neuromodulation, the recurrent forward with and without return_states (the comparisons of
+#: test_substrate_recurrent.py) agreed bit for bit under single-threaded Eigen
+#: (XLA_FLAGS=--xla_cpu_multi_thread_eigen=false, as the nightly workflow runs; an Apple M4 Max and
+#: a Xeon E5-2683 v4) and under XLA's defaults on AVX-512 Xeons and on the M4 Max (18 of 18
+#: forwards), but not under XLA's defaults on the AVX2 Xeon E5-2683 v4, which put 1 to 11 of 80
+#: settled outputs apart, by at most 1.18e-6 (about 20 ulps of 0.5), in five cases of
+#: test_substrate_recurrent.py. The level-two discovery (the masked union against per-genome,
+#: test_hh_discovery_per_genome.py) gave identical weights on the M4 Max under either setting; on
+#: the Xeon under single-threaded Eigen one genome of hidden_only had 16 of its 1,146 weights
+#: differ, the largest by one ulp of max_weight (2.4e-7, at a weight of 2.0), and under XLA's
+#: defaults weights were up to 17 ulps of max_weight apart. The threaded matmul's summation order
+#: is the likely cause. Under true neuromodulation the forward with and without states differed in
+#: chaotic genomes even under single-threaded Eigen on the M4 Max (the 18-function palette under
+#: steep_gate: one settling step 1 to 2 ulps apart, carried to order 1), so substrate_forward takes
+#: the outputs there from the program without states. Where two programs may round apart (the API
+#: against the loop, and the compiled feed-forward forward at two chunk sizes, on every CPU; the
+#: forward with and without return_states only under multi-threaded Eigen, cpu_multi_threaded_eigen,
+#: where the level-two discovery takes its own allowance) a comparison allows this many ulps of the
+#: compared values' largest finite magnitude: 128, 7.6e-6 to 1.5e-5 for outputs up to 1, six to
+#: thirteen times the largest difference the Xeon put between the two forwards. One settling step
+#: too few moves an output by up to 1.0 in per_node_L2, full_recurrent_L1, hh_aggregation and
+#: drive_once_rule; full_recurrent_L2 settles to a fixed point and moves by 1.2e-7, which only a
+#: bitwise comparison sees. A comparison within one program stays bit for bit, except, under
+#: multi-threaded Eigen, the compiled feed-forward forward's rows and genomes that sit elsewhere in
+#: its operands: the Xeon put 28 of 12,780 three-output values up to 1.2e-7 apart by their place in
+#: the chunk, so test_substrate_compiled_forward.py compares them there as two programs (a repeat
+#: stays bit for bit, and for a genome's slot and the other genomes, which changed none of
+#: 58,834,944 outputs on 19 populations of 12 genomes, the comparison is a precaution).
+CPU_CROSS_PROGRAM_ULPS = 128
+
+
+def assert_close_across_programs(actual: Any, desired: Any,
+                                 ulps: int = CPU_CROSS_PROGRAM_ULPS) -> None:
+    """Two compiled programs of one computation on the CPU: NaN at the same entries, infinities
+    equal, and the finite values within ``ulps`` float32 ulps of the largest finite magnitude in
+    ``desired`` (CPU_CROSS_PROGRAM_ULPS says why).
+
+    The scale is taken over the finite values, so a population with one overflowing genome (NaN or
+    inf among its outputs) keeps a finite tolerance.
+
+    Args:
+        actual: The values of one program.
+        desired: The values of the other.
+        ulps: The allowance, in float32 ulps of the values' scale.
+    """
+    actual = np.asarray(actual, dtype=np.float64)
+    desired = np.asarray(desired, dtype=np.float64)
+    assert actual.shape == desired.shape, f"shapes differ: {actual.shape} against {desired.shape}"
+    nan = np.isnan(desired)
+    np.testing.assert_array_equal(np.isnan(actual), nan,
+                                  err_msg="two programs give NaN at different entries")
+    finite = desired[np.isfinite(desired)]
+    scale = float(np.max(np.abs(finite))) if finite.size else 0.0
+    atol = ulps * float(np.spacing(np.float32(max(scale, float(np.finfo(np.float32).tiny)))))
+    # Every entry that is not NaN: an infinity must be the same infinity, a finite value within atol
+    np.testing.assert_allclose(actual[~nan], desired[~nan], rtol=0, atol=atol, equal_nan=False,
+                               err_msg=f"two programs apart by more than {ulps} ulps of "
+                                       f"{scale:.3g}")
 
 
 def assert_trajectories_agree(variants: Dict[str, List[float]], what: str) -> None:
@@ -1335,6 +1424,9 @@ __all__ = [
     'GPU_TRAJECTORY_RTOL',
     'exact_backend',
     'assert_trajectories_agree',
+    'CPU_CROSS_PROGRAM_ULPS',
+    'assert_close_across_programs',
+    'cpu_multi_threaded_eigen',
 
     # Implementation imports
     'EMRHyperNEAT',

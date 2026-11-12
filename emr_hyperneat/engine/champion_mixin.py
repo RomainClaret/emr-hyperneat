@@ -29,16 +29,28 @@ class ChampionMixin:
         (e.g. the plain tanh/sigmoid evaluation when neither per-node mode is on)
         are the ones EMR applies. See `emr_hyperneat.substrate`.
 
+        A global ``'softmax'`` hidden activation is the whole grid's softmax in the loop and in
+        the API (:func:`full_grid_softmax`), so it is described like any other activation.
+
         Returns:
             An `emr_hyperneat.substrate.SubstrateConfig`.
 
         Raises:
             RuntimeError: create_config has not been called.
             ValueError: the configuration evaluates something the substrate API does not
-                describe (neuromodulation other than true neuromodulation of a feed-forward
-                substrate with receptors from the weights, multi-task, swarm mode, LEO, the
-                weight-interpretation or random function modes, a non-standard execution mode, or
-                hidden-to-hidden connections other than per-genome discovery without the h->h cache).
+                describe; the message names each such setting. They are: recurrence.network_model
+                'node_list'; an activation or aggregation mode other than 'disabled', 'global' and
+                'cppn_output' (the weight-interpretation, random and modular modes);
+                neuromodulation other than true neuromodulation with receptors from each
+                position's first input weight, feed-forward or recurrent (receptors from dedicated
+                CPPN outputs or from the self-connection query, branch gating); multi-task
+                evaluation; swarm mode; LEO (link-expression output); palette evolution; the
+                prototype's reads (cppn_read or weight_source); a non-standard execution mode; and
+                with hidden-to-hidden connections, a discovery other than per-genome discovery,
+                use_dense_discovery, the h->h cache, or hh_aggregation_mode 'dynamic' without the
+                aggregation channel. Then what `SubstrateConfig.validate` refuses in the
+                configuration it returns (under true neuromodulation of a recurrent substrate, what
+                the loop refuses there).
         """
         # Lazy import: emr_hyperneat.substrate imports emrhyperneat, which imports this module.
         from emr_hyperneat.substrate import NeuromodulationSettings, SubstrateConfig
@@ -74,16 +86,14 @@ class ChampionMixin:
         nm = self.neuromod_config
         modulated = nm is not None and nm.mode != 'disabled'
         if modulated:
-            # True neuromodulation of a feed-forward substrate, with receptors from each position's
-            # first input weight (the engine's default), is covered; what the API cannot reproduce
-            # is refused.
+            # True neuromodulation with receptors from each position's first input weight (the
+            # engine's default) is covered, of a feed-forward substrate and of a recurrent one (the
+            # combinations the loop's configuration accepts; SubstrateConfig.validate mirrors its
+            # refusals); what the API cannot reproduce is refused.
             if nm.mode != 'true_neuromodulation':
                 refusals.append(f"neuromodulation mode {nm.mode!r} (the API covers "
                                 "true_neuromodulation)")
             else:
-                if recurrent:
-                    refusals.append("true neuromodulation with hidden-to-hidden connections (the API "
-                                    "covers feed-forward substrates)")
                 if not nm.receptor_from_weight:
                     refusals.append("receptors from dedicated CPPN outputs (receptor_from_weight "
                                     "false)")
@@ -468,10 +478,11 @@ class ChampionMixin:
         per-node functions, hidden-to-hidden connections) and run with this model's fitness mode. On
         the training problem it reproduces the champion's recorded fitness (bit for bit feed-forward
         on the CPU; within float32 rounding with recurrence, which the loop evaluates on the
-        population's union of positions). The prototype's evaluator took every position as a hidden
-        node (no variance mask), ignored per-node functions, recurrence, LEO and the fitness mode,
-        and with a multi-output CPPN interleaved the channels, so it did not reproduce the training
-        fitness even on the training problem.
+        population's union of positions; a global 'softmax' hidden activation is the whole grid's
+        softmax in both, full_grid_softmax). The prototype's evaluator took every position as a
+        hidden node (no variance mask), ignored per-node functions, recurrence, LEO and the fitness
+        mode, and with a multi-output CPPN interleaved the channels, so it did not reproduce the
+        training fitness even on the training problem.
 
         Args:
             state: Algorithm state (TensorNEAT's, for the CPPN forward).
@@ -487,8 +498,8 @@ class ChampionMixin:
 
         Raises:
             ValueError: a configuration the substrate API does not describe (neuromodulation other than
-                true neuromodulation of a feed-forward substrate, multi-task, ...), or data that does
-                not match the coordinates.
+                true neuromodulation with receptors from the weights, multi-task, ...:
+                substrate_config's refusals), or data that does not match the coordinates.
         """
         from emr_hyperneat.substrate import (
             build_recurrent_substrate,

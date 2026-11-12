@@ -1,10 +1,11 @@
 """The engine's layout: `emr_hyperneat.emrhyperneat` re-exports what lives in `emr_hyperneat.engine`.
 
-The engine's code lives in the modules of `emr_hyperneat.engine`, and `emr_hyperneat.emrhyperneat` imports every
-name back, so each keeps the import path it had when the whole engine was one file. These tests hold that
-contract: the names that paper scripts, emr-picbreeder and research harnesses import are there and are the
-engine's own objects, and a name that a test or a harness replaces on `emr_hyperneat.emrhyperneat` reaches the
-code that reads it, wherever that code lives.
+The engine's code lives in the modules of `emr_hyperneat.engine`, and `emr_hyperneat.emrhyperneat`
+imports every name back, so each keeps the import path it had when the whole engine was one file.
+These tests hold that contract: the names that paper scripts, applications built on the package and
+research harnesses import are there and are the engine's own objects, and a name that a test or a
+harness replaces on `emr_hyperneat.emrhyperneat` reaches the code that reads it, wherever that code
+lives.
 """
 import ast
 import importlib
@@ -28,8 +29,8 @@ PATCHED = (
     'sparse_cap_refusal',
 )
 
-# Names that code outside the package imports from emr_hyperneat.emrhyperneat: the paper scripts, emr-picbreeder,
-# the digest harness and research harnesses
+# Names that code outside the package imports from emr_hyperneat.emrhyperneat: the paper scripts,
+# applications built on the package, the digest harness and research harnesses
 EXTERNAL = (
     'EMRHyperNEAT', 'ACTIVATION_LIST', 'ACTIVATION_FUNCTIONS', 'AGGREGATION_LIST', 'derive_receptor_from_weight',
     'NT_TASK_PRESETS', 'continuous_to_index', 'cppn_output_function_indices', 'substrate_weight_matrices',

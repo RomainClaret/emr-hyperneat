@@ -3,6 +3,274 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## 0.3.1
+
+### Added
+
+- **True neuromodulation of a recurrent substrate in the substrate API.** `substrate_config`
+  accepts true neuromodulation with receptors from the weights on a configuration with
+  hidden-to-hidden connections, under either settling rule, and `substrate_forward` settles such a
+  substrate under it, with its configured settings or a caller-built `SubstrateNeuromodulation`, as
+  the generation loop does: under `settling_rule: emr` the node rule over the settling activation
+  at every step of `settle_hidden`, under `drive_once` the additive rule of the prototype's FULL
+  variant (`settle_hidden_additive`), then the output inversion. `substrate_neuromodulation`
+  derives the receptors and base gains of a recurrent substrate, and each genome reads them at its
+  own active positions, so a position its mask clears loses them with its connections. The
+  neurotransmitter vector and the strength are operands of the compiled forward, so other values
+  compile nothing new, and `return_states` keeps the shape `(activate_time, samples, count)` under
+  both rules. With `return_states` the outputs come from the program the call without it runs and
+  the states from a second program, so the outputs never depend on `return_states` (on the CPU they
+  are that call's bit for bit). The forward matches the loop within float32 rounding: on XOR's four
+  rows (an Apple M4 Max, jax 0.6.1, CPU, `XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`; 22
+  configurations of 20 genomes) the outputs are at most 3.8e-6 apart (one ulp of an output of 42.1,
+  an ulp being a unit in the last place, the gap between adjacent float32 values there) and the
+  fitness 3.0e-7 (`tests/test_substrate_recurrent_neuromodulation.py`). These are measurements on
+  those populations, not a bound of the forward: a genome whose settling is chaotic carries the
+  rounding to order 1, on those four rows too. The global `sin` population among them is mostly
+  chaotic on the M4 Max and on a Xeon E5-2683 v4 (one ulp of the weights moves the fitness of 12 of
+  its 20 genomes by more than 1e-4); it agrees with the loop on the M4 Max under single-threaded
+  Eigen because both programs round alike there. Under XLA's default multi-threaded Eigen the M4 Max
+  puts its outputs up to 0.14 from the loop's (fitness 0.041), and those of the 18-function palette
+  under `steep_gate` up to 1.0 (fitness 0.25), the loop's own outputs the same under both settings;
+  the Xeon puts global `sin`'s up to 0.94 from the loop's
+  ([docs/architecture.md](docs/architecture.md#the-substrate-on-its-own)).
+- What the loop refuses with true neuromodulation of a recurrent substrate is refused, by
+  `SubstrateConfig.validate` for a configuration and by `substrate_forward` for settings that did
+  not go through it (a caller-built `SubstrateNeuromodulation`, held to its own settings, or a
+  substrate whose `config` was set with `_replace` or that was built by hand): under `drive_once`,
+  dynamic h->h aggregation and an `every_iteration` activation other than plain `tanh`; node rule
+  `anti` outside modulation mode `full`, with more than four channels, or with the output inversion
+  on. Also refused there: a modulation strength that is not a finite number in float32, the
+  precision the forward reads it at (1e40, finite in float64, is inf in float32), and a receptor
+  derivation that `derive_receptor_from_weight` does not know. On a recurrent substrate under
+  neuromodulation `substrate_forward` runs `SubstrateConfig.validate` on the configuration first, so
+  a configuration that bypassed it (`activate_time` 0, an unknown `settling_rule`, `initial_only`
+  under `emr`) raises validate's error, and holds a caller-built neuromodulation's settings to
+  validate's checks, with its messages. It also refuses, naming both shapes, receptors without the
+  channels the node rule reads. The dense feed-forward forward keeps 0.3.0's checks.
+- **A compiled feed-forward forward in the substrate API.**
+  `substrate_forward(substrate, inputs, compiled=True, chunk_size=None)` evaluates a feed-forward
+  substrate as the recurrent forward evaluates its genomes: each genome on its own mask positions,
+  gathered and zero-padded to a power-of-two bucket, the genomes of a bucket in fixed slots of one
+  jitted call, and the inputs in chunks of `chunk_size` rows (4,096 when None, rounded up to a
+  multiple of 8). It computes the dense forward's function on the mask's positions, with the
+  configured or a caller-built neuromodulation, so on a substrate as built it equals the dense
+  forward within float32 rounding, not bit for bit: against 19 recorded cases of picture drawing
+  (depths 3 and 4, 16,384 rows, three outputs; an Apple M4 Max, jax 0.6.1, single-threaded Eigen)
+  the largest difference is 1.79e-3 under `sin` outputs, 3.5e-5 under `sigmoid` and 1.5e-5 under
+  `tanh`, while `product` aggregation or another strength under neuromodulation widens it (to 0.47
+  in h @ W2 on a stress set, on the same machine and setting). A `softplus` value within the two
+  forwards' rounding difference of its overflow threshold can overflow in one forward only. A call
+  costs a genome its own positions rather than the whole grid: its temporaries are bounded by the
+  chunk, while its outputs grow with the inputs; on a Xeon E5-2683 v4 limited to two logical CPUs
+  (jax 0.6.1, single-threaded Eigen) twelve 128-pixel pictures took 0.065 to 1.29 s, 1.9 to 42 times
+  faster than the dense forward on the positions some genome keeps. The jitted functions are cached
+  by the settings the forward reads, 64 entries, one per combination of those settings, each holding
+  one program per operand shapes (the bucket size and the chunk rows among them); the cache evicts
+  the least recently used entry, so a workload that cycles through more than 64 combinations of the
+  settings recompiles them on every pass, and bucket and chunk sizes never evict one another. The
+  neurotransmitter vector and the strength are operands. Refused with `compiled=True`: a global
+  `softmax` hidden activation (its genome slots do not add the grid positions outside a genome's
+  mask; the dense forward evaluates the whole grid), inputs that are not `(n_samples, num_inputs)`,
+  receptors without the channels the node rule reads, and, under neuromodulation, a strength or an
+  entry of the vector the node rule or the inversion reads that is not finite in float32 (the zero
+  padding past a genome's count is inert only at finite values); and `chunk_size` without
+  `compiled=True`, on a recurrent substrate (where `compiled=True` changes nothing) or when it is
+  not a positive integer. `compiled=False`, the default, is the dense forward, unchanged
+  (`tests/test_substrate_compiled_forward.py`;
+  [docs/architecture.md](docs/architecture.md#the-substrate-on-its-own)).
+- `SUBSTRATE_CAPABILITIES` names them: `recurrent_neuromodulation` and `compiled_forward`.
+
+### Changed
+
+- A recurrent substrate whose configuration carries neuromodulation settings that never went
+  through `SubstrateConfig.validate` (a substrate whose `config` was set with `_replace`, or a
+  `Substrate` built by hand) was evaluated by `substrate_forward` without them. It is now
+  neuromodulated, or, when those settings or the configuration are invalid there, the call raises
+  `ValueError` with validate's reason: a channel count outside 2 to 6, an unknown receptor
+  derivation, modulation mode or node rule, a strength that is not a finite number in float32, a
+  combination the loop refuses (above), or another setting `validate` refuses (`activate_time` 0, an
+  unknown `settling_rule`, `initial_only` under `emr`).
+- Four kinds of input give other values than in 0.3.0, each named here (the second is the item
+  above, the others are fixed below); every other input that 0.3.0 accepts gives the values it
+  gave, by the same computation, bit for bit on the CPU:
+  - `evaluate_with_neurotransmitter` (with `evaluate_with_custom_nt` and
+    `evaluate_multi_task_true_neuromodulated`, which call it), after a recurrent generation under
+    true neuromodulation that compacted its active positions, gives the fitness of the compact
+    arrays that generation evaluated (under `activation_name='softmax'`, with the whole grid's
+    softmax on them); and the list form of `run_generation_multitask` without an enabled multitask
+    block, on a recurrent configuration under true neuromodulation whose inner generation 0.3.0
+    compacted, keeps that generation on the whole grid and gives the fitness of the whole grid's
+    arrays with their own receptors. In both, 0.3.0 paired the whole grid's weights with the
+    compact receptors (a wrong fitness, or a broadcasting error).
+  - A recurrent substrate whose configuration's neuromodulation settings bypassed
+    `SubstrateConfig.validate` is evaluated under them, or refused (the item above).
+  - A global `softmax` hidden activation, where a settling step applies it, in a compacted
+    recurrent generation (its fitness and `evaluate_on_data`'s scores, so the run from there) and
+    in the substrate API's recurrent forward (and `evaluate_genome_on_problem`, which runs it) is
+    the softmax of the whole grid, where 0.3.0 normalized it over the positions evaluated there,
+    the padding to their bucket included.
+  - `evaluate_with_neurotransmitter` (with its two callers above) after a generation under STP
+    (short-term plasticity) scaling (`stp_inspired`) that did not compact evaluates the scaled
+    weights that generation evaluated, where 0.3.0 evaluated the unscaled ones.
+- The refusal "neuromodulation covers feed-forward substrates" of `SubstrateConfig.validate`,
+  `substrate_forward` and `substrate_neuromodulation`, and `substrate_config`'s refusal of true
+  neuromodulation with hidden-to-hidden connections (which `population_substrates` and
+  `evaluate_genome_on_problem` raised too), are gone. Where 0.3.0 raised them, the call runs, or
+  raises what else is wrong, for example: another of `substrate_config`'s refusals (receptors from
+  dedicated CPPN outputs, the self-connection query, the h->h cache); a channel count outside
+  2 to 6, an unknown modulation mode, node rule or receptor derivation, a strength that is not a
+  finite number in float32, or a combination the loop refuses (above); a recurrent substrate whose
+  hidden-to-hidden connections are not built; receptors or base gains that do not cover the
+  substrate's genomes and positions, receptors without the channels the node rule reads, or a
+  neurotransmitter vector shorter than the channels the node rule and the inversion read.
+- Documentation: a direct call of the list form of `run_generation_multitask` without
+  `neurotransmitters` takes the XOR, AND, OR, NAND and NOR presets by position and does not read
+  `multitask.nt_per_task`; 0.3.0's writing-experiments page said it did.
+- The comparisons of two compiled programs of one computation that 0.3.0's tests made on the CPU,
+  the recurrent forward with and without `return_states` (bit for bit) and the weights of the union
+  and per-genome discovery at iteration level 2 (within 4 ulps of each weight), take an allowance
+  under XLA's default multi-threaded Eigen only (`conftest.cpu_multi_threaded_eigen`), where a Xeon
+  E5-2683 v4 (AVX2, Advanced Vector Extensions 2) rounds such programs apart; under single-threaded
+  Eigen (`XLA_FLAGS=--xla_cpu_multi_thread_eigen=false`, which the nightly workflow sets) they
+  compare as in 0.3.0. The allowances are sized from measurements on a Xeon E5-2683 v4 under XLA's
+  defaults, where the settled outputs of those two forwards differed by up to about 20 float32 ulps
+  and a level-two weight by up to 17 ulps of `max_weight`: every genome within 128 ulps of the
+  outputs' largest finite magnitude (`conftest.CPU_CROSS_PROGRAM_ULPS`), and the level-two weights
+  within 64 ulps of `max_weight`, the bound a GPU gets there. The new tests compare two programs on
+  every CPU: the neuromodulated recurrent forward against the loop, within 128 ulps and a fitness of
+  1e-6 (a case past that compares the genomes that one ulp of their weights moves by at most 1e-4 in
+  fitness, at least a quarter of them, within 1e-3: on the Xeon under XLA's defaults the global
+  `sin` case's 8 steady genomes are within 3.2e-5 of the loop and its 12 others sensitive to one
+  ulp); a neuromodulated `return_states` call's last state, through `W2`, against its outputs,
+  within the larger of 1e-6 and 8 ulps of their magnitude (the two-program allowance under
+  multi-threaded Eigen) in the genomes that one ulp of their weights does not move; the compiled
+  feed-forward forward at two chunk sizes, which XLA:CPU can round apart under single-threaded Eigen
+  too, within `conftest.CPU_CROSS_PROGRAM_ULPS`; and the evaluations of a global `softmax` on axes
+  of different lengths (`test_global_softmax_axis.py`), over the genomes whose outputs one ulp of
+  their weights moves by at most 1e-6. `test_multitask_after_compaction.py` compares
+  `evaluate_with_neurotransmitter` with the loop as the 0.3.0 comparisons do: bit for bit under
+  single-threaded Eigen, where an Apple M4 Max computed them so, and as two programs under
+  multi-threaded Eigen. `conftest.assert_close_across_programs` takes its scale over
+  the finite values and requires NaN at the same entries. A comparison within one program stays bit
+  for bit, except, under multi-threaded Eigen, the compiled feed-forward forward's rows and genomes
+  that sit elsewhere in its operands: the Xeon put 28 of 12,780 three-output values up to 1.2e-7
+  apart by their place in the chunk, so there they compare as two programs (a repeat stays bit for
+  bit, and for a genome's slot and the other genomes, which changed none of 58,834,944 outputs on 19
+  populations of 12 genomes, the comparison is a precaution).
+
+### Fixed
+
+- **`evaluate_with_neurotransmitter` after a compacted generation.** A recurrent single-task
+  generation under true neuromodulation gathers its active positions to a bucket and derives the
+  receptors and base gains there, while the cached `_cached_W1`, `_cached_W2` and
+  `_cached_sparse_hh` keep the whole grid. `evaluate_with_neurotransmitter`, and
+  `evaluate_with_custom_nt` and `evaluate_multi_task_true_neuromodulated` through it, paired the
+  whole grid's weights with the compact receptors: a wrong fitness where the bucket reached the
+  grid's length (off by up to 0.497 on XOR at depth 2, population 50; an Apple M4 Max, jax 0.6.1,
+  single-threaded Eigen), a broadcasting error where it was shorter. They now evaluate the arrays
+  the generation evaluated, with branch gating at the grid coordinates of its active positions, and
+  refuse cached receptors and weights of different lengths with a `ValueError` that names both.
+- **The list form of `run_generation_multitask` without an enabled multitask block** (no
+  `multitask` block, or a `MultiTaskConfig` whose `enabled` is False) compacted its one inner
+  generation and told NEAT the fitness of the same pairing. That generation now keeps the whole
+  grid, as the call form's does, and the branch-gating check reads the receptors' axis.
+- **`evaluate_with_neurotransmitter` after STP scaling.** A generation under STP scaling
+  (`dynamic_functions` `stp_inspired`, of `weight_interpretation` or of the `modular` layers)
+  evaluates `W1` times the STP depression, from which it derives the receptors of the weights; after
+  such a generation that did not compact, the call evaluated the unscaled `W1`, a network the
+  generation did not evaluate (off by up to 0.498 on XOR at depth 2, population 50; the same
+  machine and setting). It evaluates the scaled weights now.
+- **A global `softmax` hidden activation on a compacted or per-genome axis.** The registry's
+  `softmax`, as the global hidden activation, normalizes across the hidden positions, and its
+  definition is the whole grid's, as the feed-forward evaluation and an uncompacted recurrent
+  generation compute it. A compacted recurrent generation normalized it over its population's union
+  of active positions, padded to a bucket, so a genome's fitness depended on the other genomes (up
+  to 0.494 apart in two populations of 30 on XOR at depth 2), and the substrate API's recurrent
+  forward normalized it over each genome's own positions and the padding to its bucket (outputs up
+  to 0.69 from the whole grid's on XOR at depth 2, population 30; both on an Apple M4 Max, jax
+  0.6.1, single-threaded Eigen). Each now adds the grid positions its axis leaves out
+  (`full_grid_softmax`): every one has zero weights in and out, so it adds `exp(c - m)` to the
+  denominator, `c` being the input such a position's softmax receives at that step, and one virtual
+  position settled by the same rule stands for them; the bucket's padding is left out. A compacted
+  generation then equals the same population on the whole grid, and the API the loop, within
+  float32 rounding (`tests/test_global_softmax_axis.py`). The two modules of
+  `multitask.two_module_mode` still apply the softmax to each module's positions alone, and the
+  compiled feed-forward forward refuses it.
+  `evaluate_with_neurotransmitter(activation_name='softmax')`, which after a compacted generation
+  now evaluates the compact arrays (above), adds the missing positions the same way.
+- **`evaluate_with_neurotransmitter` after a generation without true neuromodulation** failed:
+  after a generation without neuromodulation (no `neuromodulation` block, or its mode `disabled`)
+  on the missing settings (`AttributeError`), and after one under another neuromodulation mode
+  inside the evaluator (`TypeError: 'NoneType' object is not subscriptable`), for a vector and a
+  task name alike. It raises its own `RuntimeError` now
+  (`tests/test_multitask_after_compaction.py`).
+
+### Known limitations
+
+- On a feed-forward substrate, neither `SubstrateConfig.validate` nor `substrate_forward` (dense or
+  compiled) holds node rule `anti` to the generation loop's refusals: the output inversion on, more
+  than four channels, a modulation mode other than `full`. In a configuration built by hand (field
+  by field, or set with `_replace`) these settings reach no finite output, since the configured
+  neuromodulation reads `default_neurotransmitter`'s vector, `[0.5, 0.5, 0.5, 1.0]` from four
+  channels on: both forwards refuse more than four channels for want of an entry; the inversion at
+  the fourth entry, 1.0, returns every finite output unchanged (an infinite one becomes NaN, as in
+  the next item); and the modulation mode is unread under `anti`. So with the inversion on or
+  another mode each forward gives, bit for bit, its outputs for the configuration the loop accepts
+  (the inversion off, mode `full`) wherever those are finite. The inversion and the channels past
+  four reach a finite output only through a vector the caller gives (to `substrate_neuromodulation`
+  or in a `SubstrateNeuromodulation` it builds), where the loop refuses the configuration: with the
+  inversion on and four or more channels, a fourth entry other than 1 changes the outputs (0 inverts
+  them), and past four channels the entry of every channel is read. `substrate_config` never
+  returns such a configuration.
+- `softplus` overflows past 88.72, as published: `log1p(exp(x))` is inf in float32 once x passes
+  ln(FLT_MAX) = 88.7228 (FLT_MAX being float32's largest finite value, about 3.4e38), so a node or
+  an output that reaches it gives inf, and NaN where the inf meets a zero weight or the inversion;
+  the generation loop records a genome whose outputs are NaN at fitness `-inf`. The published
+  formula stays: a guarded one changes the recorded values of the runs that reach the overflow.
+- On a feed-forward substrate neither `SubstrateConfig.validate` nor the dense forward checks a
+  finite strength or a known receptor derivation, where the recurrent path refuses both: the dense
+  forward evaluates a strength that is not finite (every output NaN at a NaN strength), and an
+  unknown derivation fails inside `derive_receptor_from_weight` (a `ValueError`) when the configured
+  neuromodulation is derived, while a caller-built one never reads it. The compiled forward refuses
+  a strength that is not finite in float32.
+- The recurrent forward does not chunk its inputs: `return_states` holds `activate_time x samples
+  x count` float32 values per genome at once (34 steps x 16,384 rows x 444 positions is about 1 GB),
+  so a caller bounding that memory evaluates the rows in groups, which differs from one call only by
+  rounding.
+- Without neuromodulation the outputs of a `return_states` call come from the compiled program that
+  also emits the states, as in 0.3.0, which can round apart from the call without `return_states`
+  (about 20 float32 ulps on a Xeon E5-2683 v4 under XLA's defaults; a chaotic genome carries that to
+  order 1). Under true neuromodulation they are the call's without it.
+- The compiled feed-forward forward refuses a global `softmax` hidden activation: its genome slots
+  carry no position for the grid positions outside a genome's mask. The dense forward evaluates it
+  on the whole grid.
+- `evaluate_with_neurotransmitter` evaluates the generation's arrays in a network of its own
+  arguments: `activation_name` (`tanh` when None) at every node and settling step on the sum of the
+  node's inputs, a `sigmoid` output, no sparsity, `modulation_mode` `'full'` and no branch gating
+  unless passed. After a generation with per-node activation functions, an aggregation other than
+  the sum (per node or global), an output activation other than `sigmoid`, a sparsity mechanism, a
+  global hidden activation other than the one passed, another modulation mode or branch gating, or
+  under `drive_once` (whose update steps a single-task generation runs with `tanh`) with an
+  `activation_name` other than `tanh`, that network is not the one the generation evaluated.
+- Multi-task evaluation (the list form of `run_generation_multitask`, its call form and an enabled
+  multitask block) runs its generation on the whole grid, without active-set compaction: on a
+  recurrent configuration each genome settles over every grid position (under `emr` with `sum`
+  h->h aggregation through a dense positions x positions float32 matrix, 5,460 x 5,460 x 4 bytes,
+  about 119 MB a genome at depth 5).
+- Under `multitask.two_module_mode` a global `softmax` hidden activation normalizes over each
+  module's positions, not over the whole grid.
+- Under `JAX_ENABLE_X64` the compiled feed-forward forward computes in float32 and the dense one
+  keeps float64 weights, so the two differ by more than float32 rounding.
+- The GPU branches of the four new test files have passed on an NVIDIA T4 alone (jax 0.6.1,
+  `JAX_DEFAULT_MATMUL_PRECISION=highest`): those of `test_substrate_recurrent_neuromodulation.py`
+  and `test_substrate_compiled_forward.py` are sized from runs on a T4 and an NVIDIA L4, and
+  `test_multitask_after_compaction.py` and `test_global_softmax_axis.py` take allowances set for
+  other comparisons. Under `drive_once` a GPU's scatter-add makes a repeat of one program differ:
+  on the T4 a chaotic genome's settling states up to 5.9e-3 apart and a steady genome's up to
+  2.3e-3, its outputs within 1e-3. The tests allow such repeats 1e-3 (`GPU_SCATTER_ATOL`) and,
+  where a run went past it, compare the steady genomes' outputs and the states by their shape.
+
 ## 0.3.0
 
 ### Added

@@ -11,6 +11,11 @@ Install the test dependency once (pytest is in the `dev` extra, not the base ins
 pip install -e ".[dev]"
 ```
 
+Install the checkout you test. The paper tests (`test_paper_imports.py` and
+`test_paper_validation.py`) run the papers' scripts in processes of their own, from the papers'
+folders, and those import the installed `emr_hyperneat`: with another checkout installed, they test
+that one.
+
 ## Run the suite
 
 ```bash
@@ -32,18 +37,36 @@ JAX_PLATFORMS=gpu pytest emr_hyperneat/tests/test_multi_gpu_strategies.py -m mul
 
 ### On a GPU
 
-The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. The contracts that assert one
-computation across layouts (the execution modes, compaction on and off, the scan-chunked evaluation
-against its loop form) are bitwise on XLA:CPU and hold to float32 rounding on a GPU, where kernels
-are chosen per shape; the tests switch on `jax.default_backend()` through
-`conftest.assert_trajectories_agree` (`rtol` 1e-4, set from an RTX 2080 Ti measurement whose largest
-difference was 3.4e-6). The CPU contracts hold bitwise on the arm64 and x86 processors the suite ran
-on, with one exception on x86: bucketed compaction can round a padded sum differently from `exact`,
-so the comparison of the standard and depth-offload modes runs both at exact shapes. The recurrent
-substrate API's forwards are compared on a GPU in the genomes that one ulp in the weights does not
-move past that tolerance (`test_substrate_recurrent.py`): with dynamic h->h aggregation a GPU's
-forward differs from itself between calls. Under
-`pytest-xdist` set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, otherwise every
+The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. Four files have not passed on a
+GPU: `test_substrate_recurrent_neuromodulation.py` and `test_substrate_compiled_forward.py` take GPU
+allowances sized from their failures on an NVIDIA T4 and an NVIDIA L4 (below), which no GPU run has
+checked, and `test_multitask_after_compaction.py` and `test_global_softmax_axis.py` have not run on
+a GPU. The contracts that assert one computation across layouts (the execution modes, compaction on
+and off, the scan-chunked evaluation against its loop form) are bitwise on XLA:CPU and hold to
+float32 rounding on a GPU, where kernels are chosen per shape; the tests switch on
+`jax.default_backend()` through `conftest.assert_trajectories_agree` (`rtol` 1e-4,
+`conftest.GPU_TRAJECTORY_RTOL`, set from an RTX 2080 Ti measurement whose largest difference was
+3.4e-6). The recurrent substrate API's forwards are compared on a GPU in the genomes that one ulp (a
+unit in the last place, the gap between adjacent float32 values) in the weights does not move past
+that `rtol` of 1e-4 (`test_substrate_recurrent.py`): with dynamic h->h aggregation a GPU's forward
+differs from itself between calls, and so, by the same scatter-add, does the `drive_once` rule's
+(measured with neuromodulation, below). On an NVIDIA T4 and an NVIDIA L4 (jax 0.6.1,
+`JAX_DEFAULT_MATMUL_PRECISION=highest`) the neuromodulated recurrent forward under `drive_once`
+repeated its outputs only within 1.74e-4 (the L4), so `test_substrate_recurrent_neuromodulation.py`
+compares that rule's repeats within `GPU_SCATTER_ATOL` (1e-3) on a GPU. A settling state differs
+further on a repeat: the T4 put a chaotic genome's states up to 5.9e-3 apart and a steady genome's
+up to 2.3e-3 under `steep_gate` with the inversion, so `test_a_genome_with_no_active_position`
+compares there the steady genomes' outputs and the states by their shape. Two chunk sizes of the
+compiled feed-forward forward, two programs, were up to 1.45e-4 apart on the T4 and 8.4e-5 on the
+L4, on outputs of up to 158 (their value on the CPU), so `test_substrate_compiled_forward.py`
+compares them within 128 ulps of the largest output on a GPU. The CPU comparisons of both files are
+those under [On the CPU](#on-the-cpu), below. `test_multitask_after_compaction.py` and
+`test_global_softmax_axis.py` take GPU allowances set for other comparisons, not measured on their
+cases; both pass on the T4. The tests pin `jax_default_matmul_precision` to `highest` (conftest):
+on a GPU from Ampere on, JAX's default is TF32 (TensorFloat-32: float32's range with a 10-bit
+mantissa), whose rounding is far above these allowances.
+
+On a GPU, under `pytest-xdist` set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, otherwise every
 worker preallocates 75% of the first card; and run `test_depth_offload_gpu.py` (marker `cuda`) on its
 own with the default preallocation and allocator, because it sizes its depth from the pool XLA
 reports (`XLA_PYTHON_CLIENT_ALLOCATOR=platform` reports none, and its tests skip):
@@ -61,6 +84,70 @@ directory and the second run of any file is several times faster:
 ```bash
 export JAX_COMPILATION_CACHE_DIR=$HOME/.cache/emr-jax    # any writable directory
 ```
+
+### On the CPU
+
+The CPU contracts hold bitwise on the arm64 and x86 processors the suite ran on, except where noted
+below. On x86, bucketed compaction can round a padded sum differently from `exact`, so the
+comparison of the standard and depth-offload modes runs both at exact shapes. And under XLA's
+default multi-threaded Eigen a Xeon E5-2683 v4 (AVX2, Advanced Vector Extensions 2) rounds two
+compiled programs of one computation apart, so the recurrent substrate forward with and without
+`return_states` and the weights of the union and per-genome discovery at iteration level 2, each a
+comparison of two such programs, take an allowance under multi-threaded Eigen only
+(`conftest.cpu_multi_threaded_eigen`: true on the CPU unless `XLA_FLAGS` sets
+`--xla_cpu_multi_thread_eigen=false`); under single-threaded Eigen, which the nightly workflow sets,
+the first compares bit for bit and the second within four ulps of each weight and no absolute
+allowance. The allowances are sized from measurements on a Xeon E5-2683 v4 under XLA's defaults. The
+forward with and without `return_states`, whose settled outputs differed there by up to about 20
+float32 ulps, compares every genome within 128 ulps of the compared values' largest finite magnitude
+(`conftest.CPU_CROSS_PROGRAM_ULPS`). The level-two weights, up to 17 ulps of `max_weight` apart
+there, compare within 64 ulps of `max_weight`, the bound a GPU gets at that level.
+
+The neuromodulated recurrent forward and the generation loop are two different programs on every CPU
+(`test_substrate_recurrent_neuromodulation.py`): their outputs compare within 128 ulps and their
+fitness within 1e-6, and a case past that is compared as two programs that round apart are, the
+genomes that one ulp of their weights moves by at most 1e-4 in fitness, at least a quarter of the
+population, within 1e-3 in outputs and fitness. Under single-threaded Eigen no case needs that.
+Under XLA's defaults two cases do on an Apple M4 Max, global `sin` (0.14 from the loop in outputs,
+0.041 in fitness) and `full18_uniform` (1.0 and 0.25), compared on their 8 and 16 genomes steady at
+one ulp (the loop's outputs are the same under both settings, the API's compiled forward is not),
+and on the Xeon the global `sin` case does, its 8 steady genomes within 3.2e-5 of the loop and its
+12 others sensitive to one ulp. A wrong forward (neuromodulation dropped, the other settling rule,
+the inversion ignored) moves outputs by 1e-2 or more, and both comparisons refuse it. Under true
+neuromodulation the outputs of a `return_states` call come from the program without states, so they
+equal the outputs without it bit for bit on the CPU; the last state, through `W2`, the output
+activation and the inversion, is a second computation of them and reproduces them within the larger
+of 1e-6 and 8 ulps of their largest magnitude in the genomes that one ulp of their weights does not
+move (as two programs under multi-threaded Eigen).
+
+The compiled feed-forward forward (`test_substrate_compiled_forward.py`) compares with the dense
+forward within per-output-function allowances measured on an Apple M4 Max, and with itself bit for
+bit under single-threaded Eigen: a row's outputs do not depend on its chunk, its place in the chunk,
+its genome's slot, the other genomes or a repeat. Under XLA's default multi-threaded Eigen the Xeon
+put 28 of 12,780 three-output values up to 1.2e-7 apart by their place in the chunk, so there rows
+and genomes that sit elsewhere compare as two programs; a repeat stays bit for bit. For a genome's
+slot and the other genomes that is a precaution: on 19 populations of 12 genomes at 64, 128 and 256
+pixels a side, each genome alone and the genomes reversed gave the population's outputs bit for bit
+on the M4 Max and the Xeon under either Eigen setting (0 of 58,834,944 outputs differed). Two of its
+chunk sizes are two programs that XLA:CPU can round apart under single-threaded Eigen too (it picks
+the hidden-to-output product's kernel by its shapes), so on every CPU they compare within
+`conftest.CPU_CROSS_PROGRAM_ULPS`, and at bucket 2,048 with three outputs within the larger of that
+and the 64 ulps sized from the 7 measured there. Every other comparison within one program stays
+bit for bit.
+
+`test_multitask_after_compaction.py` compares `evaluate_with_neurotransmitter` with the loop's own
+fitness, two programs, bit for bit under single-threaded Eigen, where an Apple M4 Max computed them
+so (natively, and as x86-64 code under Rosetta 2), and as two programs elsewhere, over the genomes
+one ulp of their weights moves by at most 1e-4 in fitness; it compares the list form of
+`run_generation_multitask` with the call form on the same state, one evaluator, bit for bit on the
+CPU. `test_global_softmax_axis.py` compares evaluations of a global `softmax` on axes of different
+lengths (a compacted generation and the same population on the whole grid, the substrate API and
+the loop), which are two programs on every CPU, as two programs are, over the genomes whose outputs
+one ulp of their weights moves by at most 1e-6. A genome evaluated alone against its row of the
+population, one program on the same operands, compares bit for bit on the CPU; an uncompacted
+generation's fitness against the registry softmax's computation written out, two programs, bit for
+bit under single-threaded Eigen, where the M4 Max computed them so (the same two ways), and as two
+programs under multi-threaded Eigen.
 
 ### On Linux, raise `vm.max_map_count` first
 

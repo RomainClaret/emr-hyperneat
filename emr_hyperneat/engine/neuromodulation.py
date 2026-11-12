@@ -1278,6 +1278,23 @@ def true_neuromodulation_node_rule(
         ``(node_rule, operands)``: the node is ``node_rule(pre, *operands)``.
     """
     act_rule, act_operands = act
+    form, terms = _true_neuromodulation_terms(receptors, base_gains, neurotransmitter, mod_strength,
+                                              num_nt, modulation_mode, rule, modulation)
+    return _neuromodulated_rule(form, act_rule), terms + tuple(act_operands)
+
+
+def _true_neuromodulation_terms(
+    receptors: jnp.ndarray,
+    base_gains: jnp.ndarray,
+    neurotransmitter: jnp.ndarray,
+    mod_strength: float,
+    num_nt: int,
+    modulation_mode: str,
+    rule: str = 'paper',
+    modulation: Optional[jnp.ndarray] = None,
+) -> Tuple[str, Tuple[jnp.ndarray, ...]]:
+    """`true_neuromodulation_node_rule`'s form and per-node terms (gains, bias, gates), whose
+    arguments these are; `softmax_missing_virtual` reads them at a zero drive."""
     if modulation is None:
         k = num_nt if rule == 'anti' else min(3, num_nt)
         modulation = receptors[:, :k] @ neurotransmitter[:k]
@@ -1302,7 +1319,63 @@ def true_neuromodulation_node_rule(
             form, terms = 'gain_bias', (gains, bias)
         else:
             form, terms = 'gain_bias_gate', (gains, bias, jax.nn.sigmoid(modulation))
-    return _neuromodulated_rule(form, act_rule), terms + tuple(act_operands)
+    return form, terms
+
+
+def _neuromodulated_input(form: str, pre: jnp.ndarray, *terms: jnp.ndarray) -> jnp.ndarray:
+    """The activation's input in a neuromodulated node of ``form`` (`_neuromodulated_rule`), with
+    the rule's own arithmetic: ``pre``, ``gains * pre`` or ``gains * pre + bias``."""
+    if form == 'gate':
+        return pre
+    if form in ('gain', 'gain_gate'):
+        return terms[0] * pre
+    return terms[0] * pre + terms[1]
+
+
+def softmax_missing_virtual(
+    receptors: jnp.ndarray,
+    base_gains: jnp.ndarray,
+    multiplicity: jnp.ndarray,
+    neurotransmitter: jnp.ndarray,
+    mod_strength: float,
+    num_nt: int,
+    modulation_mode: str,
+    rule: str = 'paper',
+    modulation: Optional[jnp.ndarray] = None,
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """The virtual position of `full_grid_softmax` under true neuromodulation, for one genome.
+
+    The genome's missing positions (the grid positions its evaluation leaves out) have zero weights,
+    so the softmax input each one receives is the node rule's value at a zero drive, ``c_p`` (0
+    unless the form adds a bias, s m). The virtual position takes the receptors and base gain of the
+    missing position with the largest ``c_p`` (the first, on a tie), so the rule gives it that
+    ``c``, and stands for the sum of ``multiplicity_p * exp(c_p - c)`` positions: their count when
+    every ``c_p`` is equal (the weights' receptors, where every missing position derives them from a
+    zero weight), their weighted sum when they differ (receptors from the self-connection query or
+    from dedicated CPPN outputs, branch gating's regions).
+
+    Args:
+        receptors: (missing, num_nt) the missing positions' receptor densities.
+        base_gains: (missing,) their base gains.
+        multiplicity: (missing,) the grid positions each entry stands for.
+        neurotransmitter, mod_strength, num_nt, modulation_mode, rule: As for
+            `true_neuromodulation_node_rule`.
+        modulation: (missing,) m when given (branch gating), else computed from the receptors.
+
+    Returns:
+        ``(receptor, base_gain, count, pick)``: (num_nt,), (), the virtual position's multiplicity,
+        and the index of the missing position it copies (whose grid coordinates branch gating
+        reads).
+    """
+    form, terms = _true_neuromodulation_terms(receptors, base_gains, neurotransmitter, mod_strength,
+                                              num_nt, modulation_mode, rule, modulation)
+    c = _neuromodulated_input(form, jnp.zeros_like(base_gains), *terms)
+    pick = jnp.argmax(c)
+    top = c[pick]
+    count = jnp.sum(multiplicity * jnp.exp(c - top))
+    # Positions whose softmax input is -inf add nothing (exp(-inf - top) would be NaN)
+    count = jnp.where(top == -jnp.inf, 0.0, count)
+    return receptors[pick], base_gains[pick], count, pick
 
 
 def true_neuromodulation_node_fn(

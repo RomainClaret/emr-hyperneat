@@ -235,16 +235,17 @@ class TestEvaluateGenome:
         )
 
     def test_what_the_substrate_api_does_not_describe_is_refused(self):
+        # True neuromodulation of a recurrent substrate is described; with receptors from dedicated
+        # CPPN outputs it is not
         config = create_config_with_neuromodulation(
             "true_neuromodulation_4nt",
             recurrence_preset="hidden_only",
             max_depth=DEPTH,
             population_size=POP,
+            receptor_from_weight=False,
         )
         algo, problem, state = _setup(config)
-        with pytest.raises(
-            ValueError, match="true neuromodulation with hidden-to-hidden connections"
-        ):
+        with pytest.raises(ValueError, match="receptor_from_weight false"):
             algo.evaluate_genome_on_problem(state, state.pop_nodes[0], state.pop_conns[0], problem)
 
 

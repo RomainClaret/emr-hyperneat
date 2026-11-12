@@ -373,6 +373,8 @@ ACTIVATION_FUNCTIONS = {
     # substrates; pairs with the categorical 'ce' fitness mode (probabilities summing to 1).
     # Deliberately absent from ACTIVATION_LIST below: it is a per-substrate output choice,
     # not an evolvable per-node one, and adding it there would shift every palette index.
+    # As the global hidden activation it normalizes across every hidden position of the grid,
+    # which full_grid_softmax evaluates on an axis holding part of it.
     'softmax': lambda x: jax.nn.softmax(x, axis=-1),
 }
 

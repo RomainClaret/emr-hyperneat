@@ -30,7 +30,8 @@ print(metrics.best_fitness)
 | `initialize` | `initialize(config, problem, seed=42)` | the initial `state` you thread through the loop |
 | `run_generation` | `run_generation(state, problem, skip_metrics=False, verbose=True)` | `(new_state, metrics)`. Feed `new_state` into the next call |
 | `run_until_threshold` | `run_until_threshold(state, problem, target_fitness, max_generations, collect_history=False)` | a dict with `generations`, `best_fitness`, `state`, `history` (if requested), and the run's `route` (the strategy route it took), `devices` (the devices it used) and `execution_mode` |
-| `run_generation_multitask` | `run_generation_multitask(state, problems, neurotransmitters=None, aggregation_method='mean')` | `(new_state, metrics)`. Requires neuromodulation in `true_neuromodulation` mode |
+| `run_generation_multitask` | `run_generation_multitask(state, problems, neurotransmitters=None, aggregation_method='mean')` | `(new_state, metrics)`. Requires neuromodulation in `true_neuromodulation` mode. Without `neurotransmitters`, task *i* takes the *i*-th of the XOR, AND, OR, NAND and NOR presets, cycling (a direct call does not read `multitask.nt_per_task`; `run_generation` with an enabled multitask block passes the configured vectors). Its one inner generation evaluates the whole grid, so every task reads receptors on the cached weights' axis |
+| `evaluate_with_neurotransmitter` | `evaluate_with_neurotransmitter(nt_vector, inputs, targets, activation_name=None, fitness_mode='mse', modulation_mode='full', branch_gating_mode='none')` | the fitness of the last generation's genomes, `(pop_size,)`, under another vector (or a task name, for its preset) or on other data: the arrays that generation evaluated (after a compacted recurrent generation the compact ones, under STP (short-term plasticity) scaling the scaled `W1`), with the receptors it derived. Every hidden node runs `activation_name` (`tanh` when None) on the sum of its inputs and every output a `sigmoid`, with no sparsity, and `modulation_mode` is `'full'` unless passed. Requires a last generation under true neuromodulation |
 | `population_substrates` | `population_substrates(state)` | the substrates of the population, as the generation loop builds them: `W1`, `W2`, the hidden-node `mask`, per-node function indices, and the hidden-to-hidden connections under per-genome discovery. Run them with `substrate_forward(substrate, inputs)` |
 | `substrate_config` | `substrate_config()` | the `SubstrateConfig` the loop uses, for building substrates from CPPN outputs of your own (`substrate_queries`, `build_substrate`, `hh_query_rows`, `build_recurrent_substrate`). Raises for configurations outside the standard path the API describes |
 
@@ -186,7 +187,9 @@ contrast is the subject of one of the papers.
   time. On a GPU, a sum taken with a scatter-add accumulates in no fixed order, so a configuration
   that sums that way does not repeat bit for bit. Dynamic h->h aggregation (`hh_aggregation_mode:
   dynamic`) sums that way: on an RTX 2080 Ti, two evaluations of one generation put a genome's
-  fitness up to 8.9e-4 apart, which can change which genomes are selected.
+  fitness up to 8.9e-4 apart, which can change which genomes are selected. So does the `drive_once`
+  settling rule at every step, whatever the aggregation: on an NVIDIA L4 one program of the
+  neuromodulated recurrent substrate forward repeated its outputs only within 1.74e-4.
 - **Fitness is in `[0, 1]`** (1.0 = a perfect solution). In a `run_generation` loop, "solved" is
   your own check, `best_fitness >= fitness_threshold`. The loop above decides when to stop. If you
   would rather hand that decision to the algorithm, `run_until_threshold(state, problem,
@@ -254,14 +257,14 @@ for gen in range(30):
         break
 ```
 
-Expect this to need more generations than single-task XOR: holding several tasks in one substrate
-is the hard version of the problem (the ALIFE neuromodulation paper's multi-task barrier is exactly
+Expect this to need more generations than single-task XOR: holding several tasks in one substrate is
+the hard version of the problem (the ALIFE neuromodulation paper's multi-task barrier is exactly
 this). The CPPN evolves once per generation; fitness is computed on every task with its NT vector
 and combined by `aggregation_method` (`mean`, `min`, `weighted`, `product`, `softmin`, `harmonic`;
-`min` demands a generalist, `mean` tolerates specialists). Omit `neurotransmitters` to use the
-per-task vectors from the config (`multitask.nt_per_task`) or the named-task presets. The full key
-list is in the [configuration reference](configuration.md#feature-3-neuromodulation-multi-task);
-the runners under `papers/emr-neuromodulation/scripts/runners/` are complete worked examples.
+`min` demands a generalist, `mean` tolerates specialists). Omit `neurotransmitters` and task *i*
+takes the *i*-th of the XOR, AND, OR, NAND and NOR presets (`NT_TASK_PRESETS`), cycling past five:
+this list form does not read `multitask.nt_per_task`, so pass the vectors to use your own. The full
+key list is in the [configuration reference](configuration.md#feature-3-neuromodulation-multi-task).
 
 ## Reusing the test helpers
 

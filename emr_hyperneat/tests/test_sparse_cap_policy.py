@@ -311,8 +311,9 @@ class TestSubstrateAPI:
         assert growing.extended_config.max_sparse_conns == CAP
         np.testing.assert_array_equal(np.asarray(grown.hh_valid).sum(axis=1), uncapped)
         np.testing.assert_array_equal(np.asarray(grown.hh_from)[:, :largest], np.asarray(full.from_indices))
-        # The width beyond the largest set is padding: the grown substrate's forward is the one at the cap that just
-        # holds every set (emr-picbreeder found widths 10,000 and 131,072 draw the same pictures)
+        # The width beyond the largest set is padding: the grown substrate's forward is the one at
+        # the cap that just holds every set (a caller that draws pictures found that widths 10,000
+        # and 131,072 draw the same ones)
         exact_algo, _p, exact_state = _setup(_recurrent(max_sparse_conns=largest))
         exact = exact_algo.population_substrates(exact_state)
         assert exact.config.max_sparse_conns == largest < grown.config.max_sparse_conns

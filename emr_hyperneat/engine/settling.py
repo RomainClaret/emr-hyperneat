@@ -2,7 +2,7 @@
 the node activations and node rules, and the step and rule registries that keep their compiled
 forms."""
 import functools
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 
 import jax.numpy as jnp
 import numpy as np
@@ -372,6 +372,91 @@ def node_activation_rule(
         return per_node_activation
 
     return _node_rule(('activation', entries, num_activations), make), (act_indices,)
+
+
+def full_grid_softmax(x: jnp.ndarray, multiplicity: jnp.ndarray) -> jnp.ndarray:
+    """The global ``'softmax'`` hidden activation over the whole grid, from an evaluated axis that
+    holds part of it.
+
+    Global softmax (``ACTIVATION_FUNCTIONS['softmax']``, a global hidden activation and not one of
+    ACTIVATION_LIST's per-node functions) normalizes across the hidden positions, so its value
+    depends on which positions an evaluation holds. Its definition is the uncompacted one: every
+    position of the grid at the configured depth, ``P`` of them, as the feed-forward evaluation and
+    every uncompacted recurrent generation evaluate it. An evaluation on a shorter axis, a compacted
+    recurrent generation (the union of the population's active positions, padded to a bucket) or
+    the substrate API's recurrent forward (a genome's own positions, padded to a bucket), equals it:
+    each grid position the axis leaves out has zero weights in and out for the genome, so it adds
+    ``exp(c - m)`` to the denominator, ``c`` being the input such a position's softmax receives at
+    that step and ``m`` the maximum over the axis and ``c``.
+
+    The two modules of multitask.two_module_mode (`_create_eval_population_two_module`: the grid's
+    positions at x < 0 and at x >= 0, each module whole whatever the population) apply the
+    registry's softmax to the positions they hold and add none, so it normalizes within a module,
+    summing to 1 over the module's positions before any gate.
+
+    The evaluation appends one virtual position to its axis, last, a zero-weight position settled
+    by the same rule as the others, which stands for the missing ones; ``multiplicity`` says how
+    many grid positions each entry stands for: 1 at a real position, 0 at bucket padding (left out
+    of the maximum and the sum, its output 0), and at the virtual position their count, or under
+    neuromodulation whose missing positions differ the sum of ``exp(c_p - c)`` over them, ``c``
+    being the largest (`softmax_missing_virtual`). Its input is then ``c`` at every step: without
+    neuromodulation 0 under settling_rule ``'emr'`` and at the first step of ``'drive_once'``,
+    whose later steps add a node's own state to its recurrent input, so that there it is its own
+    previous state, the value every missing position holds; under neuromodulation the node rule's
+    value at a zero drive, from the receptors and base gain the evaluation derives at a zero-weight
+    position (the update steps of the additive rule, `settle_hidden_additive`, read the recurrent
+    input, 0 there too).
+
+    Args:
+        x: (..., positions + 1) the activation's input, the virtual position last.
+        multiplicity: (positions + 1,) the grid positions each entry stands for.
+
+    Returns:
+        The activation, 0 at bucket padding.
+    """
+    counted = multiplicity != 0
+    top = jnp.max(x, axis=-1, where=counted, initial=-jnp.inf, keepdims=True)
+    unnormalized = jnp.exp(x - top)
+    total = jnp.sum(multiplicity * unnormalized, axis=-1, where=counted, keepdims=True)
+    return jnp.where(counted, unnormalized / total, 0.0)
+
+
+# A node rule like the registry's functions: the settling steps on it are made once
+_NODE_RULES[('full_grid_softmax',)] = full_grid_softmax
+
+
+def softmax_axis_multiplicity(real: int, length: int, missing: Any) -> jnp.ndarray:
+    """`full_grid_softmax`'s multiplicity for an evaluated axis: ``real`` positions first, bucket
+    padding up to ``length``, then the virtual position, which stands for ``missing`` (a count, or
+    an array of per-genome counts, which gives one row per genome)."""
+    missing = jnp.asarray(missing, dtype=jnp.float32)
+    head = jnp.concatenate([jnp.ones((real,), jnp.float32),
+                            jnp.zeros((length - real,), jnp.float32)])
+    head = jnp.broadcast_to(head, missing.shape + (length,))
+    return jnp.concatenate([head, missing[..., None]], axis=-1)
+
+
+class SoftmaxCompletion(NamedTuple):
+    """A compacted evaluation axis under a global ``'softmax'`` hidden activation, and what
+    `full_grid_softmax` needs to evaluate the whole grid on it.
+
+    Attributes:
+        real: The real positions on the axis (the union of the population's active ones), first.
+        length: The axis' length, bucket padding after the real positions.
+        missing: The grid positions the axis leaves out.
+        receptors: Under true neuromodulation, (pop, entries, num_nt) the missing positions'
+            receptor densities, else None; one entry standing for every missing position where
+            they all derive them from a zero weight.
+        base_gains: (pop, entries) their base gains, or None.
+        multiplicity: (entries,) the grid positions each entry stands for, or None.
+    """
+
+    real: int
+    length: int
+    missing: int
+    receptors: Optional[jnp.ndarray] = None
+    base_gains: Optional[jnp.ndarray] = None
+    multiplicity: Optional[jnp.ndarray] = None
 
 
 def _recurrent_input(hidden: jnp.ndarray, operands: Tuple[jnp.ndarray, ...], dynamic: bool,

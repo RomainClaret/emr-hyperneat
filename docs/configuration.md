@@ -234,28 +234,29 @@ padded), the whole population in one call (the union-sized population split of t
 not apply), so one compiled function per bucket size serves the whole run and the cost follows the
 genomes' own active sets. The two modes give the same connections and weights for every genome: on a
 CPU bit for bit at `iteration_level` 1 and, across 36 configurations, at level 2 (the acceptance
-criterion stays "same connections, weights within one float32 ulp", because the products run over
-different array shapes). `per_genome` was faster than union at every depth 1 to 7 on XOR, population
-1000, an RTX 2080 Ti. Dense discovery keeps the union query whatever the setting; the pmap
-(multi-GPU) pipeline has its own inline discovery at `iteration_level` 1 only and refuses a higher
-level on entry. A negative `band_threshold` is refused. The discovered h->h connections can be
-cached between generations: `hh_cache_enabled` (default `False` since 0.2.0, `True` in 0.1.0)
-switches the cache, `hh_refresh_interval` (default `5`) forces a re-discovery every N generations,
-and `hh_mask_change_threshold` (default `0.1`) forces one when the variance mask moves by more than
-that fraction. `hh_cache_trigger` (default `time_or_mask`) says what refreshes it: `time` refreshes
-every `hh_refresh_interval` generations only, as the prototype's unified model did; it is refused
-when the cache is off, and `hh_mask_change_threshold` is refused beside `time`. `initialize` starts
-a new cache, so an object reused for another run does not score it with the last run's connections
-(0.1.0 kept them until the next refresh). The cache is not a pure speed-up: the cached set is
-indexed by population slot, and reproduction moves genomes between slots, so between refreshes a
-genome is scored with the recurrent connections discovered for whichever genome held its slot at the
-last refresh. On seed-paired XOR runs the solve rate did not change, but converged runs lost their
-champion in 124 of 187 cases with the cache against 9 of 196 without it. Leave it off unless you are
-reproducing a cache-on campaign. There is no per-class cache (hidden-to-hidden, backward, lateral,
-self) and none is planned: the classes are masks on one CPPN query over the active position pairs,
-so a cached class would be stale for a changed genome exactly as the whole set is. The per-class
-controls are `allow_hidden_to_hidden`, `allow_backward`, `allow_lateral` and `allow_self_loops`,
-which decide what is discovered.
+criterion stays "same connections, weights within one float32 ulp", an ulp being a unit in the last
+place, because the products run over different array shapes). `per_genome` was faster than union at
+every depth 1 to 7 on XOR, population 1000, an RTX 2080 Ti. Dense discovery keeps the union query
+whatever the setting; the pmap (multi-GPU) pipeline has its own inline discovery at
+`iteration_level` 1 only and refuses a higher level on entry. A negative `band_threshold` is
+refused. The discovered h->h connections can be cached between generations: `hh_cache_enabled`
+(default `False` since 0.2.0, `True` in 0.1.0) switches the cache, `hh_refresh_interval` (default
+`5`) forces a re-discovery every N generations, and `hh_mask_change_threshold` (default `0.1`)
+forces one when the variance mask moves by more than that fraction. `hh_cache_trigger` (default
+`time_or_mask`) says what refreshes it: `time` refreshes every `hh_refresh_interval` generations
+only, as the prototype's unified model did; it is refused when the cache is off, and
+`hh_mask_change_threshold` is refused beside `time`. `initialize` starts a new cache, so an object
+reused for another run does not score it with the last run's connections (0.1.0 kept them until the
+next refresh). The cache is not a pure speed-up: the cached set is indexed by population slot, and
+reproduction moves genomes between slots, so between refreshes a genome is scored with the recurrent
+connections discovered for whichever genome held its slot at the last refresh. On seed-paired XOR
+runs the solve rate did not change, but converged runs lost their champion in 124 of 187 cases with
+the cache against 9 of 196 without it. Leave it off unless you are reproducing a cache-on campaign.
+There is no per-class cache (hidden-to-hidden, backward, lateral, self) and none is planned: the
+classes are masks on one CPPN query over the active position pairs, so a cached class would be stale
+for a changed genome exactly as the whole set is. The per-class controls are
+`allow_hidden_to_hidden`, `allow_backward`, `allow_lateral` and `allow_self_loops`, which decide
+what is discovered.
 
 **The hidden-to-hidden cap.** `max_sparse_conns` (default 10000) sizes the padded connection
 arrays; it is a memory setting, not a speed setting. `sparse_cap_policy` decides what happens to a
@@ -323,7 +324,9 @@ summed. The update is `tanh(gates * r)` under static and context gating and the 
 `tanh` under true neuromodulation; on the multi-task path it is the node itself, with the task's
 activation. It refuses modulatory neurons (FULL's modulatory recurrence read one mask for the whole
 population, and no runner used it), per-node hidden-to-hidden aggregation, and an `every_iteration`
-activation other than `tanh` (set `hh_activation_mode: initial_only`).
+activation other than `tanh` (set `hh_activation_mode: initial_only`). The substrate API settles a
+recurrent substrate under true neuromodulation by the same rule and refuses the same aggregation
+and activation ([architecture](architecture.md#the-substrate-on-its-own)).
 
 **The prototype's unified model (UNI) as a recipe.** UNI discovered direct hidden-to-hidden
 connections, settled them by the prototype's rule and refreshed a cache on a timer. EMR runs it
@@ -624,8 +627,10 @@ its active positions; it needs two or more tasks. 0.1.0 accepted both at any val
 neither. `run_generation_multitask(state, MultiTaskConfig(tasks={name: (inputs, targets)},
 aggregation=..., weights=..., nt_vectors=...))`, the prototype's call form, runs the same generation
 and returns `MultiTaskMetrics` keyed by task name; `evaluate_with_neurotransmitter` takes a task
-name in place of the vector for that task's preset NT vector. `run_generation_multitask` evaluates
-each task with one hidden activation (`per_task_activation` or `hidden_activation`) and sum
+name in place of the vector for that task's preset NT vector, and evaluates the arrays the last
+generation evaluated with the receptors it derived (after a compacted recurrent generation the
+compact ones). `run_generation_multitask` evaluates each task with one hidden activation
+(`per_task_activation` or `hidden_activation`) and sum
 aggregation, so it refuses the `dynamic_functions` and `aggregation` modes, and its two-module mode,
 which is feed-forward, refuses recurrence. A worked example is in [writing
 experiments](writing-experiments.md#multi-task-one-substrate-several-tasks); the runners under
@@ -885,7 +890,7 @@ Defaults are usually right; reach for these when a run OOMs or when you want it 
 | `eval_chunk_levels` | `3` | Levels loaded at once during evaluation. |
 | `eval_chunk_positions` | `1000000` | Maximum positions per device chunk. |
 | `recurrent_target_memory_gb` | `2.0` | Peak budget for the recurrent evaluation of `depth_offload`, which chunks population *and* samples. `standard` and `streaming` do not chunk samples and do not read it. |
-| `compaction_bucket` | `"auto"` | Shape of the compacted recurrent evaluation space. `auto` pads the union of reached positions to a bucketed length with inert virtual positions, so the length repeats across generations and each length compiles once per run (a count that lands exactly on a bucket length takes the same path); results equal `exact` bit for bit on an arm64 CPU, and to float32 rounding on x86 CPUs and GPUs (a padded sum can round differently: a fitness by an ulp or two on x86). `exact` evaluates on exactly the union, as 0.1.0 did. Random per-node draw modes and depth offload always use exact shapes. |
+| `compaction_bucket` | `"auto"` | Shape of the compacted recurrent evaluation space. `auto` pads the union of reached positions to a bucketed length with inert virtual positions, so the length repeats across generations and each length compiles once per run (a count that lands exactly on a bucket length takes the same path); results equal `exact` bit for bit on an arm64 CPU, and to float32 rounding on x86 CPUs and GPUs (a padded sum can round differently: a fitness by an ulp or two on x86). Under a global `softmax` hidden activation the two agree within float32 rounding, not bit for bit: the softmax counts every grid position outside the union and leaves the padding out (`full_grid_softmax`), a sum over axes of two lengths (fitness within 1.2e-7 on XOR at depths 2 and 3, population 10; an Apple M4 Max, single-threaded Eigen). `exact` evaluates on exactly the union, as 0.1.0 did. Random per-node draw modes and depth offload always use exact shapes. |
 | `use_cpu_grid` | `False` | Keep the grid structure itself in host RAM. Needed from depth 12, where the grid alone exceeds device memory. |
 | `use_memmap` / `memmap_path` | `True` / `/tmp/emr_memmap` | Back large chunks with memory-mapped files. |
 | `enable_disk_offload` / `disk_offload_path` | `False` / `/tmp/emr_offload` | Spill to disk at extreme depth. |

@@ -33,7 +33,12 @@ from emr_hyperneat.engine.neuromodulation import (
     invert_outputs,
     true_neuromodulation_node_rule,
 )
-from emr_hyperneat.engine.settling import _is_stable_node_fn, settle_hidden, settle_hidden_additive
+from emr_hyperneat.engine.settling import (
+    _is_stable_node_fn,
+    full_grid_softmax,
+    settle_hidden,
+    settle_hidden_additive,
+)
 
 
 class MultiTaskMixin:
@@ -49,6 +54,7 @@ class MultiTaskMixin:
         return_hidden: bool = False,
         branch_mode: str = 'none',
         positions: Optional[jnp.ndarray] = None,
+        softmax_completion: bool = False,
     ):
         """Create vmapped true neuromodulation evaluation function.
 
@@ -58,6 +64,13 @@ class MultiTaskMixin:
         the node rule, the modulation strength, the output inversion) and kept, and its node is
         a node rule whose settling step is made once (:func:`true_neuromodulation_node_rule`),
         so its settling does not compile again for every generation and task.
+
+        With ``softmax_completion`` (evaluate_with_neurotransmitter under a global 'softmax' after a
+        compacted generation) the recurrent evaluator settles the virtual position of
+        :func:`full_grid_softmax` after the compacted axis and takes four more per-genome arguments
+        after the h->h connections and the three settings: the multiplicity (positions + 1,), and
+        the virtual position's receptor densities, base gain and grid coordinates
+        (`softmax_missing_virtual`; the coordinates read by branch gating only).
 
         Args:
             has_hh: Whether H->H connections are available
@@ -102,8 +115,10 @@ class MultiTaskMixin:
             raise ValueError("a branch gating mode needs the evaluated positions' grid coordinates")
         settles = bool(has_hh and activate_time > 0)
         additive = settles and self._settling_rule == 'drive_once'
+        complete = bool(softmax_completion) and settles
         key = (settles, int(activate_time) if settles else 0, act_fn, node_rule, mod_strength,
-               use_output_inversion, bool(return_hidden), additive)
+               use_output_inversion, bool(return_hidden), additive) + (
+                   ('full_grid_softmax',) if complete else ())
         # Kept without branch gating (whose positions are an array) and for an activation made once
         # (the registry's): a function made per call would add an entry per call
         keep = branch_mode == 'none' and _is_stable_node_fn(act_fn)
@@ -138,6 +153,50 @@ class MultiTaskMixin:
             outputs = invert_outputs(jax.nn.sigmoid(hidden @ W2_single), neurotransmitter,
                                      use_output_inversion, neurotransmitter.shape[-1], node_rule)
             return compute_fitness(outputs, targets, fitness_mode)
+
+        if complete:
+            def eval_single_network_completed(
+                W1_single, W2_single, receptor_densities_single, base_gains_single,
+                neurotransmitter, inputs, targets,
+                from_idx, to_idx, hh_w, hh_mask,
+                fitness_mode, modulation_mode, modulation_strength_override,
+                multiplicity, receptor_v, gain_v, position_v,
+            ):
+                """The recurrent evaluator below with the virtual position of full_grid_softmax
+                after the compacted axis: its receptors and base gain, its grid coordinates for
+                branch gating, its zero drive; dropped before the outputs."""
+                strength = (modulation_strength_override if modulation_strength_override is not None
+                            else mod_strength)
+                receptors = jnp.concatenate([receptor_densities_single, receptor_v[None]], axis=0)
+                gains = jnp.concatenate([base_gains_single, gain_v[None]])
+                modulation = (None if branch_mode == 'none'
+                              else compute_modulation_with_branch_gating(
+                                  receptors, neurotransmitter,
+                                  jnp.concatenate([positions, position_v[None]], axis=0),
+                                  branch_mode))
+                node_fn, node_operands = true_neuromodulation_node_rule(
+                    (full_grid_softmax, (multiplicity,)), receptors, gains, neurotransmitter,
+                    strength, neurotransmitter.shape[-1], modulation_mode, node_rule, modulation)
+                drive = inputs @ W1_single
+                drive = jnp.concatenate([drive, jnp.zeros_like(drive[:, :1])], axis=1)
+                if additive:
+                    hidden = settle_hidden_additive(node_fn(drive, *node_operands), from_idx,
+                                                    to_idx, hh_w, hh_mask, activate_time, node_fn,
+                                                    node_operands)
+                else:
+                    hidden = settle_hidden(drive, from_idx, to_idx, hh_w, hh_mask,
+                                           activate_time, node_fn, node_operands=node_operands)
+                hidden = hidden[:, :-1]
+                fitness = finish(hidden, W2_single, neurotransmitter, targets, fitness_mode)
+                return (fitness, hidden) if return_hidden else fitness
+
+            eval_population = jax.vmap(
+                eval_single_network_completed,
+                in_axes=(0, 0, 0, 0, None, None, None, 0, 0, 0, 0, None, None, None, 0, 0, 0, 0)
+            )
+            if keep:
+                _MULTITASK_EVALUATORS[key] = eval_population
+            return eval_population
 
         if settles:
             def eval_single_network_true_neuromodulated_hh(
@@ -226,7 +285,10 @@ class MultiTaskMixin:
 
         Args:
             all_positions: Spatial coordinates of all positions, shape (total_positions, 2)
-            hidden_act_fn: Optional activation function for hidden layer.
+            hidden_act_fn: Optional activation function for hidden layer, applied to each module's
+                positions alone: a global 'softmax' normalizes within each module (summing to 1
+                over each module's positions before any gate, 2 over the grid), not over the
+                whole grid as full_grid_softmax defines it.
 
         Returns:
             Two vmapped functions with signature:
@@ -383,6 +445,12 @@ class MultiTaskMixin:
         )
 
         return eval_population_two_module, eval_population_two_module_with_hidden
+
+    #: True while run_generation_multitask's list form runs its one inner generation, which then
+    #: keeps its arrays on the ceiling (no active-set compaction, as under an enabled multitask
+    #: block): the tasks are evaluated from the ceiling-sized _cached_W1, _cached_W2 and
+    #: _cached_sparse_hh with the receptors that generation derives
+    _multitask_inner_generation = False
 
     def run_generation_multitask(
         self,
@@ -563,8 +631,15 @@ class MultiTaskMixin:
         # Use first problem to build weight matrices
         # This caches: self._cached_W1, self._cached_W2, self._neuromod_true
         first_problem = problems[0]
-        # Its metrics carry this population's topology, which no task changes.
-        _, structure = self.run_generation_verbose(state, first_problem, skip_metrics=True)
+        # Its metrics carry this population's topology, which no task changes. It keeps its arrays
+        # on the ceiling, as under an enabled multitask block, so the receptors it derives share the
+        # cached weights' axis.
+        previous = self._multitask_inner_generation
+        self._multitask_inner_generation = True
+        try:
+            _, structure = self.run_generation_verbose(state, first_problem, skip_metrics=True)
+        finally:
+            self._multitask_inner_generation = previous
         # That generation's champion is the first task's, not this generation's
         self._last_eval = None
 
@@ -689,16 +764,16 @@ class MultiTaskMixin:
                           "back to 'none'")
 
         # The grid coordinates of the evaluated positions, for branch gating: the multi-task
-        # evaluation runs on the whole grid (compaction is blocked while a multi-task configuration
-        # is on)
+        # evaluation runs on the whole grid (the generation above is not compacted). The receptors
+        # are checked, the axis compaction narrows: the cached weights are ceiling-sized either way.
         branch_positions = None
         if cfg_branch_gating_mode != 'none':
             branch_positions = get_hierarchical_grid(self.max_depth).all_positions
-            if branch_positions.shape[0] != W1.shape[-1]:
+            if rd.shape[1] != branch_positions.shape[0]:
                 raise RuntimeError(
                     "branch gating needs the evaluation on the whole grid "
                     f"({branch_positions.shape[0]} "
-                    f"positions); the cached weights have {W1.shape[-1]}"
+                    f"positions); the cached receptor densities have {rd.shape[1]}"
                 )
 
         for act_name in unique_activations:
@@ -1347,13 +1422,35 @@ class MultiTaskMixin:
         modulation_mode: str = 'full',
         branch_gating_mode: str = 'none',
     ) -> jnp.ndarray:
-        """Evaluate population with a specific neurotransmitter vector and activation.
+        """Evaluate the last generation's genomes with a specific neurotransmitter vector and
+        activation.
 
-        This method allows evaluating the current population on arbitrary data
+        This method allows evaluating the last evaluated population on arbitrary data
         with a custom NT vector and activation function. Useful for:
         - Testing networks on novel tasks without re-evolution
         - Probing multi-task capabilities
         - Benchmarking with different activation functions
+
+        It evaluates the arrays the last generation evaluated, _cached_eval_W1, _cached_eval_W2 and
+        _cached_eval_sparse_hh, with the receptor densities and base gains that generation derived
+        on their position axis (the ceiling-sized _cached_W1, _cached_W2 and _cached_sparse_hh
+        where no generation set them). The two sets are the same arrays unless the generation
+        compacted its active positions or scaled its weights. After a compaction (a recurrent
+        single-task generation; _cached_active_indices is set) the evaluation arrays are compact,
+        and branch gating reads the grid coordinates of the active positions; under STP (short-term
+        plasticity) scaling (dynamic_functions 'stp_inspired') the evaluation W1 is the ceiling W1
+        times the STP depression.
+
+        Every hidden node runs one activation (activation_name) on the sum of its inputs and every
+        output a sigmoid, with no sparsity: after a generation with per-node activation functions,
+        an aggregation other than the sum (per node or global), an output activation other than
+        sigmoid or a sparsity mechanism (dynamic_functions, aggregation), it runs the same arrays
+        in a different network from the generation's.
+
+        The caches are those of the last generation that set them (run_generation_verbose, which
+        run_generation_multitask runs once per generation). A route that sets none, such as the
+        island model, whose islands are engines of their own, leaves the last standard generation's
+        arrays, which this then evaluates.
 
         Prerequisites:
         - Must have called run_generation_verbose() or run_generation_multitask()
@@ -1366,7 +1463,9 @@ class MultiTaskMixin:
             activation_name: Optional activation function name from ACTIVATION_FUNCTIONS.
                 If None, uses 'tanh'. Examples: 'sin', 'relu', 'burst', 'gauss'
             fitness_mode: Fitness computation mode ('mse', 'accuracy', 'bce', etc.)
-            modulation_mode: Neuromodulation mode ('full', 'gating_only', 'gain_bias_only')
+            modulation_mode: Neuromodulation mode ('full', 'gating_only', 'gain_bias_only'): 'full'
+                by default, whatever neuromodulation.modulation_mode says; pass the configured mode
+                to evaluate as the generation did.
             branch_gating_mode: 'none', 'spatial' or 'hierarchical' (multitask.branch_gating_mode):
                 the routing a branch-gated multi-task generation applied; not read from the
                 configuration.
@@ -1375,10 +1474,19 @@ class MultiTaskMixin:
             Fitness array of shape (pop_size,)
 
         Raises:
-            RuntimeError: If weight matrices not cached (run_generation_verbose first)
+            RuntimeError: If weight matrices not cached (run_generation_verbose first), or no
+                receptor densities: the last generation that set them ran without true
+                neuromodulation.
+            ValueError: an unknown activation name; cached receptor densities and weights of
+                different position counts (caches that no single generation left).
 
         A task name in place of the vector stands for that task's preset NT vector
         (get_nt_for_task), as in the prototype's version of this method.
+
+        Under activation_name 'softmax' after a compacted generation the evaluation is the whole
+        grid's softmax (:func:`full_grid_softmax`): each genome's evaluation adds the positions the
+        compact axis leaves out, each with the receptors, base gain and, under branch gating, the
+        region it has on the grid (`_missing_positions_softmax_terms`).
 
         Example:
             >>> algo.run_generation_verbose(state, xor_problem)  # Cache weights
@@ -1390,27 +1498,44 @@ class MultiTaskMixin:
             ...     activation_name='sin'
             ... )
         """
-        if isinstance(nt_vector, str):
-            nt_vector = get_nt_for_task(nt_vector, self.neuromod_config.num_nt_types)
         # Validate cached data exists
         if not hasattr(self, '_cached_W1') or self._cached_W1 is None:
             raise RuntimeError(
                 "Weight matrices not cached. Call run_generation_verbose() or "
                 "run_generation_multitask() first to build and cache W1, W2."
             )
-        if not hasattr(self, '_neuromod_true') or self._neuromod_true is None:
+        # _neuromod_true is a dict from construction on, its receptor densities None before a
+        # generation under true neuromodulation derives them, so the guard reads the densities
+        if (getattr(self, '_neuromod_true', None) is None
+                or self._neuromod_true.get('receptor_densities') is None):
             raise RuntimeError(
                 "TRUE neuromodulation data not available. Ensure neuromodulation "
-                "is enabled with mode='true_neuromodulation'."
+                "is enabled with mode='true_neuromodulation': the last generation that cached its "
+                "arrays derived no receptor densities."
             )
+        if isinstance(nt_vector, str):
+            nt_vector = get_nt_for_task(nt_vector, self.neuromod_config.num_nt_types)
 
-        W1 = self._cached_W1
-        W2 = self._cached_W2
+        # The arrays the last generation evaluated, on whose position axis it derived the receptors
+        # and base gains: the evaluation-time _cached_eval_* whenever a generation set them, else
+        # the ceiling-sized ones. The two sets differ after an active-set compaction (compact
+        # arrays; _cached_W1, _cached_W2 and _cached_sparse_hh stay ceiling-sized) and under STP
+        # scaling (W1 times the STP depression); otherwise they are the same arrays.
+        if getattr(self, '_cached_eval_W1', None) is not None:
+            W1 = self._cached_eval_W1
+            W2 = self._cached_eval_W2
+            sparse_hh = getattr(self, '_cached_eval_sparse_hh', None)
+        else:
+            W1 = self._cached_W1
+            W2 = self._cached_W2
+            sparse_hh = getattr(self, '_cached_sparse_hh', None)
+        # The ceiling positions on the compact axis (None: no compaction), read only for branch
+        # gating's coordinates
+        active_indices = getattr(self, '_cached_active_indices', None)
         rd = self._neuromod_true['receptor_densities']
         bg = self._neuromod_true['base_gains']
 
         # Check for H->H connections
-        sparse_hh = getattr(self, '_cached_sparse_hh', None)
         has_hh = (
             sparse_hh is not None and
             self._forward_mode == ForwardPassMode.HYBRID_SPARSE_HH
@@ -1429,13 +1554,34 @@ class MultiTaskMixin:
             branch_gating_mode, 0.0, num_nt=self.neuromod_config.num_nt_types
         )
         refuse_anti_branch_gating(self.neuromod_config.node_rule, branch_gating_mode)
+        # One generation's receptors and weights share their position axis; caches that no single
+        # generation left may not, and the evaluator would fail on them with a broadcasting error
+        if rd is not None and rd.shape[1] != W1.shape[-1]:
+            raise ValueError(f"the cached receptor densities cover {rd.shape[1]} positions and the "
+                             f"weights {W1.shape[-1]}: they are not one generation's arrays; run a "
+                             "generation first")
+        positions = None
+        if branch_gating_mode != 'none':
+            positions = get_hierarchical_grid(self.max_depth).all_positions
+            if active_indices is not None:
+                # The grid coordinates of the evaluated positions: the active ones, then zeros for
+                # the bucket's virtual positions, whose W1 columns and W2 rows are zero and which no
+                # h->h connection touches
+                padding = jnp.zeros((W1.shape[-1] - len(active_indices), positions.shape[1]),
+                                    positions.dtype)
+                positions = jnp.concatenate([positions[np.asarray(active_indices)], padding],
+                                            axis=0)
+        # The whole grid's softmax on a compacted axis (full_grid_softmax); every other call
+        # evaluates without it
+        complete = (act_fn is ACTIVATION_FUNCTIONS['softmax'] and active_indices is not None
+                    and has_hh and sparse_hh is not None and activate_time > 0)
         eval_population = self._create_eval_population_true_neuromodulated(
             has_hh=has_hh,
             activate_time=activate_time,
             hidden_act_fn=act_fn,
             branch_mode=branch_gating_mode,
-            positions=(None if branch_gating_mode == 'none'
-                       else get_hierarchical_grid(self.max_depth).all_positions),
+            positions=positions,
+            **({'softmax_completion': True} if complete else {}),
         )
 
         # Ensure arrays are JAX arrays
@@ -1444,7 +1590,16 @@ class MultiTaskMixin:
         targets = jnp.array(targets)
 
         # Evaluate
-        if has_hh and sparse_hh is not None:
+        if complete:
+            fitness = eval_population(
+                W1, W2, rd, bg, nt_vector, inputs, targets,
+                sparse_hh.from_indices, sparse_hh.to_indices, sparse_hh.weights,
+                sparse_hh.valid_mask,
+                fitness_mode, modulation_mode, None,
+                *self._softmax_virtual_positions(active_indices, int(W1.shape[0]), int(W1.shape[1]),
+                                                 int(W1.shape[-1]), nt_vector, modulation_mode,
+                                                 branch_gating_mode))
+        elif has_hh and sparse_hh is not None:
             fitness = eval_population(
                 W1, W2, rd, bg, nt_vector, inputs, targets,
                 sparse_hh.from_indices,
