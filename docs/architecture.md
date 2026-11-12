@@ -195,16 +195,17 @@ forward for settings that did not go through it (a caller-built `SubstrateNeurom
 its own settings, or a substrate whose `config` was set with `_replace` or that was built by hand):
 under `drive_once`, dynamic h->h aggregation and an `every_iteration` activation other than plain
 `tanh` (set `initial_only`); node rule `anti` outside modulation mode `full`, with more than four
-channels (the loop's single-task vector has four), or with the inversion on. Under `emr` nothing
-else is refused: per-node or global activations, h->h aggregation `sum` or `dynamic`, every preset
-and class combination, any iteration level (levels 1 to 4 tested), every cap policy and an explicit
-step count. Also refused on a recurrent substrate (the dense feed-forward forward checks neither;
-the compiled one refuses the strength too, and receptors without the channels the node rule reads,
-below): a modulation strength that is not a finite number in float32, the precision the forward
-reads it at (NaN would reach the outputs, and 1e40, finite in float64, is inf in float32), and a
-receptor derivation that `derive_receptor_from_weight` does not know. On this path the forward runs
-`validate` on the configuration first, with configured or caller-built neuromodulation alike, so a
-configuration that bypassed it is refused with validate's message: without that call,
+channels (the loop refuses them in single-task mode only, whose vector has four entries; on a
+recurrent substrate the API refuses them whatever the vector), or with the inversion on. Under `emr`
+nothing else is refused: per-node or global activations, h->h aggregation `sum` or `dynamic`, every
+preset and class combination, any iteration level (levels 1 to 4 tested), every cap policy and an
+explicit step count. Also refused on a recurrent substrate (the dense feed-forward forward checks
+neither; the compiled one refuses the strength too, and receptors without the channels the node rule
+reads, below): a modulation strength that is not a finite number in float32, the precision the
+forward reads it at (NaN would reach the outputs, and 1e40, finite in float64, is inf in float32),
+and a receptor derivation that `derive_receptor_from_weight` does not know. On this path the forward
+runs `validate` on the configuration first, with configured or caller-built neuromodulation alike,
+so a configuration that bypassed it is refused with validate's message: without that call,
 `activate_time` 0 would return the node of the input drive under `drive_once` (states of shape
 `(0, samples, count)`) where every other path raises, a `settling_rule` typo would run `emr` without
 the `drive_once` refusals, and `initial_only` under `emr` would settle through `tanh`. `validate`
@@ -297,7 +298,13 @@ the two would put NaN at different genomes. That holds for the strength and for 
 function in both forwards alike. So the compiled forward refuses a strength that is not a finite
 number in float32 and a vector entry that the node rule or the inversion reads that is not finite in
 float32, the inversion's for one rule over the entries read; the dense forward does not check them
-and evaluates them (every output NaN at a NaN strength). The positions are the mask's, not the
+and evaluates them as the loop does: every output NaN at a NaN strength under the node rules that
+read it (`steep_gate` under `gating_only` does not), and at a strength of +-inf or 1e40 finite or
+NaN outputs by node rule, mode and activation. `steep_gate`'s gain `base_gain + s m` is not
+clipped, so in modes `full` and `gain_bias_only` it meets the zero drive of the positions outside
+the mask and every output is NaN; `paper`'s bias `s m` reaches the activation unbounded, with
+finite outputs through `tanh` or `sigmoid` and NaN outputs through `relu` or `identity` (XOR at
+depth 3, 20 genomes). The positions are the mask's, not the
 nonzero weights'. A substrate as built is zero outside its mask, so there the two forwards compute
 the same function. A position whose mask entry a caller clears while its weights stay is dropped by
 the compiled forward and still summed by the dense one, which reads `W1` and `W2` as given. A genome

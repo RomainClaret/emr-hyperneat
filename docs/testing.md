@@ -37,14 +37,15 @@ JAX_PLATFORMS=gpu pytest emr_hyperneat/tests/test_multi_gpu_strategies.py -m mul
 
 ### On a GPU
 
-The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. Four files have not passed on a
-GPU: `test_substrate_recurrent_neuromodulation.py` and `test_substrate_compiled_forward.py` take GPU
-allowances sized from their failures on an NVIDIA T4 and an NVIDIA L4 (below), which no GPU run has
-checked, and `test_multitask_after_compaction.py` and `test_global_softmax_axis.py` have not run on
-a GPU. The contracts that assert one computation across layouts (the execution modes, compaction on
-and off, the scan-chunked evaluation against its loop form) are bitwise on XLA:CPU and hold to
-float32 rounding on a GPU, where kernels are chosen per shape; the tests switch on
-`jax.default_backend()` through `conftest.assert_trajectories_agree` (`rtol` 1e-4,
+The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. Four files have passed on one GPU
+only, an NVIDIA T4 (jax 0.6.1, `JAX_DEFAULT_MATMUL_PRECISION=highest`):
+`test_substrate_recurrent_neuromodulation.py` and `test_substrate_compiled_forward.py` take GPU
+allowances sized from their failures on a T4 and an NVIDIA L4 (below), and
+`test_multitask_after_compaction.py` and `test_global_softmax_axis.py` take allowances set for other
+comparisons, not measured on their cases. The contracts that assert one computation across layouts
+(the execution modes, compaction on and off, the scan-chunked evaluation against its loop form) are
+bitwise on XLA:CPU and hold to float32 rounding on a GPU, where kernels are chosen per shape; the
+tests switch on `jax.default_backend()` through `conftest.assert_trajectories_agree` (`rtol` 1e-4,
 `conftest.GPU_TRAJECTORY_RTOL`, set from an RTX 2080 Ti measurement whose largest difference was
 3.4e-6). The recurrent substrate API's forwards are compared on a GPU in the genomes that one ulp (a
 unit in the last place, the gap between adjacent float32 values) in the weights does not move past
@@ -54,17 +55,16 @@ differs from itself between calls, and so, by the same scatter-add, does the `dr
 `JAX_DEFAULT_MATMUL_PRECISION=highest`) the neuromodulated recurrent forward under `drive_once`
 repeated its outputs only within 1.74e-4 (the L4), so `test_substrate_recurrent_neuromodulation.py`
 compares that rule's repeats within `GPU_SCATTER_ATOL` (1e-3) on a GPU. A settling state differs
-further on a repeat: the T4 put a chaotic genome's states up to 5.9e-3 apart and a steady genome's
-up to 2.3e-3 under `steep_gate` with the inversion, so `test_a_genome_with_no_active_position`
-compares there the steady genomes' outputs and the states by their shape. Two chunk sizes of the
-compiled feed-forward forward, two programs, were up to 1.45e-4 apart on the T4 and 8.4e-5 on the
-L4, on outputs of up to 158 (their value on the CPU), so `test_substrate_compiled_forward.py`
-compares them within 128 ulps of the largest output on a GPU. The CPU comparisons of both files are
-those under [On the CPU](#on-the-cpu), below. `test_multitask_after_compaction.py` and
-`test_global_softmax_axis.py` take GPU allowances set for other comparisons, not measured on their
-cases; both pass on the T4. The tests pin `jax_default_matmul_precision` to `highest` (conftest):
-on a GPU from Ampere on, JAX's default is TF32 (TensorFloat-32: float32's range with a 10-bit
-mantissa), whose rounding is far above these allowances.
+further on a repeat, in a steady genome too: under `steep_gate` with the inversion the T4 put one
+steady genome's states up to 5.9e-3 apart in one run and 2.3e-3 in another, its outputs within 1e-3,
+so `test_a_genome_with_no_active_position` compares there the steady genomes' outputs and the states
+by their shape. Two chunk sizes of the compiled feed-forward forward, two programs, were up to
+1.45e-4 apart on the T4 and 8.4e-5 on the L4, on outputs of up to 158 (their value on the CPU), so
+`test_substrate_compiled_forward.py` compares them within 128 ulps of the largest output on a GPU.
+The CPU comparisons of both files are those under [On the CPU](#on-the-cpu), below. The tests pin
+`jax_default_matmul_precision` to `highest` (conftest): on a GPU from Ampere on, JAX's default is
+TF32 (TensorFloat-32: float32's range with a 10-bit mantissa), whose rounding is far above these
+allowances.
 
 On a GPU, under `pytest-xdist` set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, otherwise every
 worker preallocates 75% of the first card; and run `test_depth_offload_gpu.py` (marker `cuda`) on its

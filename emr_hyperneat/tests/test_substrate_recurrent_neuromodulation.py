@@ -119,9 +119,11 @@ ROUNDED_APART_ATOL = GPU_FORWARD_ATOL
 # validated one up to 6.5e-5 (T4). Under 'drive_once' on a GPU those comparisons allow
 # GPU_SCATTER_ATOL, 5.7 times the largest and ten times below the 1e-2 a wrong forward moves outputs
 # by (test_the_comparison_sees_a_wrong_forward). A settling carries that rounding further in a
-# state than in the outputs (a T4 put a repeat's states 5.9e-3 apart in a chaotic genome and 2.3e-3
-# in a steady one under steep_gate with the inversion), so a repeat on a GPU under 'drive_once'
-# compares the steady genomes' outputs and the states' shapes. The CPU comparisons are unchanged.
+# state than in the outputs (under steep_gate with the inversion an NVIDIA T4 put one steady
+# genome's states 5.9e-3 apart on a repeat in one run and 2.3e-3 in another, its outputs within
+# GPU_SCATTER_ATOL; one ulp of its weights moves its fitness by 6.0e-7 on an Apple M4 Max), so a
+# repeat on a GPU under 'drive_once' compares the steady genomes' outputs and the states' shapes.
+# The CPU branches of these comparisons do not read GPU_SCATTER_ATOL.
 GPU_SCATTER_ATOL = 1e-3
 #: A neurotransmitter vector whose fourth channel inverts the outputs (the loop's single-task
 #: default, 1.0, does not)
@@ -758,8 +760,8 @@ def test_a_genome_with_no_active_position(name, output):
     # 'drive_once' on a GPU, whose scatter-add accumulates in no fixed order, a chaotic genome's
     # outputs differ from themselves, so there the steady genomes' outputs, within GPU_SCATTER_ATOL
     # (_assert_repeat), as test_states_end_on_the_settled_layer compares; a settling state can
-    # differ in a steady genome too (an NVIDIA T4 under steep_gate with the inversion: 5.9e-3 in a
-    # chaotic genome, 2.3e-3 in a steady one), so there the states are compared by shape
+    # differ in a steady genome too (the T4's figures are at GPU_SCATTER_ATOL), so there the states
+    # are compared by shape
     drive_once = config.settling_rule == "drive_once"
     gpu_drive_once = drive_once and not exact_backend()
     compared = _steady(run) if gpu_drive_once else np.ones(POP, dtype=bool)

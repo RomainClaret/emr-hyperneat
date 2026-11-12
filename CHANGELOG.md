@@ -3,6 +3,27 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## Unreleased
+
+### Changed
+
+- Documentation: under `drive_once`, `steep_gate` and the output inversion, the settling states an
+  NVIDIA T4 put up to 5.9e-3 apart on a repeat in one run, and 2.3e-3 in another, were one steady
+  genome's, its outputs within 1e-3; 0.3.1's Known limitations, `docs/testing.md` and two comments
+  of `tests/test_substrate_recurrent_neuromodulation.py` called the first a chaotic genome's.
+- Documentation: `docs/testing.md` said that 0.3.1's four new test files had not passed on a GPU;
+  they pass on an NVIDIA T4, as 0.3.1's Known limitations says.
+- Documentation: the generation loop refuses node rule `anti` with more than four channels in
+  single-task mode only; with `multitask.enabled` it reads every channel of each task's vector, as
+  the feed-forward forward does with a vector a caller gives. 0.3.1's Added and Known limitations
+  entries and `docs/architecture.md` counted the channel count among the loop's refusals without
+  that qualifier.
+- Documentation: at a strength that is not finite, the dense feed-forward forward gives the loop's
+  outputs: every output NaN at a NaN strength under the node rules that read the strength
+  (`steep_gate` under `gating_only` does not), and at +-inf or 1e40 finite or NaN outputs by node
+  rule, mode and hidden activation. 0.3.1's Known limitations and `docs/architecture.md` said every
+  output NaN.
+
 ## 0.3.1
 
 ### Added

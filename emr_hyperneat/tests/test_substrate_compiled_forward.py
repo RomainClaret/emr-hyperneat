@@ -324,8 +324,9 @@ def test_one_program_bit_for_bit_across_chunks_slots_genomes_and_repeats():
 #: genome's largest |h @ W2|, and chunks of 3,000 rows or more bit for bit (a substrate built as a
 #: caller that draws pictures builds one gave 6 ulps: 1.2e-3 on pre-activations of 3,012); bit for
 #: bit with one output. Eight times that is 64. The test allows the larger of that and
-#: CPU_CROSS_PROGRAM_ULPS: on a Xeon E5-2683 v4 (AVX2) under XLA's default threading the threaded
-#: product's own rounding adds to the kernel's, a combination not measured.
+#: CPU_CROSS_PROGRAM_ULPS, since under XLA's default multi-threaded Eigen the threaded product may
+#: round apart on its own as well, by an amount not measured on this comparison (a Xeon E5-2683 v4
+#: (AVX2) passes it there).
 CHUNK_SIZE_ULPS_AT_2048 = 64
 
 
