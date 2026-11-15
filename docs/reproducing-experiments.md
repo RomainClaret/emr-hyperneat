@@ -71,12 +71,18 @@ otherwise. On 0.2.0, on a CPU:
   prototype module. A run in which a genome's fitness is NaN can differ, since 0.2.0 ranks that
   genome last (in 0.1.0 the NaN reached selection).
 
-0.3.0 gives these papers the results 0.2.0 gives: it renames the settings named after the
-prototype engine, adds opt-in features to the substrate API, and merges duplicated code, each
-merge equal in effect to the code it replaces. 0.3.1 gives them the results 0.3.0 gives: the values
-it changes (the four kinds of input the changelog names) come from calls and settings none of these
-papers' scripts uses (`evaluate_with_neurotransmitter`, the list form of `run_generation_multitask`,
-a global `softmax` hidden activation, STP (short-term plasticity) scaling, the substrate API).
+0.3.0 gives these papers the results 0.2.0 gives: it renames the settings named after the prototype
+engine, adds opt-in features to the substrate API, and merges duplicated code, each merge equal in
+effect to the code it replaces. 0.3.1 gives them the results 0.3.0 gives: the values it changes (the
+four kinds of input the changelog names) come from calls and settings none of these papers' scripts
+uses (`evaluate_with_neurotransmitter`, the list form of `run_generation_multitask`, a global
+`softmax` hidden activation, STP (short-term plasticity) scaling, the substrate API). 0.3.2 gives
+them the results 0.3.1 gives: the values it changes and the calls it refuses come from calls none of
+these papers' scripts makes (`evaluate_with_neurotransmitter` without a mode after a generation that
+selected on modes other than `full` and `mse`; the list form of `run_generation_multitask`, after
+which `_cached_fitnesses`, `_last_fitnesses` and the extended metrics hold the aggregated fitness;
+the substrate API, whose `SubstrateConfig` gains a field), and its guarded softplus is off unless a
+configuration sets it.
 
 The paper-validation tests check each paper's recorded values on every release.
 

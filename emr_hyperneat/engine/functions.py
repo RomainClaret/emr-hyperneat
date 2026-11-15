@@ -3,7 +3,7 @@ per-node assignment of functions (CPPN outputs, weight interpretation, random), 
 evolution, the segment operations of hidden-to-hidden aggregation, and the forward primitives
 (the input drive, the hidden activation, the dense forward)."""
 import numbers
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -392,6 +392,65 @@ ACTIVATION_LIST = [
 #: variant's list holds the same 18, although its comment says 13)
 NUM_ACTIVATIONS = len(ACTIVATION_LIST)
 
+#: softplus's index in ACTIVATION_LIST (7), the per-node function the guarded softplus replaces
+_SOFTPLUS_INDEX = ACTIVATION_LIST.index('softplus')
+
+
+def _guarded_softplus(x: jnp.ndarray) -> jnp.ndarray:
+    """softplus with its float32 overflow guarded: ``e = exp(x)``, then ``x`` where ``e`` is inf
+    and ``log1p(e)`` elsewhere (opt-in: dynamic_functions.guarded_softplus and
+    SubstrateConfig.guarded_softplus).
+
+    The registry's ``'softplus'``, ``log1p(exp(x))``, is inf in float32 from x = 88.72284
+    (0x42b17218, the first float32 past ln of float32's largest value) on, and NaN follows wherever
+    that inf meets a zero weight. This one is x there and, being the same exp and log1p, every value
+    the registry's gives finite, bit for bit: no finite value of 37.7M float32 inputs moved on the
+    CPU. The alternatives move values: jax.nn.softplus moved 1.69M of the 8.39M float32 values in
+    [1, 2), and a threshold where(x > 20, x, ...) relies on log1p(exp(x)) equalling x bit for bit
+    between 20 and 88.72, which nothing guarantees on a GPU. It is in neither ACTIVATION_FUNCTIONS
+    nor ACTIVATION_LIST, so no name, index, palette or draw changes; `activation_function` gives it
+    for ``'softplus'``. A value guard only: its gradient is the published form's, 0 at x = 88.0 and
+    NaN from 88.72284 on (jax.grad on the CPU), so gradient training past the overflow fails as it
+    does with the published form.
+    """
+    e = jnp.exp(x)
+    return jnp.where(jnp.isinf(e), x, jnp.log1p(e))
+
+
+def activation_function(name: str,
+                        guarded_softplus: bool = False) -> Callable[[jnp.ndarray], jnp.ndarray]:
+    """``ACTIVATION_FUNCTIONS[name]``, or `_guarded_softplus` for ``'softplus'`` under
+    ``guarded_softplus``.
+
+    Every lookup of a configured function by name goes through it (the global hidden activation,
+    the output activation, a multi-task activation, the substrate API's), and the per-node forwards
+    look up palette entries through it, so the setting reaches every softplus the evaluation
+    applies. Without it, and for every other name, it is the registry's own object.
+
+    Args:
+        name: An ACTIVATION_FUNCTIONS name.
+        guarded_softplus: Give the guarded softplus for ``'softplus'``.
+
+    Returns:
+        The function.
+
+    Raises:
+        KeyError: An unknown name, as the registry's lookup raises.
+    """
+    if guarded_softplus and name == 'softplus':
+        return _guarded_softplus
+    return ACTIVATION_FUNCTIONS[name]
+
+
+def _palette_applies_softplus(palette_entries: Optional[Sequence[int]],
+                              num_activations: int) -> bool:
+    """Whether per-node activations over these entries apply softplus, where the guarded softplus
+    can change a value: index 7 among the palette's ACTIVATION_LIST indices, or without a palette
+    among the leading ``num_activations`` (eight or more)."""
+    if palette_entries is not None:
+        return _SOFTPLUS_INDEX in tuple(int(i) for i in palette_entries)
+    return int(num_activations) > _SOFTPLUS_INDEX
+
 
 #: Where cppn_output reads a node's function channel ('self': at the node's self-connection, EMR's
 #: read; 'input_mean': averaged over the input-to-node queries, the prototype's dynamic-functions
@@ -445,6 +504,7 @@ def grouped_activation_forward(
     pre_activation: jnp.ndarray,
     act_indices: jnp.ndarray,
     num_activations: int = 4,
+    guarded_softplus: bool = False,
 ) -> jnp.ndarray:
     """Apply different activation functions to different nodes via grouping.
 
@@ -455,11 +515,13 @@ def grouped_activation_forward(
         pre_activation: Pre-activation values, shape (batch, num_nodes)
         act_indices: Per-node activation indices, shape (num_nodes,)
         num_activations: Number of activation functions available
+        guarded_softplus: Index 7 applies the guarded softplus (`activation_function`)
 
     Returns:
         Activated values with same shape as pre_activation
     """
-    activation_funcs = [ACTIVATION_FUNCTIONS[name] for name in ACTIVATION_LIST[:num_activations]]
+    activation_funcs = [activation_function(name, guarded_softplus)
+                        for name in ACTIVATION_LIST[:num_activations]]
 
     result = jnp.zeros_like(pre_activation)
     for idx, func in enumerate(activation_funcs):
@@ -513,6 +575,7 @@ def grouped_activation_forward_with_palette(
     pre_activation: jnp.ndarray,
     act_indices: jnp.ndarray,
     palette: jnp.ndarray,
+    guarded_softplus: bool = False,
 ) -> jnp.ndarray:
     """Apply activation functions from custom palette to nodes.
 
@@ -524,6 +587,7 @@ def grouped_activation_forward_with_palette(
         act_indices: Per-node activation indices from ACTIVATION_LIST, shape (num_nodes,)
         palette: Activation indices that may be present, for efficient iteration. Concrete
             (a sequence or a concrete array): it selects Python functions while tracing.
+        guarded_softplus: Index 7 applies the guarded softplus (`activation_function`)
 
     Returns:
         Activated values with same shape as pre_activation
@@ -533,7 +597,7 @@ def grouped_activation_forward_with_palette(
     # the unstack, and a traced index cannot select a function, so every recurrent palette
     # configuration would fail under hh_activation_mode 'every_iteration'.
     for act_idx in np.asarray(palette).tolist():
-        func = ACTIVATION_FUNCTIONS[ACTIVATION_LIST[act_idx]]
+        func = activation_function(ACTIVATION_LIST[act_idx], guarded_softplus)
         mask = (act_indices == act_idx)
         activated = func(pre_activation)
         result = jnp.where(mask[None, :] if pre_activation.ndim == 2 else mask, activated, result)
@@ -839,6 +903,7 @@ def hidden_activation(
     hidden_act_fn: Callable = jnp.tanh,
     palette: Optional[jnp.ndarray] = None,
     num_activations: int = 4,
+    guarded_softplus: bool = False,
 ) -> jnp.ndarray:
     """Hidden nodes' activation: per node when ``act_indices`` is given, else ``hidden_act_fn``.
 
@@ -849,6 +914,8 @@ def hidden_activation(
         palette: Optional ACTIVATION_LIST indices; ``act_indices`` then holds those
             indices rather than positions 0..N-1.
         num_activations: Size of the leading ACTIVATION_LIST slice without a palette.
+        guarded_softplus: Per node, index 7 applies the guarded softplus (``hidden_act_fn`` is
+            the caller's, `activation_function` resolves it).
 
     Returns:
         (n_samples, num_positions)
@@ -856,8 +923,8 @@ def hidden_activation(
     if act_indices is None:
         return hidden_act_fn(pre)
     if palette is not None:
-        return grouped_activation_forward_with_palette(pre, act_indices, palette)
-    return grouped_activation_forward(pre, act_indices, num_activations)
+        return grouped_activation_forward_with_palette(pre, act_indices, palette, guarded_softplus)
+    return grouped_activation_forward(pre, act_indices, num_activations, guarded_softplus)
 
 
 def dense_substrate_forward(
@@ -874,6 +941,7 @@ def dense_substrate_forward(
     per_node_aggregation: bool = False,
     true_aggregation: bool = True,
     num_aggregations: int = 4,
+    guarded_softplus: bool = False,
 ) -> jnp.ndarray:
     """One feed-forward substrate's outputs: input -> hidden -> output.
 
@@ -896,13 +964,16 @@ def dense_substrate_forward(
         per_node_aggregation: Use ``agg_indices``.
         true_aggregation: Exact per-node aggregation rather than the approximation.
         num_aggregations: Size of the leading AGGREGATION_LIST slice.
+        guarded_softplus: Per node, index 7 applies the guarded softplus (the two functions are
+            the caller's, `activation_function` resolves them).
 
     Returns:
         (n_samples, num_outputs)
     """
     pre_h = input_drive(inputs, W1, agg_indices, global_agg_fn, per_node_aggregation,
                         true_aggregation, num_aggregations)
-    h = hidden_activation(pre_h, act_indices, hidden_act_fn, palette, num_activations)
+    h = hidden_activation(pre_h, act_indices, hidden_act_fn, palette, num_activations,
+                          guarded_softplus)
     return output_act_fn(h @ W2)
 
 

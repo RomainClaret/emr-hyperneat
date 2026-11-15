@@ -3,6 +3,257 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## 0.3.2
+
+### Added
+
+- **An opt-in guarded softplus.** `dynamic_functions.guarded_softplus` (a bool, False by default;
+  any other value raises, `None` included) and `SubstrateConfig.guarded_softplus` (a bool, appended
+  last, False by default; `validate` and every substrate forward refuse any other value), declared
+  in `SUBSTRATE_CAPABILITIES` as `guarded_softplus`; `substrate_config` carries the key. With it on,
+  every softplus the evaluation applies (palette index 7, a `softplus` hidden or output activation,
+  a multi-task activation, `evaluate_with_neurotransmitter`'s `activation_name`) and every one the
+  substrate API's dense, compiled and recurrent forwards apply, with and without true
+  neuromodulation, is `e = exp(x); where(isinf(e), x, log1p(e))`: `x` where the published
+  `log1p(exp(x))` is inf in float32 (from 88.72284 on), the published value elsewhere, bit for bit
+  (measured on an Apple M4 Max, jax 0.6.1, CPU, as is the gradient below). The infinities it
+  removes, and the NaN they made where they met a zero weight or the output inversion, become
+  finite. It is a value guard: its gradient is the published form's, NaN from 88.72284 on. It is in
+  neither `ACTIVATION_LIST` nor `ACTIVATION_FUNCTIONS`
+  (`emr_hyperneat.emrhyperneat.activation_function(name, guarded_softplus)` gives it), so no name,
+  index, palette or draw changes, and `vocabulary.ACTIVATION_FUNCTIONS['softplus']` stays the
+  published form. With it on, an evaluation that applies a softplus compiles another XLA program
+  than the published setting's (the generation's forwards, the multi-task evaluators, the per-node
+  node rules and the substrate API's compiled and recurrent forwards), and the substrate API's
+  recurrent forward compiles its own program whenever the setting is on, the same operations where
+  no softplus is applied; another program can round unrelated operations apart: on an Apple M4 Max
+  (jax 0.6.1, CPU, single-threaded Eigen) the recurrent forward's outputs under `drive_once` with
+  per-node activations and without neuromodulation were up to 28 ulps apart, every other compared
+  program bit for bit. With it off the setting changes no computed value: `softplus` is the
+  published form and overflows as 0.3.1's Known limitations describe. `SubstrateConfig` has a 42nd
+  field for it: a configuration's `_asdict()` gains `'guarded_softplus': False` as its last item,
+  and its `len`, `repr`, equality and hash against a 0.3.1 tuple of the same 41 values change;
+  `SubstrateConfig(*values)` and keyword construction of 0.3.1's values still build, and
+  `SubstrateConfig._make` of 41 values raises `TypeError`. `EMRHyperNEAT.DYNAMIC_FUNCTIONS_KEYS`
+  holds the new key, so the message for an unknown `dynamic_functions` key lists one more setting
+  (`tests/test_guarded_softplus.py`).
+
+### Changed
+
+- The substrate API's feed-forward forwards, the dense one and `compiled=True`, refuse node rule
+  `anti` with the output inversion on (any true value), with the configured settings or a
+  caller-built `SubstrateNeuromodulation`, at any channel count, with the recurrent path's message
+  (`... set output_inversion False`). The generation loop never inverts under `anti`, but
+  `NeuromodulationSettings(node_rule='anti')` defaults the inversion to on, and 0.3.1 ran it: with
+  the default vector, whose fourth entry is 1.0, its outputs were those with the inversion off, and
+  with the loop's five- and six-channel task vectors (one-hot, the fourth entry 0 for every task but
+  `nand`) the dense forward returned exactly one minus its outputs with the inversion off for four
+  of the five tasks, and so did the compiled forward. A hand-built
+  `NeuromodulationSettings(node_rule='anti')` now needs `output_inversion=False`. The refusal is a
+  check of the settings, made before those of the arrays and the vector, so such a call that 0.3.1
+  refused or failed for another reason raises this `ValueError` now: receptors or base gains that do
+  not cover the substrate, inputs that do not convert, an unknown configured function (a `KeyError`
+  in 0.3.1), a vector too short, under `compiled=True` receptors without the channels the node rule
+  reads, a strength or vector entry not finite in float32 or inputs of another shape, and in the
+  dense forward a call that failed inside the computation (inputs of another width, or receptors
+  without the channels the rule reads, with JAX's `TypeError`). The mode stays unread under `anti`,
+  more than four channels still run with a vector of that length (the loop's multi-task mode reads
+  them), and `SubstrateConfig.validate` still accepts the combination on a feed-forward
+  configuration, since building and querying read no neuromodulation setting and `substrate_config`
+  never returns it. No call that runs gives other values
+  (`tests/test_substrate_neuromodulation_refusals.py`).
+- The recurrent forward under true neuromodulation refuses an entry of the neurotransmitter vector
+  that the node rule reads (the first three, every one under `anti`) and that is not finite in
+  float32, the precision it reads the vector at (1e40, finite in float64, is inf there), given
+  through `substrate_neuromodulation(substrate, neurotransmitter=...)` or in a caller-built
+  `SubstrateNeuromodulation`, with or without `return_states`, under either settling rule, with a
+  `ValueError` that names the entries read. Each genome is evaluated on its own positions,
+  zero-padded to a bucket size, and a padding position is inert only at finite entries: in 0.3.1 an
+  infinite entry made m = receptors @ nt NaN at every padded position (0 * inf), so a genome's
+  outputs depended on its bucket size (on XOR at depth 3, 20 genomes, seed 42, entry 0 at +inf or
+  1e40; an Apple M4 Max, jax 0.6.1, CPU, single-threaded Eigen: 2 of the 4 genomes that fill their
+  bucket stayed finite, and all 20 were NaN with every bucket doubled), and a NaN entry made every
+  output of every genome NaN. The check comes after every check the forward made before the
+  computation, so a call one of those refuses keeps its message; a call with such an entry that
+  0.3.1 refused inside the computation (inputs of another width, with JAX's `TypeError`) raises this
+  `ValueError` now. The inversion's entry (the fourth, outside `anti`), entries the node rule does
+  not read and finite entries of any magnitude stay open, the dense feed-forward forward is
+  unchanged, and the compiled forward's refusal keeps its message, its entry check now shared with
+  the recurrent forward. A finite entry can still overflow `s m`, or m itself, at a genome's own
+  positions, which no entry check sees. No call that runs gives other values
+  (`tests/test_substrate_neuromodulation_refusals.py`).
+- `evaluate_with_neurotransmitter`'s `fitness_mode` and `modulation_mode` default to None, the modes
+  the last generation's selection scored with: `emr_hyperneat.fitness_mode` and
+  `neuromodulation.modulation_mode` after a single-task generation, and `multitask.fitness_mode` and
+  `multitask.modulation_mode` (`mse` and `full` without a multitask block) after
+  `run_generation_multitask` (its list form, its call form, and `run_generation` with an enabled
+  multitask block), whatever the single-task settings say. In 0.3.1 they were `mse` and `full`
+  whatever the generation ran, so after a generation that selected on other modes every genome
+  scored otherwise than selection had: on XOR (depth 2, population 20, seed 42, one generation; an
+  Apple M4 Max, jax 0.6.1, CPU, single-threaded Eigen) by up to 0.134 under `gating_only` or
+  `gain_bias_only`, 0.398 under `bce` or `accuracy`, 0.498 after a list form on XOR and AND
+  selecting on `gating_only` and `bce`, and 0.535 after the call form on the same two tasks
+  selecting on `gain_bias_only` and `bce`; after those single-task generations the call gives each
+  generation's own fitness of every genome there, bit for bit (NaN where the generation recorded
+  `-inf`). A call that names one mode takes the other from the generation; a call that names both
+  scores as in 0.3.1, and so do `evaluate_with_custom_nt` and
+  `evaluate_multi_task_true_neuromodulated`, which name `mse` and `full`, as documented. After a
+  list form that raises once its inner generation has run, a call without modes scores with that
+  list form's modes (0.3.1 scored `mse` and `full`). Under node rule `anti`, which takes
+  `modulation_mode: full` only, only a fitness mode other than `mse` changes such a call. After a
+  single-task generation under `emr_hyperneat.fitness_mode: ce`, which the multi-task evaluators do
+  not compute, a call without `fitness_mode` raises a `ValueError` that asks for one (0.3.1 returned
+  1 - MSE) (`tests/test_evaluator_mode_and_list_form.py`).
+- Documentation: under `drive_once`, `steep_gate` and the output inversion, the settling states an
+  NVIDIA T4 put up to 5.9e-3 apart on a repeat in one run, and 2.3e-3 in another, were one steady
+  genome's, its outputs within 1e-3; 0.3.1's Known limitations, `docs/testing.md` and two comments
+  of `tests/test_substrate_recurrent_neuromodulation.py` called the first a chaotic genome's.
+- Documentation: `docs/testing.md` said that 0.3.1's four new test files had not passed on a GPU;
+  they pass on an NVIDIA T4, as 0.3.1's Known limitations says.
+- Documentation: the generation loop refuses node rule `anti` with more than four channels in
+  single-task mode only; with `multitask.enabled` it reads every channel of each task's vector, as
+  the feed-forward forward does with a vector a caller gives. 0.3.1's Added and Known limitations
+  entries and `docs/architecture.md` counted the channel count among the loop's refusals without
+  that qualifier.
+- Documentation: at a strength that is not finite, the dense feed-forward forward gives the loop's
+  outputs: every output NaN at a NaN strength under the node rules that read the strength
+  (`steep_gate` under `gating_only` does not), and at +-inf or 1e40 finite or NaN outputs by node
+  rule, mode and hidden activation. 0.3.1's Known limitations and `docs/architecture.md` said every
+  output NaN.
+- Documentation: a NaN entry of the vector that the node rule reads makes m NaN at every position,
+  so both feed-forward forwards give NaN at every output of every genome; 0.3.1's
+  `docs/architecture.md` and a docstring of the compiled forward's refusal counted it with an
+  infinite entry, for which the two forwards put NaN at different genomes.
+- Documentation: `docs/testing.md` said that GitHub's hosted runners have two vCPUs, and its `act`
+  example that two cores and 7 GB are a GitHub runner's; the nightly's runners logged four CPUs and
+  16 GB of memory, on which `-n auto` starts two workers. `docs/architecture.md` named the test that
+  pins the overflow threshold's operands as the one that searches a raster row for it; the search is
+  `test_an_output_at_the_overflow_threshold_can_overflow_in_one_forward_only`'s.
+
+### Fixed
+
+- **The list form's inner generation.** The list form of `run_generation_multitask` (its call form,
+  and `run_generation` with an enabled multitask block) built each generation's substrate with an
+  inner generation that also evaluated the first task, under the single-task fitness and modulation
+  modes and the first configured task's vector (the single-task vector without an enabled multitask
+  block), and told NEAT a state the list form then dropped. Selection never read it, but
+  `_cached_fitnesses`, `_last_fitnesses` and the fitness fields of `get_extended_metrics()` (the
+  object `get_recurrence_metrics()` returns) kept that first task's fitness: on XOR, AND and OR
+  (depth 2, population 30, seed 42, three generations; an Apple M4 Max, jax 0.6.1, CPU,
+  single-threaded Eigen) every genome's, off the aggregated fitness by up to 0.32, and a best of
+  0.760 where selection's was 0.809. The inner generation now builds the substrate, the caches and
+  the receptors and evaluates nothing; those records hold the aggregated fitness NEAT is told, and
+  selection is unchanged, bit for bit on the CPU (the told state, the per-task and aggregated
+  fitness and the metrics, against a recomposition on a second engine:
+  `tests/test_evaluator_mode_and_list_form.py`). The extended metrics' step timings are the inner
+  generation's: `time_evaluation_ms` and `forward_pass_ms` hold its receptor derivation and
+  `time_neat_evolution_ms` is 0 (the tasks' times are the metrics' `per_task_times_ms`). A call that
+  raises once the inner generation has run keeps that generation's arrays, receptors and counter, as
+  before, and records no fitness: `_cached_fitnesses` and `_last_fitnesses` are None and the
+  extended fitness fields NaN (0.3.1 kept the first task's), and the default modes of
+  `evaluate_with_neurotransmitter` are that call's.
+
+### Tests and CI
+
+- `tests/test_multitask_after_compaction.py` names the cases of
+  `test_branch_gating_routes_the_evaluated_positions` in `BRANCH_GATING_CASES`, and
+  `test_the_branch_gating_cases_cover_both_pairings` checks, from their generations, that they keep
+  a bucket at the ceiling and one below it. Only the case at the ceiling catches a routing that
+  tells a compacted generation by its weights' length instead of its active indices, and no test
+  checked that the cases kept one.
+- `tests/test_substrate_compiled_forward.py`:
+  `test_an_output_at_the_overflow_threshold_can_overflow_in_one_forward_only` tries the feed-forward
+  configurations in order, `combined_approx` first, until a genome's dense sum rises past 88.72284
+  (ln(FLT_MAX), where `softplus` overflows) along a raster line, instead of assuming that
+  `combined_approx` has one. With `jax_threefry_partitionable` set to False no `combined_approx`
+  genome reaches that value on the test's raster (an Apple M4 Max, jax 0.6.1), and the test failed
+  at this precondition; there it now searches `geometry_seeding`. Under the default of every JAX
+  version the package supports it searches `combined_approx`, as before.
+- New test file `tests/test_substrate_neuromodulation_refusals.py`: node rule `anti` with the output
+  inversion on (`True`, `1` or numpy's `True`) refused by both feed-forward forwards, configured,
+  caller-built on a configuration with and without neuromodulation settings, and hand-built at the
+  default inversion at 2 to 6 channels, the settings checked before the arrays and the vector; a
+  vector entry the node rule reads that is not finite in float32 (+-inf, NaN, 1e40) refused on a
+  recurrent substrate under both settling rules and under `anti`, with and without `return_states`,
+  and by the check itself on a float64 vector, as the forward receives it under `JAX_ENABLE_X64`.
+  Controls: `anti` without the inversion (the mode unread, five and six channels read), `validate`
+  on a feed-forward configuration, the inversion's entry and the entries nothing reads, entries of
+  float32's largest magnitude with every bucket doubled, the earlier checks' messages, and the
+  feed-forward forwards' own vector checks.
+- New test file `tests/test_evaluator_mode_and_list_form.py`: `evaluate_with_neurotransmitter`
+  without modes against the evaluator under the modes the generation's selection used, after a
+  single-task generation (and, under single-threaded Eigen, against that generation's own fitness),
+  after the list form and after the call form; the `ce` refusal; the two prototype wrappers keep
+  `mse` and `full`; the list form's inner generation builds no forward, evaluates and tells nothing,
+  and records no fitness or champion; its selection against a recomposition on a second engine from
+  the same seed, bit for bit on the CPU; the records hold the fitness the tell receives (also under
+  `min` with a generalist bonus); a list form that raises once its inner generation has run records
+  no fitness and keeps its own modes; the list form restores both of its flags however it ends; a
+  generation under `_multitask_inner_generation` alone is still scored.
+- New test file `tests/test_guarded_softplus.py`: the guarded softplus against the published one
+  (every float32 of [1, 2), [64, 128) and (-128, -64], 2^20 uniform values and the special values),
+  the activation list and registry unchanged, the per-node forwards, the configuration key and
+  `SubstrateConfig.guarded_softplus` (a bool, last, refused otherwise on every path), what moves
+  with the key off, the generation (feed-forward, recurrent under both settling rules, per node,
+  neuromodulated with global and per-node activations, multi-task) and the substrate API's forwards
+  with and without it, and the compiled-program caches (never shared between the two settings, none
+  added where no softplus is applied); on a GPU under `drive_once` the recurrent forward's states
+  and outputs with and without the key compare by shape and finiteness.
+  `tests/test_substrate_api.py` pins the seventh capability.
+- `tests/test_generation_metrics.py` and `tests/test_recurrent_rule.py`: a comment and a docstring
+  described the list form's inner evaluation (the told fitness not cached; 1 + T settling
+  executables a generation); they describe the generation as it runs (T executables).
+- The nightly runs six memory-heavy test files, the four 0.3.1 added and two of this release's, in
+  three shards of one process each (5: `test_substrate_recurrent_neuromodulation.py` and
+  `test_multitask_after_compaction.py`; 6: `test_global_softmax_axis.py` and
+  `test_substrate_compiled_forward.py`; 7: `test_guarded_softplus.py` and
+  `test_evaluator_mode_and_list_form.py`): split across xdist workers, every worker would build the
+  same module fixtures (alone in one process the six files peak at about 4.7, 2.8, 4.6, 1.7, 2.9 and
+  2.1 GiB of memory footprint on an Apple M4 Max). Shards 1 to 4 hand whole files to their two
+  workers (`--dist loadfile`), and a step logs each runner's image, CPUs, memory and swap.
+- The push gate also runs the 90 tests of `test_substrate_recurrent_neuromodulation.py`,
+  `test_substrate_compiled_forward.py` and `test_multitask_after_compaction.py` that compare no
+  floats (refusals and their messages, compile keys and counts, shapes, and two helpers' own
+  checks). Their other tests, and every test of `test_global_softmax_axis.py`, compare computed
+  floats, bit for bit or within allowances measured on an Apple M4 Max and one x86 CPU model (a Xeon
+  E5-2683 v4), or rest on which positions a population keeps, and stay in the nightly, which runs
+  them under single-threaded Eigen; the push gate runs XLA's default multi-threaded Eigen.
+
+### Known limitations
+
+0.3.1's hold, as the documentation entries under Changed correct them, except its first, second and
+seventh, and its last extends to this release's tests:
+
+- Its first, node rule `anti` on a feed-forward substrate, no longer holds for the output inversion
+  in the forwards, which refuse it (Changed, above); it holds for the channels, the mode and
+  `validate`.
+- Its second, `softplus` overflowing past 88.72, holds with `guarded_softplus` off, the default
+  (Added, above).
+- Its seventh now reads: `evaluate_with_neurotransmitter` evaluates the generation's arrays in a
+  network of its own arguments: `activation_name` (`tanh` when None) at every node and settling step
+  on the sum of the node's inputs, a `sigmoid` output, no sparsity and no branch gating unless
+  passed, and the modes the last generation's selection used unless passed, scored by the multi-task
+  evaluators' `compute_fitness` (with several outputs the accuracy modes threshold each output at
+  0.5 and `soft_accuracy` scores each on its own; `mse` is not floored at 0). After a generation
+  with per-node activation functions, an aggregation other than the sum (per node or global), an
+  output activation other than `sigmoid`, a sparsity mechanism, a hidden activation other than the
+  one passed (after a multi-task generation, the task's `multitask.per_task_activation` or
+  `multitask.hidden_activation`), `multitask.modulation_strength_override`,
+  `multitask.two_module_mode` or branch gating, or under `drive_once` (whose update steps a
+  single-task generation runs with `tanh`) with an `activation_name` other than `tanh`, that network
+  is not the one the generation evaluated; after `emr_hyperneat.fitness_rescale_variance` the call
+  returns the fitness before the rescaling the generation told.
+- Its last, the GPU branches of the four new test files having passed on an NVIDIA T4 alone: the
+  tests this release adds or changes passed on a T4 too (jax 0.6.1,
+  `JAX_DEFAULT_MATMUL_PRECISION=highest`), the three new files,
+  `test_the_branch_gating_cases_cover_both_pairings` and the configuration search of
+  `test_an_output_at_the_overflow_threshold_can_overflow_in_one_forward_only`, with allowances set
+  for other comparisons. Under `drive_once` the T4's scatter-add, which accumulates in no fixed
+  order, put the two settings' settled states of `test_guarded_softplus.py`'s palette case up to
+  8.8e-4 apart, so on a GPU that file compares the recurrent forward's states and outputs there by
+  shape and finiteness. `test_capabilities_and_public_steps`, which compares names, has not run on a
+  GPU.
+
 ## 0.3.1
 
 ### Added

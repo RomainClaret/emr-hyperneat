@@ -62,8 +62,8 @@ ULP_SENSITIVE = 1e-4
 # Two forwards of one substrate agree bit for bit on the CPU within one compilation, and so do two
 # compilations of the forward (with and without return_states) under single-threaded Eigen
 # (XLA_FLAGS=--xla_cpu_multi_thread_eigen=false; an Apple M4 Max, a Xeon E5-2683 v4). Under XLA's
-# default multi-threaded Eigen an AVX2 CPU rounds the two compilations apart (the Xeon: 1 to 11 of
-# 80 outputs, at most 1.2e-6), so there (conftest's cpu_multi_threaded_eigen) every genome is
+# default multi-threaded Eigen the Xeon E5-2683 v4 (AVX2) rounds the two compilations apart (1 to
+# 11 of 80 outputs, at most 1.2e-6), so there (conftest's cpu_multi_threaded_eigen) every genome is
 # compared within conftest's CPU_CROSS_PROGRAM_ULPS, which every genome of these configurations
 # held on the Xeon under XLA's defaults. On a GPU, two compilations of the forward may round
 # differently, and with dynamic h->h aggregation one compilation differs from itself: the settling
@@ -212,8 +212,8 @@ def _assert_same_forward(actual, desired, steady):
 def _assert_same_forward_across_programs(actual: Any, desired: Any, steady: np.ndarray) -> None:
     """`_assert_same_forward` for two compiled programs (the forward with and without
     return_states): bit for bit on the CPU under single-threaded Eigen; under multi-threaded Eigen
-    (cpu_multi_threaded_eigen), where an AVX2 CPU rounds the two apart (a Xeon E5-2683 v4 put five
-    cases apart), every genome within CPU_CROSS_PROGRAM_ULPS ulps of the outputs' scale; on a GPU
+    (cpu_multi_threaded_eigen), where a Xeon E5-2683 v4 (AVX2) rounds the two apart (five cases),
+    every genome within CPU_CROSS_PROGRAM_ULPS ulps of the outputs' scale; on a GPU
     as `_assert_same_forward`."""
     if exact_backend() and cpu_multi_threaded_eigen():
         assert_close_across_programs(np.asarray(actual), np.asarray(desired))

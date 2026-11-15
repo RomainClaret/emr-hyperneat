@@ -3,7 +3,6 @@ the checks across features, and the recurrence and forward-mode accessors."""
 import dataclasses
 from typing import Any, Dict, List, Optional, Tuple
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -37,6 +36,7 @@ from emr_hyperneat.engine.functions import (
     PALETTE_EVOLUTION_KEYS,
     RANDOM_SCOPES,
     _parse_prototype_reads,
+    activation_function,
     parse_function_palette,
     parse_live_strategy,
     parse_palette_evolution,
@@ -705,6 +705,16 @@ class ConfigurationMixin:
                     f"{key} {name!r} (dynamic_functions.{key}, or substrate.{key} when that is "
                     f"absent) is not an activation function; the names are "
                     f"{sorted(ACTIVATION_FUNCTIONS)}")
+        # Opt-in: every softplus the evaluation applies (palette index 7, the hidden and the output
+        # activation, a multi-task activation) is activation_function('softplus', True), x where
+        # the published one is inf (from 88.72 on) and its value elsewhere (bit for bit on the
+        # CPU). Off by default, so every recorded value stays. A bool only: a string such as
+        # 'false' would read as on.
+        guarded_softplus = dynamic_funcs.get('guarded_softplus', False)
+        if not isinstance(guarded_softplus, (bool, np.bool_)):
+            raise ValueError(f"dynamic_functions.guarded_softplus must be true or false, got "
+                             f"{guarded_softplus!r}")
+        self.df_guarded_softplus = bool(guarded_softplus)
 
         # For 'cppn_output' mode: number of activation functions available
         self.df_num_activations = dynamic_funcs.get('num_activations', 4)
@@ -1085,14 +1095,19 @@ class ConfigurationMixin:
         # with activation method 'none', which gives every node tanh (the prototype's index 0)
         modular_tanh = (self.dynamic_functions_mode == 'modular'
                         and self.df_modular_config['activation_method'] == 'none')
+        # The names were checked above, so the registry's fallbacks (tanh, sigmoid) are never
+        # taken; with guarded_softplus a 'softplus' resolves to the guarded one
+        # (activation_function)
         if self.dynamic_functions_mode in ('disabled', 'global') or modular_tanh:
             act_name = self.df_hidden_activation if self.dynamic_functions_mode == 'global' else 'tanh'
-            self._hidden_act_fn = ACTIVATION_FUNCTIONS.get(act_name, jnp.tanh)
-            self._output_act_fn = ACTIVATION_FUNCTIONS.get(self.df_output_activation, jax.nn.sigmoid)
+            self._hidden_act_fn = activation_function(act_name, self.df_guarded_softplus)
+            self._output_act_fn = activation_function(self.df_output_activation,
+                                                      self.df_guarded_softplus)
         else:
             # For cppn_output, weight_interpretation, etc., we use grouped_activation_forward
             self._hidden_act_fn = None
-            self._output_act_fn = ACTIVATION_FUNCTIONS.get(self.df_output_activation, jax.nn.sigmoid)
+            self._output_act_fn = activation_function(self.df_output_activation,
+                                                      self.df_guarded_softplus)
 
         # Log configuration
         if self.verbose:
@@ -1412,6 +1427,8 @@ class ConfigurationMixin:
                 'num_nt_types': self.neuromod_config.num_nt_types,
                 'modulation_strength': self.neuromod_config.modulation_strength,
                 'option': 'A' if self.neuromod_config.receptor_from_weight else 'B',
+                'selection_modulation_mode': None,  # Set with the receptors, and by the list form
+                'selection_fitness_mode': None,
             }
 
         # Multi-task configuration

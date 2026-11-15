@@ -175,6 +175,7 @@ class ChampionMixin:
                 node_rule=nm.node_rule,
                 output_inversion=bool(nm.use_output_inversion),
             ) if modulated else None),
+            guarded_softplus=bool(self.df_guarded_softplus),
         ).validate()
 
     def _substrate_recurrence_fields(self, recurrent: bool) -> Dict[str, Any]:

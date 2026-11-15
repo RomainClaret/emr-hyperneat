@@ -393,7 +393,7 @@ def test_capabilities_and_public_steps():
     from emr_hyperneat import emrhyperneat_base as base
     assert api.SUBSTRATE_CAPABILITIES == frozenset(
         {"sparse_cap_policy", "neuromodulation", "aggregation_palette", "substrate_steps",
-         "recurrent_neuromodulation", "compiled_forward"})
+         "recurrent_neuromodulation", "compiled_forward", "guarded_softplus"})
     assert api.get_hierarchical_grid is base.get_hierarchical_grid
     assert api.cppn_query_rows is base.cppn_query_rows
     assert api.compute_hierarchical_variances_batch is base.compute_hierarchical_variances_batch

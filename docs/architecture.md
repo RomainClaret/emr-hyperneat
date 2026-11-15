@@ -162,11 +162,21 @@ then applies the loop's node rule and output inversion, bit for bit on a feed-fo
 each hidden position's receptor densities and base gain, derived from its first input weight as the
 loop derives them, and the neurotransmitter vector (by default the loop's single-task vector,
 `default_neurotransmitter`). A caller may build its own, for example from another summary of a
-node's weights through `derive_receptor_from_weight`, and pass it as `substrate_forward(substrate,
-inputs, neuromodulation=...)`: the loop's rule applies to whatever it is given. Under
-neuromodulation the configured output activation applies, as in the loop. An aggregation palette
-(`aggregation.palette`, any subset of `AGGREGATION_LIST` in any order) is decoded as the loop decodes
-it (`SubstrateConfig.aggregation_palette`).
+node's weights through `derive_receptor_from_weight`, and pass it as
+`substrate_forward(substrate, inputs, neuromodulation=...)`: the loop's rule applies to whatever it
+is given. On a feed-forward substrate both forwards (the dense one and `compiled=True`, below)
+refuse node rule `anti` with the output inversion on (any true value), configured or caller-built,
+with the recurrent path's message (`... set output_inversion False`). The loop never inverts under
+`anti`, and `NeuromodulationSettings(node_rule='anti')` defaults the inversion to on: with the
+loop's five-channel task vectors (one-hot, the fourth entry 0 for every task but `nand`), the dense
+forward would return one minus its outputs with the inversion off for four of the five tasks. The
+refusal is one of the checks of the settings, made before those of the arrays and the vector. The
+mode stays unread under `anti`, and more than four channels run with a vector of that length, as in
+the loop's multi-task mode. `SubstrateConfig.validate` accepts the combination on a feed-forward
+configuration: building reads no neuromodulation setting, and `substrate_config` never returns it.
+Under neuromodulation the configured output activation applies, as in the loop. An aggregation
+palette (`aggregation.palette`, any subset of `AGGREGATION_LIST` in any order) is decoded as the
+loop decodes it (`SubstrateConfig.aggregation_palette`).
 
 On a recurrent substrate the node rule applies at every settling step, composed as the generation
 loop composes it, its functions unchanged: under `settling_rule: emr` over the settling activation
@@ -195,16 +205,18 @@ forward for settings that did not go through it (a caller-built `SubstrateNeurom
 its own settings, or a substrate whose `config` was set with `_replace` or that was built by hand):
 under `drive_once`, dynamic h->h aggregation and an `every_iteration` activation other than plain
 `tanh` (set `initial_only`); node rule `anti` outside modulation mode `full`, with more than four
-channels (the loop's single-task vector has four), or with the inversion on. Under `emr` nothing
-else is refused: per-node or global activations, h->h aggregation `sum` or `dynamic`, every preset
-and class combination, any iteration level (levels 1 to 4 tested), every cap policy and an explicit
-step count. Also refused on a recurrent substrate (the dense feed-forward forward checks neither;
-the compiled one refuses the strength too, and receptors without the channels the node rule reads,
-below): a modulation strength that is not a finite number in float32, the precision the forward
-reads it at (NaN would reach the outputs, and 1e40, finite in float64, is inf in float32), and a
-receptor derivation that `derive_receptor_from_weight` does not know. On this path the forward runs
-`validate` on the configuration first, with configured or caller-built neuromodulation alike, so a
-configuration that bypassed it is refused with validate's message: without that call,
+channels (the loop refuses them in single-task mode only, whose vector has four entries; on a
+recurrent substrate the API refuses them whatever the vector), or with the inversion on (refused on
+a feed-forward substrate too, by both forwards, configured or caller-built, above). Under `emr`
+nothing else is refused: per-node or global activations, h->h aggregation `sum` or `dynamic`, every
+preset and class combination, any iteration level (levels 1 to 4 tested), every cap policy and an
+explicit step count. Also refused on a recurrent substrate (the dense feed-forward forward checks
+neither; the compiled one refuses the strength too, and receptors without the channels the node rule
+reads, below): a modulation strength that is not a finite number in float32, the precision the
+forward reads it at (NaN would reach the outputs, and 1e40, finite in float64, is inf in float32),
+and a receptor derivation that `derive_receptor_from_weight` does not know. On this path the forward
+runs `validate` on the configuration first, with configured or caller-built neuromodulation alike,
+so a configuration that bypassed it is refused with validate's message: without that call,
 `activate_time` 0 would return the node of the input drive under `drive_once` (states of shape
 `(0, samples, count)`) where every other path raises, a `settling_rule` typo would run `emr` without
 the `drive_once` refusals, and `initial_only` under `emr` would settle through `tanh`. `validate`
@@ -213,6 +225,28 @@ caller-built neuromodulation's settings are held to validate's checks with valid
 unknown modulation mode or node rule included (on a feed-forward substrate an unknown one keeps that
 path's own message). The forward also refuses, naming both shapes, receptors without the channels
 the node rule reads (every channel under `anti`, otherwise the first three).
+
+The recurrent forward also refuses an entry of the neurotransmitter vector that the node rule reads
+(the first three, every one under `anti`) and that is not finite in float32, the precision it reads
+the vector at; the check comes after every other check the forward makes before the computation (the
+inputs' conversion included), so a call one of those refuses keeps its message. A padding position
+is inert only at finite entries. An infinite one would make m = receptors @ nt NaN at every padded
+position (0 * inf), which the zero `W2` rows carry to every output of the genome, so the outputs
+would depend on the bucket size: evaluated without the check, on XOR at depth 3 with 20 genomes
+(seed 42; the paper rule under `emr` and `drive_once`, and `anti` under `emr`; an Apple M4 Max, jax
+0.6.1), entry 0 at +inf or 1e40 leaves the 16 padded genomes all NaN and 2 of the 4 that fill their
+bucket finite, and all 20 NaN with every bucket doubled. A NaN entry would make every output of
+every genome NaN, padded or not. The inversion's entry (the fourth, outside `anti`) acts after the
+output function, on no padding, and is not refused: under `paper`, which clips it to [0, 1], +inf
+and 1e40 give the outputs of 1.0 and -inf those of 0.0, and NaN makes every output NaN. The check
+reads entries, not their products: finite entries can still overflow `s m`, or m itself, at a
+genome's own positions, where the genome's weights decide the outputs, not its padding. Under the
+`tanh` derivation (w a position's first input weight over `max_weight`), at strength 5 `s m`
+overflows from NE = 1.47e38 at w = 0 and from DA = NE = 5.56e37 at w = 1; m itself overflows from DA
+= NE = 2.78e38 at w = 1, and then `s m` is NaN at strength 0 and infinite at any other. In the same
+populations, entries of float32's largest magnitude left all 20 genomes finite, as built and with
+every bucket doubled. The dense feed-forward forward meets the `s m` overflow at the zero weights
+outside a genome's mask, where m itself stays finite under `tanh` (below).
 
 The recurrent forward under neuromodulation matches the loop within float32 rounding, since the loop
 evaluates the population on the union of its active positions. On XOR's four rows (an Apple M4 Max,
@@ -284,30 +318,39 @@ receptors and base gains are gathered there and zero-padded to the recurrent for
 bucket (8, 16, 32, ...), and each genome computes the dense forward's own per-genome function
 (`dense_substrate_forward`; under neuromodulation the node rule and inversion of the dense
 neuromodulated forward) on float32 operands. Neuromodulation is the configured one or a caller-built
-`SubstrateNeuromodulation`, with the dense forward's checks and messages, either inversion setting;
-receptors without the channels the node rule reads are refused, as on a recurrent substrate (the
-dense forward fails on them inside the computation). For finite inputs, strength and vector the
-padding is inert: every palette function and node rule is finite at a zero drive, and the padded
-`W2` rows are zero. At a padded position m = receptors @ nt = 0, so an infinite strength makes s m =
-inf * 0 = NaN in the node rule's bias, gate or gain (and an infinite or NaN entry of the vector
-makes m NaN), which the zero `W2` rows carry to every output of the genome, while the dense
-forward's positions outside the mask, carrying the receptors of a zero weight, follow another rule:
-the two would put NaN at different genomes. That holds for the strength and for the entries m reads
-(the first three, every one under `anti`); the inversion's entry, the fourth, acts after the output
+`SubstrateNeuromodulation`, with the dense forward's checks and messages, either inversion setting
+outside node rule `anti` (under it both forwards refuse the inversion, above); receptors without the
+channels the node rule reads are refused, as on a recurrent substrate (the dense forward fails on
+them inside the computation). For finite inputs, strength and vector the padding is inert: every
+palette function and node rule is finite at a zero drive, and the padded `W2` rows are zero. At a
+padded position m = receptors @ nt = 0, so an infinite strength makes s m = inf * 0 = NaN in the
+node rule's bias, gate or gain (and an infinite entry of the vector makes m NaN), which the zero
+`W2` rows carry to every output of the genome, while the dense forward's positions outside the mask,
+carrying the receptors of a zero weight, follow another rule: the two would put NaN at different
+genomes. That holds for the strength and for an infinite entry m reads (the first three, every one
+under `anti`). A NaN entry m reads makes m NaN at every position, so both forwards would give NaN at
+every output of every genome (all 20 genomes in each, XOR at depth 3, seed 42, under `paper` and
+`anti`; an Apple M4 Max, jax 0.6.1). The inversion's entry, the fourth, acts after the output
 function in both forwards alike. So the compiled forward refuses a strength that is not a finite
 number in float32 and a vector entry that the node rule or the inversion reads that is not finite in
-float32, the inversion's for one rule over the entries read; the dense forward does not check them
-and evaluates them (every output NaN at a NaN strength). The positions are the mask's, not the
-nonzero weights'. A substrate as built is zero outside its mask, so there the two forwards compute
-the same function. A position whose mask entry a caller clears while its weights stay is dropped by
-the compiled forward and still summed by the dense one, which reads `W1` and `W2` as given. A genome
-with no mask position gives what the dense forward gives, the output activation of zero at every
-input (then the inversion), and so does a substrate cut to one silent position (outside every mask,
-zero weights). A caller that writes weights at positions outside a genome's mask keeps
-`compiled=False` for that call: a probe that restricts the substrates to one position and sets its
-output weight to one for every genome and the output activation to the identity gets, for a genome
-whose mask does not keep the position, the activation at zero drive from the dense forward (1.0
-under `gauss`) and 0 from the compiled one.
+float32, the inversion's for one rule over the entries read (the recurrent forward refuses the
+entries m reads for the same reason, but not the inversion's, above); the dense forward does not
+check them and evaluates them as the loop does: every output NaN at a NaN strength under the node
+rules that read it (`steep_gate` under `gating_only` does not), and at a strength of +-inf or 1e40
+finite or NaN outputs by node rule, mode and activation. `steep_gate`'s gain `base_gain + s m` is
+not clipped, so in modes `full` and `gain_bias_only` it meets the zero drive of the positions
+outside the mask and every output is NaN; `paper`'s bias `s m` reaches the activation unbounded,
+with finite outputs through `tanh` or `sigmoid` and NaN outputs through `relu` or `identity` (XOR at
+depth 3, 20 genomes). The positions are the mask's, not the nonzero weights'. A substrate as built
+is zero outside its mask, so there the two forwards compute the same function. A position whose mask
+entry a caller clears while its weights stay is dropped by the compiled forward and still summed by
+the dense one, which reads `W1` and `W2` as given. A genome with no mask position gives what the
+dense forward gives, the output activation of zero at every input (then the inversion), and so does
+a substrate cut to one silent position (outside every mask, zero weights). A caller that writes
+weights at positions outside a genome's mask keeps `compiled=False` for that call: a probe that
+restricts the substrates to one position and sets its output weight to one for every genome and the
+output activation to the identity gets, for a genome whose mask does not keep the position, the
+activation at zero drive from the dense forward (1.0 under `gauss`) and 0 from the compiled one.
 
 The genomes of a bucket go in fixed slots of one jitted call, `max(1, 128 // size)` of them (16 at
 bucket 8, one from 128 on), the unused slots zero, and a bucket with more genomes takes several
@@ -319,20 +362,23 @@ activations without a palette; the global aggregation function under the `global
 per-node aggregation outside it, exact or approximated aggregation, and under exact aggregation the
 aggregations evaluated (approximated aggregation reads the indices alone); whether the substrate has
 activation and aggregation indices; under neuromodulation the channel count, the node rule, the
-modulation mode (unread under `anti`) and the inversion (unread below four channels). Unlike the
-recurrent forward's key, it leaves out a setting the forward does not read in that combination, so
-changing one compiles nothing, and neither do thresholds or the receptor derivation. The receptors,
-base gains, neurotransmitter vector and strength are operands, so other values compile nothing. The
-key holds no operand shape: an entry's jitted function keeps one program per operand shapes, a
-bucket size and a chunk of rows compiling once each, so other coordinates with the same numbers of
-inputs and outputs compile nothing, while another number of inputs or outputs, receptors with
-another channel count or a vector of another length compile each bucket's program once more, under
-the same entry. The bound of 64 counts entries, one per combination of the settings, each holding
-its programs; the cache evicts the least recently used, so a workload that cycles through more than
-64 combinations of the settings recompiles them on every pass, while bucket and chunk sizes never
-evict one another (`test_a_second_pass_over_more_than_64_settings_and_buckets_traces_nothing` passes
-over 72 (settings, bucket) combinations twice, and the second pass traces nothing). A bucket size
-thus compiles once per process for a combination of those settings, the chunk size and the operand
+modulation mode (unread under `anti`) and the inversion (unread below four channels); and
+`SubstrateConfig.guarded_softplus` where the combination applies a softplus (the output activation,
+the hidden activation without per-node activations, or index 7 of the palette, or of the leading
+activations without one). Unlike the recurrent forward's key, it leaves out a setting the forward
+does not read in that combination, so changing one compiles nothing, and neither do thresholds or
+the receptor derivation. The receptors, base gains, neurotransmitter vector and strength are
+operands, so other values compile nothing. The key holds no operand shape: an entry's jitted
+function keeps one program per operand shapes, a bucket size and a chunk of rows compiling once
+each, so other coordinates with the same numbers of inputs and outputs compile nothing, while
+another number of inputs or outputs, receptors with another channel count or a vector of another
+length compile each bucket's program once more, under the same entry. The bound of 64 counts
+entries, one per combination of the settings, each holding its programs; the cache evicts the least
+recently used, so a workload that cycles through more than 64 combinations of the settings
+recompiles them on every pass, while bucket and chunk sizes never evict one another
+(`test_a_second_pass_over_more_than_64_settings_and_buckets_traces_nothing` passes over 72
+(settings, bucket) combinations twice, and the second pass traces nothing). A bucket size thus
+compiles once per process for a combination of those settings, the chunk size and the operand
 shapes, while its entry stays in the cache. A caller warms the buckets it expects at startup with
 one call per bucket size and per output count it serves (a three-output call after one-output ones
 compiles each bucket again), with the settings and chunk size of the calls to come: for example on
@@ -451,13 +497,13 @@ On a substrate as built, for finite inputs, a finite strength and vector, and s 
 position, NaN and inf fall where the dense forward has them (a node whose drive overflows gives NaN
 through a zero output weight and inf through a nonzero one, in both), with one exception: a value
 within the two forwards' rounding difference of a float32 overflow threshold can be finite in one
-forward and not in the other. `softplus`, log1p(exp(z)), overflows from z = 88.7228 (ln(FLT_MAX),
+forward and not in the other. `softplus`, log1p(exp(z)), overflows from z = 88.72284 (ln(FLT_MAX),
 FLT_MAX being float32's largest finite value, about 3.4e38) on, the only one of the engine's
 functions to overflow at an argument a substrate as built reaches (`fs_fast` and the linear ones
 only near FLT_MAX), as the output activation or as a hidden node. A `softplus` output's argument, h
 @ W2, is summed over the genome's positions by the compiled forward and over the grid's by the dense
-one, in another order on every substrate, so wherever the two sums lie on either side of 88.7228 the
-output is finite in one forward and inf in the other. That needs no neuromodulation and no fused
+one, in another order on every substrate, so wherever the two sums lie on either side of 88.72284
+the output is finite in one forward and inf in the other. That needs no neuromodulation and no fused
 step, and inputs in [-1, 1] reach it. On an Apple M4 Max under single-threaded Eigen, around one
 genome's crossings of the threshold on `combined_approx` (depth 3, no neuromodulation), 31 of 243
 inputs had sums one ulp apart on either side of it. The window is the sums' rounding difference,
@@ -475,18 +521,21 @@ output function's range times |2 nt[3] - 1| after the inversion (0.2 under `sigm
 operands, in both directions. No output of the 19 cases, of the test configurations, of the
 synthetic substrates or of the neuromodulated `product` set differs in finiteness, and under a
 `softplus` output none of the 19 cases' 11,206,656 outputs does, a raster row seldom falling in the
-window (the test above searches for one); under it, their three neuromodulated cases put NaN at
-49,152 to 102,155 outputs each, in both forwards alike (the inversion of an infinite output). Equal
-finiteness everywhere would need the dense forward's position set and summation order for h @ W2,
-and the fused steps outside the compiled program, which would give up what the compiled forward
-saves; a barrier between the multiply and the add does not stop the fusion on XLA:CPU
-(`optimization_barrier` and `reduce_precision` were tried). Inputs are expected finite. An infinite
-input makes every dense output NaN (0 * inf at the zero weights outside the mask), while a compiled
-genome with no zero weight from that input, at its positions or in its padding, can stay finite (a
-genome whose count fills its bucket, under a hidden function finite at +-inf); a NaN input gives NaN
-at every output in both. A strength and a vector, each finite, whose product s m overflows at the
-dense forward's positions outside the mask can put NaN in the dense forward only; a strength or a
-vector entry that is not finite in float32 is refused by the compiled forward (above).
+window (`test_an_output_at_the_overflow_threshold_can_overflow_in_one_forward_only` searches for
+one); under it, their three neuromodulated cases put NaN at 49,152 to 102,155 outputs each, in both
+forwards alike (the inversion of an infinite output). Equal finiteness everywhere would need the
+dense forward's position set and summation order for h @ W2, and the fused steps outside the
+compiled program, which would give up what the compiled forward saves; a barrier between the
+multiply and the add does not stop the fusion on XLA:CPU (`optimization_barrier` and
+`reduce_precision` were tried). Under `SubstrateConfig.guarded_softplus` neither forward overflows
+at a `softplus`: past 88.72284 each gives its argument, so the two stay finite there, apart by about
+that argument's rounding. Inputs are expected finite. An infinite input makes every dense output NaN
+(0 * inf at the zero weights outside the mask), while a compiled genome with no zero weight from
+that input, at its positions or in its padding, can stay finite (a genome whose count fills its
+bucket, under a hidden function finite at +-inf); a NaN input gives NaN at every output in both. A
+strength and a vector, each finite, whose product s m overflows at the dense forward's positions
+outside the mask can put NaN in the dense forward only; a strength or a vector entry that is not
+finite in float32 is refused by the compiled forward (above).
 
 The compiled forward casts its inputs, weights, receptors, gains, vector and strength to float32 and
 returns float32, as the recurrent forward does. Under `JAX_ENABLE_X64` an intermediate can still
@@ -516,10 +565,14 @@ positions by level), `cppn_query_rows` (the CPPN's input rows for one endpoint a
 `substrate_weight_matrices` (pruned, locality-scaled `W1` and `W2`) and `self_connection_rows`.
 `SUBSTRATE_CAPABILITIES` names what the API covers, for a caller that checks before it asks:
 `sparse_cap_policy`, `neuromodulation`, `aggregation_palette`, `substrate_steps`,
-`recurrent_neuromodulation` and `compiled_forward`. What a node computes, without the rest of the
+`recurrent_neuromodulation`, `compiled_forward` and `guarded_softplus`
+(`SubstrateConfig.guarded_softplus`, which `substrate_config` sets from
+`dynamic_functions.guarded_softplus`, off by default). What a node computes, without the rest of the
 engine, is in `emr_hyperneat.vocabulary`: the activation and aggregation functions, the
 neurotransmitter vectors, `derive_receptor_from_weight`, the node rule
-(`true_neuromodulation_node_fn`) and `invert_outputs`, each the engine's own object.
+(`true_neuromodulation_node_fn`) and `invert_outputs`, each the engine's own object. Its `softplus`
+is the published form; under `guarded_softplus` the forwards apply
+`activation_function('softplus', True)` of `emr_hyperneat.emrhyperneat` in its place.
 
 Outside the API's scope, and refused by `substrate_config`, whose error message names each setting:
 `recurrence.network_model` `node_list`; an activation or aggregation mode other than `disabled`,

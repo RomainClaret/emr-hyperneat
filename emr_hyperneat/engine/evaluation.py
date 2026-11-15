@@ -145,15 +145,17 @@ class FeedforwardGeneration(NamedTuple):
 
 class EvaluatedGeneration(NamedTuple):
     """What the host side of a generation reads once the population is told: the champion record,
-    the counters and the metrics (`EMRHyperNEAT._finish_generation`)."""
+    the counters and the metrics (`EMRHyperNEAT._finish_generation`). The list form's inner
+    generation scores and tells nothing: its fitnesses, forward_one and genome_args are None and
+    new_state is state."""
     #: The state the population was evaluated under (before tell), and after tell
     state: Any
     new_state: Any
-    fitnesses: jnp.ndarray
+    fitnesses: Optional[jnp.ndarray]
     nan_count: int
     cppn_population: Tuple
-    forward_one: Callable
-    genome_args: Tuple
+    forward_one: Optional[Callable]
+    genome_args: Optional[Tuple]
     #: The ceiling-sized mask, and the mask on the evaluation axis (compacted on the recurrent path)
     masks_full: jnp.ndarray
     masks_eval: jnp.ndarray

@@ -80,10 +80,10 @@ _FIT_ATOL = 0.0 if _ON_CPU else 1e-4
 # defaults too. On a Xeon E5-2683 v4 under the flag one genome of hidden_only had 16 of its 1,146
 # weights differ, the largest by one ulp of max_weight (2.4e-7, at a weight of 2.0), and the other
 # presets were identical; this comparison passes there under the flag. AVX-512 Xeons pass under
-# XLA's defaults. Under XLA's default multi-threaded Eigen an AVX2 CPU rounds the two further
-# apart (a threaded product's summation order is the likely cause), which moves a weight by ulps
-# at max_weight's scale whatever the weight's own magnitude: the differences arise in sums whose
-# scale max_weight sets. The Xeon E5-2683 v4 put full_recurrent's genome 8 of 30 one ulp of
+# XLA's defaults. Under XLA's default multi-threaded Eigen the Xeon E5-2683 v4 (AVX2) rounds the
+# two further apart (a threaded product's summation order is the likely cause), which moves a
+# weight by ulps at max_weight's scale whatever the weight's own magnitude: the differences arise
+# in sums whose scale max_weight sets. The Xeon put full_recurrent's genome 8 of 30 one ulp of
 # max_weight 3 apart (2.4e-7) and genome 28 17 ulps apart (4.05e-6). So on the CPU under
 # multi-threaded Eigen only (conftest's cpu_multi_threaded_eigen) that comparison allows 64 ulps of
 # max_weight (1.5e-5 at 3), the GPU's level-two bound (_atol), 3.8 times the largest difference
@@ -312,8 +312,9 @@ class TestMultiHopSemantics:
         hh_u, fit_u, _m, _p, settings = _run('union', preset, 2, 'disabled', 3, 30, second_factor='masked')
         hh_p, fit_p, _m, _p, _ = _run('per_genome', preset, 2, 'disabled', 3, 30)
         # (U, U) against (S, S) products: the same terms summed in another order; 3 ulps observed
-        # once, and on an AVX2 CPU under XLA's default multi-threaded Eigen up to 17 ulps of
-        # max_weight (_CPU_LEVEL_TWO_ULPS_OF_MAX_WEIGHT, only there).
+        # once, and on a Xeon E5-2683 v4 (AVX2) under XLA's default multi-threaded Eigen up to
+        # 17 ulps of max_weight (so any CPU under multi-threaded Eigen allows
+        # _CPU_LEVEL_TWO_ULPS_OF_MAX_WEIGHT).
         total = _assert_same_connections(hh_u, hh_p, 'union masked against per_genome',
                                          ulps=4 * _ULPS_DIRECT,
                                          atol=_atol_across_programs(settings, 2))

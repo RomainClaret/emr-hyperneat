@@ -152,11 +152,12 @@ python scripts/replicate.py run emr-dynamic-functions -- python scripts/runners/
 ```
 
 `--release <version>` picks another release, and `--release current` this checkout. On a CPU, 0.2.0,
-0.3.0 and 0.3.1 give the per-node paper's runners the same results as 0.1.0; the neuromodulation
-paper's runner departs from 0.1.0's default EMR backend, since they apply its species settings (the
-paper's numbers come from the prototype engine, which release 0.1.0 ships and they do not). The
-tables and figures regenerate from the data release with any release. Details, and the plain-git
-route: [docs/reproducing-experiments.md](docs/reproducing-experiments.md#choosing-a-release).
+0.3.0, 0.3.1 and 0.3.2 give the per-node paper's runners the same results as 0.1.0; the
+neuromodulation paper's runner departs from 0.1.0's default EMR backend, since they apply its
+species settings (the paper's numbers come from the prototype engine, which release 0.1.0 ships and
+they do not). The tables and figures regenerate from the data release with any release. Details, and
+the plain-git route:
+[docs/reproducing-experiments.md](docs/reproducing-experiments.md#choosing-a-release).
 
 The repository ships **code only**; result data is a separate Zenodo release fetched with `python
 scripts/fetch_results.py`. How to reproduce each paper, and which published numbers came from the
@@ -166,10 +167,11 @@ current EMR class or the prototype engine:
 Data archive (all papers' result JSON), on Zenodo: [![Data release DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21383893.svg)](https://doi.org/10.5281/zenodo.21383893)
 
 Some published tables came from the **prototype engine**, a frozen module of release 0.1.0, which
-reproduces them exactly. 0.2.0, 0.3.0 and 0.3.1 do not ship it: their runners for those tables are
-EMR versions, and the tests and the per-node paper's validator compare EMR with values recorded from
-the prototype. The prototype is bit-for-bit equivalent to EMR on the shared paths when EMR is pinned
-to `variance_rule: legacy` (the package default is `canonical`) and is given no `neat_*` settings.
+reproduces them exactly. 0.2.0, 0.3.0, 0.3.1 and 0.3.2 do not ship it: their runners for those
+tables are EMR versions, and the tests and the per-node paper's validator compare EMR with values
+recorded from the prototype. The prototype is bit-for-bit equivalent to EMR on the shared paths when
+EMR is pinned to `variance_rule: legacy` (the package default is `canonical`) and is given no
+`neat_*` settings.
 
 ### Scope
 

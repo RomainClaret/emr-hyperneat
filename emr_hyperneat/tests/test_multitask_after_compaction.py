@@ -162,6 +162,16 @@ STP_CASES: Dict[str, Dict[str, Any]] = {
 }
 #: The case the other tests build on: a generation that compacts
 BASE = 'd2_hidden_only_pop50_s42'
+#: The cases test_branch_gating_routes_the_evaluated_positions runs: compacted generations whose
+#: bucket is the ceiling and below it (test_the_branch_gating_cases_cover_both_pairings keeps both),
+#: and the uncompacted whole-grid control
+BRANCH_GATING_CASES = (
+    BASE,
+    'd3_hidden_only_pop50_s42',
+    'd2_option_b_with_self_pop20_s42',
+    'd2_self_query_pop20_s42',
+    'ctrl_d2_union_full_pop50',
+)
 
 
 def _emr(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -470,27 +480,19 @@ def test_the_wrappers_evaluate_the_same_arrays():
 
 
 @pytest.mark.parametrize('mode', ['spatial', 'hierarchical'])
-@pytest.mark.parametrize(
-    'name',
-    [
-        BASE,
-        'd3_hidden_only_pop50_s42',
-        'd2_option_b_with_self_pop20_s42',
-        'd2_self_query_pop20_s42',
-        'ctrl_d2_union_full_pop50',
-    ],
-)
+@pytest.mark.parametrize('name', BRANCH_GATING_CASES)
 def test_branch_gating_routes_the_evaluated_positions(name, mode):
     """Under branch gating the routing reads the grid coordinates of the positions the generation
     evaluated: the call equals the routed evaluator on those arrays and coordinates (bit for bit,
     one evaluator), and the same evaluation on the ceiling arrays with receptors derived at every
     grid position by the source's formula (another layout of the same arithmetic, the independent
-    check: virtual positions and the order of the compact axis do not enter it). The cases: a
-    bucket at the ceiling and below it (depth 3; Option B with self connections; the
-    self-connection query), and the uncompacted control. After the compacted generation at the
-    ceiling, routing the whole grid's coordinates against the compact receptors puts 5 and 4
-    genomes of 50 off by more than 1e-6, by up to 0.022 and 0.012; below the ceiling it raises a
-    broadcasting error."""
+    check: virtual positions and the order of the compact axis do not enter it). The cases
+    (BRANCH_GATING_CASES): a bucket at the ceiling (BASE) and below it (depth 3; Option B with self
+    connections; the self-connection query), read from their generations
+    (test_the_branch_gating_cases_cover_both_pairings), and the uncompacted control. After the
+    compacted generation at the ceiling, routing the whole grid's coordinates against the compact
+    receptors puts 5 and 4 genomes of 50 off by more than 1e-6, by up to 0.022 and 0.012; below the
+    ceiling it raises a broadcasting error."""
     run = _run(name)
     algo = run.algo
     site = np.asarray(
@@ -531,6 +533,18 @@ def test_branch_gating_routes_the_evaluated_positions(name, mode):
         assert_close_across_programs(site, ceiling)
     else:
         np.testing.assert_allclose(site, ceiling, rtol=GPU_TRAJECTORY_RTOL, atol=1e-6)
+
+
+def test_the_branch_gating_cases_cover_both_pairings():
+    """The compacted branch-gating cases cover both pairings as well, read from their generations
+    as test_the_cases_cover_both_pairings reads every case's: a bucket below the ceiling, where
+    routing the whole grid's coordinates against the compact receptors raises a broadcasting error,
+    and one at the ceiling, where it gives a wrong fitness without an error. Only the latter
+    catches a call that tells a compacted generation by its weights' length instead of its active
+    indices. BASE is that case (a union of 80 of the 84 positions, bucket 84; under
+    execution.compaction_bucket 'exact' its bucket is 80, and this check fails)."""
+    pairings = {name: _paired(name) for name in BRANCH_GATING_CASES if name in CASES}
+    assert set(pairings.values()) == {'silent', 'raised'}, pairings
 
 
 def test_receptors_on_another_axis_than_the_weights_raise_a_clear_error(monkeypatch):

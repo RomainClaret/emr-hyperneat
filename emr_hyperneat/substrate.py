@@ -91,8 +91,10 @@ from emr_hyperneat.emrhyperneat import (
     _bucket_size_for,
     _explicit_activate_time,
     _get_extract_sparse_fn,
+    _palette_applies_softplus,
     _per_genome_pair_outputs,
     _per_genome_rows_for,
+    activation_function,
     batch_query_population_multi_source_multi_output,
     batch_query_population_self_connections,
     INDEX_DECODES,
@@ -184,9 +186,10 @@ HH_CONNECTION_CLASSES = ("forward", "lateral", "backward", "self")
 #: built from as public functions with stable signatures (`get_hierarchical_grid`,
 #: `cppn_query_rows`, `cppn_output_function_indices`, `substrate_weight_matrices`,
 #: `self_connection_rows`, `compute_hierarchical_variances_batch`), true neuromodulation of a
-#: recurrent substrate (the same calls on a substrate with hidden-to-hidden connections), and the
+#: recurrent substrate (the same calls on a substrate with hidden-to-hidden connections), the
 #: compiled feed-forward forward (``substrate_forward(..., compiled=True, chunk_size=)``, each
-#: genome on its own mask positions).
+#: genome on its own mask positions), and the guarded softplus
+#: (``SubstrateConfig.guarded_softplus``, off by default).
 SUBSTRATE_CAPABILITIES = frozenset({
     "sparse_cap_policy",
     "neuromodulation",
@@ -194,6 +197,7 @@ SUBSTRATE_CAPABILITIES = frozenset({
     "substrate_steps",
     "recurrent_neuromodulation",
     "compiled_forward",
+    "guarded_softplus",
 })
 
 
@@ -205,7 +209,10 @@ class NeuromodulationSettings(NamedTuple):
     (``SubstrateConfig.neuromodulation``). Receptor densities come from each hidden position's
     first input weight, the engine's default source. On a recurrent substrate the node rule applies
     at every settling step, and what the loop refuses there is refused (`SubstrateConfig.validate`),
-    as are a strength and a receptor derivation the forward cannot use.
+    as are a strength and a receptor derivation the forward cannot use. On a feed-forward substrate
+    both forwards refuse node rule ``'anti'`` with the inversion on, as the recurrent path does;
+    there the rule's mode stays unread and more than four channels run (the loop's multi-task mode
+    reads them).
 
     Attributes:
         num_nt_types: Neurotransmitter channels, 2 to 6; at most 4 under node rule ``'anti'`` on a
@@ -221,8 +228,9 @@ class NeuromodulationSettings(NamedTuple):
             substrate.
         node_rule: The neuromodulated node's rule (``NEUROMODULATION_NODE_RULES``).
         output_inversion: Whether the fourth channel inverts the outputs (four or more channels);
-            False under node rule ``'anti'`` on a recurrent substrate (the rule of the prototype's
-            ANTI variant inverts no output).
+            False under node rule ``'anti'`` (the rule of the prototype's ANTI variant inverts no
+            output), whatever the channel count, on a recurrent and a feed-forward substrate alike.
+            The default is True, so a hand-built ``'anti'`` sets it False.
     """
 
     num_nt_types: int = 4
@@ -301,6 +309,12 @@ class SubstrateConfig(NamedTuple):
             subset in any order, or None for the leading ``num_aggregations`` entries.
         neuromodulation: True neuromodulation of the substrate, feed-forward or recurrent
             (`NeuromodulationSettings`), or None.
+        guarded_softplus: Every softplus the forwards apply (palette index 7, a ``'softplus'``
+            hidden or output activation) is the guarded one (`activation_function`, the engine's
+            dynamic_functions.guarded_softplus): ``x`` where the published ``log1p(exp(x))`` is
+            inf in float32 (from 88.72 on), and its value elsewhere, bit for bit on the CPU.
+            False, the default, keeps the published softplus. A bool (Python's or numpy's):
+            validate and every forward refuse anything else.
     """
 
     input_coords: Tuple[Tuple[float, float], ...]
@@ -349,6 +363,8 @@ class SubstrateConfig(NamedTuple):
     # recurrent substrate
     aggregation_palette: Optional[Tuple[int, ...]] = None
     neuromodulation: Optional[NeuromodulationSettings] = None
+    # Appended last, so a configuration written without it reads the published softplus
+    guarded_softplus: bool = False
 
     def validate(self) -> "SubstrateConfig":
         """Raise ValueError if the configuration cannot describe an EMR substrate.
@@ -370,6 +386,7 @@ class SubstrateConfig(NamedTuple):
         for name in (self.hidden_activation, self.output_activation):
             if name not in ACTIVATION_FUNCTIONS:
                 raise ValueError(f"unknown activation {name!r}")
+        _guarded(self)
         if self.global_aggregation not in AGGREGATION_FUNCTIONS:
             raise ValueError(f"unknown aggregation {self.global_aggregation!r}")
         for name, decode in (("activation_index_decode", self.activation_index_decode),
@@ -433,7 +450,31 @@ class SubstrateConfig(NamedTuple):
                 refusal = _recurrent_neuromodulation_refusal(self, nm)
                 if refusal is not None:
                     raise ValueError(refusal)
+            # On a feed-forward configuration node rule 'anti' with the inversion on is the
+            # forwards' refusal (_checked_neuromodulation), not this one's: building and querying
+            # read no neuromodulation setting, substrate_config never returns it (the loop refuses
+            # an explicit inversion under 'anti' and turns an unset one off), and a caller's
+            # SubstrateNeuromodulation replaces the configured settings at forward time
         return self
+
+
+def _guarded(config: SubstrateConfig) -> bool:
+    """``config.guarded_softplus`` as a bool, for `SubstrateConfig.validate` and for every path
+    that reads it: the dense forward (`substrate_forward`), the neuromodulated one
+    (`_neuromodulated_forward`), the compiled feed-forward one (`_feedforward_key`) and the
+    recurrent one (`_recurrent_forward_fn`).
+
+    The feed-forward paths and the plain recurrent one do not validate (they run the configuration
+    as given), so each reads the field through this: read by its truth, a string such as
+    ``'false'`` would run the guarded softplus.
+
+    Raises:
+        ValueError: The field is not a bool (Python's or numpy's).
+    """
+    value = config.guarded_softplus
+    if not isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"guarded_softplus must be True or False, got {value!r}")
+    return bool(value)
 
 
 #: The methods `derive_receptor_from_weight` knows (its branches; it raises on any other name).
@@ -466,6 +507,14 @@ def _finite_number(value: Any) -> bool:
         return bool(np.isfinite(number.astype(np.float32)))
 
 
+#: Why node rule 'anti' with the output inversion on is refused: on a recurrent substrate
+#: (`_recurrent_neuromodulation_refusal`, validate) and in both feed-forward forwards
+#: (`_checked_neuromodulation`), one message for both paths
+_ANTI_INVERSION_REFUSAL = ("neuromodulation.output_inversion: node_rule 'anti' (the rule of the "
+                           "prototype's ANTI variant) inverts no output, and the loop turns the "
+                           "inversion off; set output_inversion False")
+
+
 def _recurrent_neuromodulation_refusal(config: SubstrateConfig,
                                        settings: NeuromodulationSettings) -> Optional[str]:
     """Why true neuromodulation with these settings cannot be evaluated on a recurrent substrate,
@@ -483,7 +532,9 @@ def _recurrent_neuromodulation_refusal(config: SubstrateConfig,
     ``'anti'`` (the rule of the prototype's ANTI variant) has the form ``'full'`` only, inverts no
     output, and reads every channel of the single-task vector, which has four. Under the ``'emr'``
     rule nothing else is refused: the loop settles every combination it accepts with the
-    neuromodulated node.
+    neuromodulated node. The inversion under ``'anti'`` is refused on a feed-forward substrate too,
+    with the same message (`_checked_neuromodulation`); the vector is not a setting, and the entries
+    the node rule reads are the forward's to check (`_recurrent_forward`).
 
     Args:
         config: A recurrent substrate's configuration.
@@ -524,9 +575,7 @@ def _recurrent_neuromodulation_refusal(config: SubstrateConfig,
                     f"the loop's single-task vector has four; num_nt_types "
                     f"{settings.num_nt_types} is refused on a recurrent substrate (at most 4)")
         if settings.output_inversion:
-            return ("neuromodulation.output_inversion: node_rule 'anti' (the rule of the "
-                    "prototype's ANTI variant) inverts no output, and the loop turns the inversion "
-                    "off; set output_inversion False")
+            return _ANTI_INVERSION_REFUSAL
     return None
 
 
@@ -901,9 +950,11 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
     argument, h @ W2, the two forwards sum to either side of ln(FLT_MAX) = 88.72 (FLT_MAX: float32's
     largest finite value, about 3.4e38; on any substrate, without neuromodulation, inputs in
     [-1, 1]), and a softplus node whose pre-activation comes from a fused step; its genome's outputs
-    then differ in finiteness or by up to the output function's range. For finite inputs, a finite
-    strength and vector, and s m finite at every position, away from such a threshold, NaN and inf
-    fall where the dense forward has them. An infinite input makes every dense output NaN (0 * inf
+    then differ in finiteness or by up to the output function's range (under
+    ``SubstrateConfig.guarded_softplus`` both stay finite there, apart by about the argument's
+    rounding, softplus being x there). For finite inputs, a finite strength and vector, and s m
+    finite at every position, away from such a threshold, NaN and inf fall where the dense forward
+    has them. An infinite input makes every dense output NaN (0 * inf
     at the zero weights outside the mask), while a compiled genome with no zero weight from that
     input, at its positions or in its padding, can stay finite; a strength and a vector, each
     finite, whose product s m overflows at the positions outside a genome's mask can put NaN in the
@@ -945,7 +996,15 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
     neuromodulation the configuration goes through `SubstrateConfig.validate` first, so one built
     by ``_replace`` or field by field is refused as validate refuses it (validate only reads it, so
     a valid configuration evaluates as it would without the call), and a given
-    ``neuromodulation``'s own settings are held to the same checks, with validate's messages.
+    ``neuromodulation``'s own settings are held to the same checks, with validate's messages. The
+    recurrent forward also refuses an entry of the vector that the node rule reads (the first
+    three, every one under ``'anti'``) and that is not finite in float32: a padding position is
+    inert only at finite ones, and finite ones can still overflow s m, or m itself, at a genome's
+    own positions, which no entry check sees (`_recurrent_forward`); the inversion's entry, read
+    after the output function, is not refused there. On a feed-forward substrate both forwards
+    refuse node rule ``'anti'`` with the inversion on, configured or given (with the recurrent
+    path's message; `NeuromodulationSettings` defaults the inversion to True): the loop never
+    inverts under ``'anti'``.
 
     Rounding. A genome whose settling is chaotic carries float32 rounding to order 1, so two
     evaluations of it that differ only in rounding can give outputs that differ by order 1: eager
@@ -1020,19 +1079,22 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
             ``'softmax'`` hidden activation, inputs that are not ``(n_samples, num_inputs)``, or
             under neuromodulation a strength, or an entry of the vector the node rule or the
             inversion reads, that is not finite in float32. Under neuromodulation there, an unknown
-            modulation mode or node rule, receptors or base gains that do not cover the substrate's
-            genomes and positions, a neurotransmitter vector shorter than the channels the node
-            rule and the inversion read, and, with the configuration's settings, a channel count
-            outside 2 to 6 or an unknown receptor derivation (`derive_receptor_from_weight`); in
-            the compiled forward, also receptors without the channels the node rule reads. On a
+            modulation mode or node rule, node rule ``'anti'`` with the output inversion on,
+            receptors or base gains that do not cover the substrate's genomes and positions, a
+            neurotransmitter vector that is not one-dimensional or is shorter than the channels the
+            node rule and the inversion read, and, with the configuration's settings, a channel
+            count outside 2 to 6 or an unknown receptor derivation (`derive_receptor_from_weight`);
+            in the compiled forward, also receptors without the channels the node rule reads. On a
             recurrent substrate: ``chunk_size``; hidden-to-hidden connections not built; under
-            neuromodulation, what `SubstrateConfig.validate` refuses in its configuration and in
-            the settings of a given ``neuromodulation`` (a channel count outside 2 to 6, an unknown
+            neuromodulation, what `SubstrateConfig.validate` refuses in its configuration and in the
+            settings of a given ``neuromodulation`` (a channel count outside 2 to 6, an unknown
             modulation mode, node rule or receptor derivation, a strength that is not a finite
             number in float32, and what the generation loop refuses there), receptors or base gains
             that do not cover the substrate's genomes and positions, receptors without the channels
-            the node rule reads, and a neurotransmitter vector shorter than the channels the node
-            rule and the inversion read.
+            the node rule reads, a neurotransmitter vector that is not one-dimensional or is shorter
+            than the channels the node rule and the inversion read, and an entry of that vector the
+            node rule reads that is not finite in float32. On either substrate, a
+            ``guarded_softplus`` that is not a bool (`_guarded`).
     """
     config = substrate.config
     if config.hidden_to_hidden:
@@ -1075,8 +1137,9 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
     global_agg_fn = (AGGREGATION_FUNCTIONS[config.global_aggregation]
                      if config.aggregation_mode == "global" else None)
     palette = _palette(config)
-    hidden_act_fn = ACTIVATION_FUNCTIONS[config.hidden_activation]
-    output_act_fn = ACTIVATION_FUNCTIONS[config.output_activation]
+    guarded = _guarded(config)
+    hidden_act_fn = activation_function(config.hidden_activation, guarded)
+    output_act_fn = activation_function(config.output_activation, guarded)
 
     def one(W1, W2, act_idx, agg_idx):
         return dense_substrate_forward(
@@ -1089,6 +1152,7 @@ def substrate_forward(substrate: Substrate, inputs: Any, return_states: bool = F
             per_node_aggregation=per_node_aggregation,
             true_aggregation=config.true_aggregation,
             num_aggregations=_evaluated_aggregations(config),
+            guarded_softplus=guarded,
         )
 
     return jax.vmap(one)(substrate.W1, substrate.W2, substrate.act_indices, agg_indices)
@@ -1180,7 +1244,8 @@ def _checked_neuromodulation(substrate: Substrate, nm: SubstrateNeuromodulation,
     On a recurrent substrate ``nm`` is held to `SubstrateConfig.validate`'s checks of its own
     settings, with validate's messages, so a caller-built one on a configuration without
     neuromodulation settings is checked as validate checks a configured one; the feed-forward path
-    keeps its own message for an unknown mode or node rule.
+    keeps its own message for an unknown mode or node rule. On either path the settings are checked
+    before the arrays.
 
     Args:
         substrate: The substrate the forward evaluates.
@@ -1193,7 +1258,8 @@ def _checked_neuromodulation(substrate: Substrate, nm: SubstrateNeuromodulation,
         ``(receptors, base_gains)`` as arrays.
 
     Raises:
-        ValueError: On a feed-forward substrate, an unknown modulation mode or node rule. On a
+        ValueError: On a feed-forward substrate, an unknown modulation mode or node rule, and node
+            rule ``'anti'`` with the output inversion on (the recurrent path's message). On a
             recurrent one, what validate refuses in these settings (a channel count outside 2 to
             6, an unknown mode or node rule, `_recurrent_neuromodulation_refusal`'s refusals). On a
             recurrent substrate and in the compiled feed-forward forward, receptors without the
@@ -1211,6 +1277,13 @@ def _checked_neuromodulation(substrate: Substrate, nm: SubstrateNeuromodulation,
             or settings.node_rule not in NEUROMODULATION_NODE_RULES):
         raise ValueError(f"unknown modulation mode {settings.modulation_mode!r} or node rule "
                          f"{settings.node_rule!r}")
+    elif settings.node_rule == "anti" and settings.output_inversion:
+        # As on a recurrent substrate and with its message, at any channel count: the loop never
+        # inverts under 'anti', and a hand-built NeuromodulationSettings(node_rule='anti') inverts
+        # by default (one minus its outputs with the inversion off at a fourth entry of 0, as the
+        # loop's one-hot task vectors have). The loop's other 'anti' refusals stay off this path:
+        # the rule reads no mode, and the loop's multi-task mode reads more than four channels
+        raise ValueError(_ANTI_INVERSION_REFUSAL)
     receptors, base_gains = jnp.asarray(nm.receptors), jnp.asarray(nm.base_gains)
     if receptors.shape[:2] != substrate.mask.shape or base_gains.shape != substrate.mask.shape:
         raise ValueError(f"receptors {receptors.shape} and base gains {base_gains.shape} must cover "
@@ -1265,7 +1338,9 @@ def _neuromodulated_forward(substrate: Substrate, inputs: Any,
     The checks run in this order: the settings and the arrays (`_checked_neuromodulation`), the
     inputs' conversion, the configured functions' lookup, then the vector
     (`_check_neurotransmitter`), so a call with two wrong arguments raises the earlier check's
-    error.
+    error. The settings' checks include node rule ``'anti'`` with the inversion on, after the
+    unknown mode or node rule's: such a call is refused for ``'anti'`` before its arrays, inputs,
+    configured functions and vector are checked.
     """
     config = substrate.config
     settings = nm.settings
@@ -1278,15 +1353,16 @@ def _neuromodulated_forward(substrate: Substrate, inputs: Any,
     global_agg_fn = (AGGREGATION_FUNCTIONS[config.global_aggregation]
                      if config.aggregation_mode == "global" else None)
     palette = _palette(config)
-    hidden_act_fn = ACTIVATION_FUNCTIONS[config.hidden_activation]
-    output_act_fn = ACTIVATION_FUNCTIONS[config.output_activation]
+    guarded = _guarded(config)
+    hidden_act_fn = activation_function(config.hidden_activation, guarded)
+    output_act_fn = activation_function(config.output_activation, guarded)
     num_nt = int(settings.num_nt_types)
     _check_neurotransmitter(settings, neurotransmitter)
 
     def one(W1, W2, act_idx, agg_idx, receptors_i, base_gains_i):
         node_fn, operands = true_neuromodulation_node_rule(
             node_activation_rule('every_iteration', act_idx, hidden_act_fn, palette,
-                                 config.num_activations),
+                                 config.num_activations, guarded),
             receptors_i, base_gains_i, neurotransmitter, settings.modulation_strength, num_nt,
             settings.modulation_mode, settings.node_rule)
         drive = input_drive(inputs, W1, agg_idx, global_agg_fn, per_node_aggregation,
@@ -1364,7 +1440,11 @@ def _feedforward_key(config: SubstrateConfig, has_act: bool, has_agg: bool,
     shape: the operands' shapes (the bucket size and the chunk rows, the input and output counts,
     the receptor channels, the vector's length) select among the programs one entry's jitted
     function keeps (`_feedforward_forward_fn`), so a bucket size or a chunk of rows never takes an
-    entry of its own.
+    entry of its own. The guarded softplus (a value other than a bool is refused, `_guarded`) joins
+    the key where the combination applies a softplus (the output activation, the hidden one without
+    per-node activations, index 7 of the palette or of the leading activations with them),
+    appended last after the neuromodulation settings (None without neuromodulation); a
+    configuration without it, and a guarded one that applies no softplus, keep the key above.
     """
     global_function = config.global_aggregation if config.aggregation_mode == "global" else None
     per_node_aggregation = has_agg and global_function is None
@@ -1379,12 +1459,21 @@ def _feedforward_key(config: SubstrateConfig, has_act: bool, has_agg: bool,
            _evaluated_aggregations(config) if exact_aggregation else None,
            int(config.num_activations) if has_act and config.palette is None else None,
            bool(has_act), bool(has_agg))
+    settings = None
+    if neuromodulation is not None:
+        num_nt = int(neuromodulation.num_nt_types)
+        node_rule = str(neuromodulation.node_rule)
+        settings = (num_nt, None if node_rule == "anti" else str(neuromodulation.modulation_mode),
+                    node_rule, bool(neuromodulation.output_inversion) and num_nt >= 4)
+    guarded = _guarded(config) and (
+        config.output_activation == "softplus"
+        or (has_act and _palette_applies_softplus(config.palette, int(config.num_activations)))
+        or (not has_act and config.hidden_activation == "softplus"))
+    if guarded:
+        return key + (settings, True)
     if neuromodulation is None:
         return key
-    num_nt = int(neuromodulation.num_nt_types)
-    node_rule = str(neuromodulation.node_rule)
-    return key + ((num_nt, None if node_rule == "anti" else str(neuromodulation.modulation_mode),
-                   node_rule, bool(neuromodulation.output_inversion) and num_nt >= 4),)
+    return key + (settings,)
 
 
 def _feedforward_forward_fn(config: SubstrateConfig, has_act: bool, has_agg: bool,
@@ -1414,7 +1503,7 @@ def _compiled_feedforward_forward(palette_entries: Optional[Tuple[int, ...]],
                                   num_aggregations: Optional[int], num_activations: Optional[int],
                                   has_act: bool, has_agg: bool,
                                   neuromodulation: Optional[Tuple[int, Optional[str], str, bool]]
-                                  = None) -> Any:
+                                  = None, guarded_softplus: bool = False) -> Any:
     """The jitted forward of a bucket's genome slots for one combination of the settings
     `_feedforward_key` reads.
 
@@ -1429,13 +1518,14 @@ def _compiled_feedforward_forward(palette_entries: Optional[Tuple[int, ...]],
     ``global_aggregation`` is the global function, None outside the 'global' mode.
     ``neuromodulation`` is ``(num_nt_types, modulation_mode, node_rule, output_inversion)``, which
     adds four operands (receptors, base gains, neurotransmitter vector, strength); None gives the
-    forward without it.
+    forward without it. ``guarded_softplus`` makes every softplus the forward applies the guarded
+    one; False keeps the published softplus.
     """
     # The palette concrete outside the trace: it selects Python functions while tracing
     palette = None if palette_entries is None else jnp.array(palette_entries, dtype=jnp.int32)
     hidden_fn = (None if hidden_activation_name is None
-                 else ACTIVATION_FUNCTIONS[hidden_activation_name])
-    output_fn = ACTIVATION_FUNCTIONS[output_activation]
+                 else activation_function(hidden_activation_name, guarded_softplus))
+    output_fn = activation_function(output_activation, guarded_softplus)
     global_agg_fn = (None if global_aggregation is None
                      else AGGREGATION_FUNCTIONS[global_aggregation])
     act_axis = 0 if has_act else None
@@ -1447,7 +1537,7 @@ def _compiled_feedforward_forward(palette_entries: Optional[Tuple[int, ...]],
                 hidden_act_fn=hidden_fn, output_act_fn=output_fn, palette=palette,
                 num_activations=num_activations, global_agg_fn=global_agg_fn,
                 per_node_aggregation=has_agg, true_aggregation=true_aggregation,
-                num_aggregations=num_aggregations)
+                num_aggregations=num_aggregations, guarded_softplus=guarded_softplus)
 
         def forward(inputs, W1, W2, act_idx, agg_idx):
             return jax.vmap(one, in_axes=(None, 0, 0, act_axis, 0))(inputs, W1, W2, act_idx,
@@ -1459,7 +1549,8 @@ def _compiled_feedforward_forward(palette_entries: Optional[Tuple[int, ...]],
     def one_neuromodulated(inputs, W1, W2, act_idx, agg_idx, receptors, base_gains,
                            neurotransmitter, strength):
         node_fn, operands = true_neuromodulation_node_rule(
-            node_activation_rule("every_iteration", act_idx, hidden_fn, palette, num_activations),
+            node_activation_rule("every_iteration", act_idx, hidden_fn, palette, num_activations,
+                                 guarded_softplus),
             receptors, base_gains, neurotransmitter, strength, num_nt, modulation_mode, node_rule)
         drive = input_drive(inputs, W1, agg_idx, global_agg_fn, has_agg, true_aggregation,
                             num_aggregations)
@@ -1483,32 +1574,63 @@ def _compiled_neuromodulation_refusal(settings: NeuromodulationSettings,
     The forward zero-pads each genome's receptors and base gains past its count, which adds exact
     zeros only at a finite strength and vector: at a padded position m = receptors @ nt = 0, so an
     infinite strength makes s m = inf * 0 = NaN in the node rule's bias, gate or gain, and an
-    infinite or NaN entry of the vector makes m itself NaN; the padded W2 rows are zero, and
-    NaN * 0 carries it to every output of the genome. The dense forward's positions outside the
-    mask carry the receptors of a zero weight instead and follow another rule, so the two put NaN
-    at different genomes. That holds for the strength and for the entries m reads (the first three,
-    every one under ``'anti'``). The inversion's entry (the fourth) acts after the output function,
-    as in the dense forward, so the padding does not touch it; it is refused with the others for one
-    rule over the entries `_check_neurotransmitter` counts. Refused: a strength `_finite_number`
-    refuses (as on a recurrent substrate, whose message this follows) and a vector with an entry the
-    node rule or the inversion reads that is not finite in float32, the precision the forward reads
-    both at.
+    infinite entry of the vector makes m itself NaN; the padded W2 rows are zero, and NaN * 0
+    carries it to every output of the genome. The dense forward's positions outside the mask carry
+    the receptors of a zero weight instead and follow another rule, so the two put NaN at different
+    genomes. That holds for the strength and for an infinite entry m reads (the first three, every
+    one under ``'anti'``); a NaN entry makes m NaN at every position, so both forwards give NaN at
+    every output of every genome. The inversion's entry (the fourth) acts after the output
+    function, as in the dense forward, so the padding does not touch it. Both are refused with the
+    others, for one rule over the entries `_check_neurotransmitter` counts. Refused: a strength
+    `_finite_number` refuses (as on a recurrent substrate, whose message this follows) and a vector
+    with an entry the node rule or the inversion reads that is not finite in float32, the precision
+    the forward reads both at (`_neurotransmitter_entries_refusal`, whose check of m's entries the
+    recurrent forward shares).
     """
     if not _finite_number(settings.modulation_strength):
         return (f"neuromodulation.modulation_strength must be a finite number with compiled=True, "
                 f"at most {float(np.finfo(np.float32).max):.3g} in magnitude (the forward reads it "
                 f"in float32), got {settings.modulation_strength!r}")
+    return _neurotransmitter_entries_refusal(settings, neurotransmitter, inversion=True,
+                                             where="with compiled=True")
+
+
+def _neurotransmitter_entries_refusal(settings: NeuromodulationSettings, neurotransmitter: Any, *,
+                                      inversion: bool, where: str) -> Optional[str]:
+    """Why a forward refuses this neurotransmitter vector, or None: an entry it checks is not finite
+    in float32, the precision the compiled feed-forward and the recurrent forward read the vector
+    at (1e40, finite in float64, is inf there).
+
+    The entries checked are those m = receptors @ nt reads (the first three, every one under
+    ``'anti'``), an infinite one of which makes m NaN at a zero-padded position (0 * inf) and a NaN
+    one at every position, and with ``inversion`` the inversion's (the fourth, when the settings
+    invert with four or more channels). The compiled feed-forward forward checks the inversion's
+    too (`_compiled_neuromodulation_refusal`); the recurrent forward does not
+    (`_recurrent_forward`): there the inversion's entry acts after the output function, on no
+    padding. The check reads the entries, not their products: finite entries can still overflow
+    s m, or m itself, at a genome's own positions (`_recurrent_forward` gives the thresholds).
+
+    Args:
+        settings: The neuromodulation settings the forward follows.
+        neurotransmitter: The vector, its length checked (`_check_neurotransmitter`).
+        inversion: Whether the inversion's entry is checked with m's.
+        where: The forward, as the message names it.
+
+    Returns:
+        The refusal's message, or None.
+    """
     num_nt = int(settings.num_nt_types)
     read = num_nt if settings.node_rule == "anti" else min(3, num_nt)
-    if settings.output_inversion and num_nt >= 4:
+    if inversion and settings.output_inversion and num_nt >= 4:
         read = max(read, 4)
     with np.errstate(over="ignore", invalid="ignore"):
         entries = np.asarray(neurotransmitter).astype(np.float32)[:read]
-    if not np.isfinite(entries).all():
-        return (f"the neurotransmitter vector's entries the node rule and the inversion read (the "
-                f"first {read}) must be finite in float32 with compiled=True (the forward reads "
-                f"them in float32), got {np.asarray(neurotransmitter).tolist()}")
-    return None
+    if np.isfinite(entries).all():
+        return None
+    readers = "the node rule and the inversion read" if inversion else "the node rule reads"
+    return (f"the neurotransmitter vector's entries {readers} (the first {read}) must be finite in "
+            f"float32 {where} (the forward reads them in float32), got "
+            f"{np.asarray(neurotransmitter).tolist()}")
 
 
 def _compiled_feedforward(substrate: Substrate, inputs: Any,
@@ -1526,8 +1648,9 @@ def _compiled_feedforward(substrate: Substrate, inputs: Any,
     The genomes of a bucket go in its fixed slots (`_compiled_slots`), the unused ones zero; the
     inputs in chunks of ``chunk_size`` rows rounded up to a multiple of `_CHUNK_ROW_MULTIPLE`
     (`_chunk_rows`), the last one zero-padded and its padding dropped. The checks are the dense
-    forward's, in its order (the neuromodulation's arrays, the inputs, the configured functions,
-    the vector), then this forward's own: the strength and the vector's entries finite in float32.
+    forward's, in its order (the settings, the neuromodulation's arrays, the inputs, the
+    configured functions, the vector), then this forward's own: the strength and the vector's
+    entries finite in float32.
     """
     config = substrate.config
     if substrate.act_indices is None and config.hidden_activation == "softmax":
@@ -1890,6 +2013,9 @@ def _recurrent_forward_fn(config: SubstrateConfig, size: int, has_act: bool, has
     forward has. ``complete`` gives the forward of a global ``'softmax'`` hidden activation, which
     settles the virtual position of `full_grid_softmax` after the genome's positions and takes its
     operands last (`_recurrent_forward`); a key without it builds the forward without it.
+    ``SubstrateConfig.guarded_softplus`` (a value other than a bool is refused, `_guarded`) joins
+    the key last when set, like the settings above whatever the forward reads; a key without it
+    builds the forward without it.
     """
     key = (
         _activate_time(config),
@@ -1916,6 +2042,8 @@ def _recurrent_forward_fn(config: SubstrateConfig, size: int, has_act: bool, has
         str(neuromodulation.node_rule),
         bool(neuromodulation.output_inversion),
     )
+    if _guarded(config):
+        return _compiled_recurrent_forward(*key, settings, bool(complete), True)
     if complete:
         return _compiled_recurrent_forward(*key, settings, True)
     if neuromodulation is None:
@@ -1944,6 +2072,7 @@ def _compiled_recurrent_forward(
     return_states: bool,
     neuromodulation: Optional[Tuple[int, str, str, bool]] = None,
     complete: bool = False,
+    guarded_softplus: bool = False,
 ) -> Any:
     """The compiled forward for one combination of the settings `_recurrent_forward_fn` reads.
 
@@ -1951,11 +2080,12 @@ def _compiled_recurrent_forward(
     forward under true neuromodulation, which takes four more operands (receptors, base gains,
     neurotransmitter vector, strength); None gives the forward without it. ``complete`` gives the
     forward of a global ``'softmax'`` hidden activation (`_completed_recurrent_forward`); False
-    builds the forwards above.
+    builds the forwards above. ``guarded_softplus`` makes every softplus the forward applies the
+    guarded one; False keeps the published softplus.
     """
     palette = None if palette_entries is None else jnp.array(palette_entries, dtype=jnp.int32)
-    hidden_fn = ACTIVATION_FUNCTIONS[hidden_activation_name]
-    output_fn = ACTIVATION_FUNCTIONS[output_activation]
+    hidden_fn = activation_function(hidden_activation_name, guarded_softplus)
+    output_fn = activation_function(output_activation, guarded_softplus)
     plain = activation_mode == "disabled" and aggregation_mode == "disabled" and not has_hh_agg
     drive_kwargs = dict(
         global_agg_fn=AGGREGATION_FUNCTIONS[global_aggregation] if aggregation_mode == "global" else None,
@@ -1992,7 +2122,8 @@ def _compiled_recurrent_forward(
         else:
             drive = input_drive(inputs, W1, agg_idx, **drive_kwargs)
             node_fn = (jnp.tanh if hh_mode == "initial_only"
-                       else node_activation(hh_mode, act_idx, hidden_fn, palette, num_activations))
+                       else node_activation(hh_mode, act_idx, hidden_fn, palette, num_activations,
+                                            guarded_softplus))
             if drive_once:
                 first_fn = (
                     jnp.tanh
@@ -2003,6 +2134,7 @@ def _compiled_recurrent_forward(
                         hidden_act_fn=hidden_fn,
                         palette=palette,
                         num_activations=num_activations,
+                        guarded_softplus=guarded_softplus,
                     )
                 )
                 hidden = settle_hidden_drive_once(
@@ -2048,14 +2180,16 @@ def _compiled_recurrent_forward(
         # (the 'drive_once' rule's later steps), else hh_activation_mode's
         if hh_mode == "initial_only":
             return jnp.tanh, ()
-        return node_activation_rule(hh_mode, act_idx, hidden_fn, palette, num_activations)
+        return node_activation_rule(hh_mode, act_idx, hidden_fn, palette, num_activations,
+                                    guarded_softplus)
 
     def first_activation(act_idx):
         # The 'drive_once' rule's first step applies the configured activation (tanh under
         # 'tanh'), as in the loop
         if hh_mode == "tanh":
             return jnp.tanh, ()
-        return node_activation_rule("every_iteration", act_idx, hidden_fn, palette, num_activations)
+        return node_activation_rule("every_iteration", act_idx, hidden_fn, palette, num_activations,
+                                    guarded_softplus)
 
     def neuromodulated(inputs, W1, W2, act_idx, agg_idx, hh_agg_idx, from_idx, to_idx, weights,
                        valid, receptors, base_gains, neurotransmitter, strength):
@@ -2189,9 +2323,24 @@ def _recurrent_forward(substrate: Substrate, inputs: Any, return_states: bool,
     Under true neuromodulation (``neuromodulation``) each genome's receptors and base gains are
     gathered at its active positions with its W1 and W2 columns and zero-padded like them, so a
     position its mask clears loses its receptors and gain with its connections, and a padding
-    position stays inert (no weight in or out, no connection). With ``return_states`` there, a
-    genome's outputs come from the program without states and its states from the program with
-    them (`substrate_forward`, Returns).
+    position stays inert (no weight in or out, no connection) at the finite strength validate
+    requires and finite entries of the vector the node rule reads, however large: there m =
+    receptors @ nt = 0. An infinite entry m reads would make m NaN there (0 * inf), which the zero
+    W2 rows carry to every output of the genome, so the outputs would depend on the bucket size:
+    evaluated without the check, of 20 genomes at depth 3 (XOR, seed 42; an Apple M4 Max, jax
+    0.6.1), 2 of the 4 that fill their bucket stay finite, and turn NaN with every bucket doubled. A
+    NaN entry would make m NaN at every position, and every output of every genome NaN, padded or
+    not. Both are refused, in float32, the precision this forward reads the vector at
+    (`_neurotransmitter_entries_refusal`). The check reads the entries, not their products: finite
+    entries can still overflow s m, or m itself, at a genome's own positions, which its weights
+    decide, not its padding. Under the ``'tanh'`` derivation, w being a position's first input
+    weight over ``max_weight``: at strength 5, s m from about NE = 1.47e38 at w = 0 (the NE receptor
+    is -0.46 there) and DA = NE = 5.56e37 at w = 1; m itself from about DA = NE = 2.78e38 at w = 1,
+    which makes s m NaN at strength 0 (0 * inf) and infinite at any other. The dense feed-forward
+    forward meets the s m overflow at the zero weights outside a genome's mask (`substrate_forward`,
+    the ``compiled=True`` paragraph). The inversion's entry acts after the output function, on no
+    padding, and is not refused. With ``return_states`` there, a genome's outputs come from the
+    program without states and its states from the program with them (`substrate_forward`, Returns).
 
     Under a global ``'softmax'`` hidden activation a genome's positions carry the virtual position
     of `full_grid_softmax` after the padding, which stands for the grid positions outside its mask:
@@ -2212,6 +2361,17 @@ def _recurrent_forward(substrate: Substrate, inputs: Any, return_states: bool,
         nm_traced = (jnp.asarray(neurotransmitter, dtype=jnp.float32),
                      jnp.asarray(neuromodulation.settings.modulation_strength, dtype=jnp.float32))
     inputs = jnp.asarray(inputs, dtype=jnp.float32)
+    if neuromodulation is not None:
+        # A padding position is inert only at finite entries m reads: an infinite one would make m
+        # NaN at every padded position, so a genome's outputs would depend on its bucket size (a
+        # NaN one would make every output NaN). Checked after the inputs' conversion, the last check
+        # before the computation, so a call an earlier check refuses keeps that check's message;
+        # the inversion's entry, read after the output function, stays open
+        refusal = _neurotransmitter_entries_refusal(neuromodulation.settings, neurotransmitter,
+                                                    inversion=False,
+                                                    where="on a recurrent substrate")
+        if refusal is not None:
+            raise ValueError(refusal)
     masks = np.asarray(substrate.mask)
     pop, total = masks.shape
     W1, W2 = np.asarray(substrate.W1), np.asarray(substrate.W2)

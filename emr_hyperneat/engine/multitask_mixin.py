@@ -10,7 +10,7 @@ import numpy as np
 from emr_hyperneat._compat.core.base_algorithm import AlgorithmMetrics
 from emr_hyperneat.emrhyperneat_base import get_hierarchical_grid
 from emr_hyperneat.engine.config import ForwardPassMode
-from emr_hyperneat.engine.functions import ACTIVATION_FUNCTIONS
+from emr_hyperneat.engine.functions import ACTIVATION_FUNCTIONS, activation_function
 from emr_hyperneat.engine.metrics import fitness_statistics, sanitize_fitness, species_summary
 from emr_hyperneat.engine.multitask import (
     BRANCH_GATING_MODES,
@@ -451,6 +451,13 @@ class MultiTaskMixin:
     #: block): the tasks are evaluated from the ceiling-sized _cached_W1, _cached_W2 and
     #: _cached_sparse_hh with the receptors that generation derives
     _multitask_inner_generation = False
+    #: True while that inner generation runs for the list form, which sets both flags: it stops
+    #: before its forward (run_generation_verbose), so it scores and tells nothing and records no
+    #: fitness or champion; it keeps the substrate caches, the receptors, the counters and the
+    #: extended metrics' other fields. A separate flag because a generation run under
+    #: _multitask_inner_generation alone is a scored generation kept on the ceiling, which the
+    #: whole-grid references of tests/test_global_softmax_axis.py evaluate
+    _multitask_structure_only = False
 
     def run_generation_multitask(
         self,
@@ -473,6 +480,22 @@ class MultiTaskMixin:
 
         The approach mirrors the implementation in the prototype's neuromodulation variant (release
         0.1.0).
+
+        The inner run_generation_verbose builds the substrate and scores nothing. The generation's
+        records hold what selection used: _cached_fitnesses, _last_fitnesses and the extended
+        metrics' fitness fields the aggregated fitness NEAT is told, and the modes
+        evaluate_with_neurotransmitter defaults to are multitask.modulation_mode and
+        multitask.fitness_mode ('full' and 'mse' without a multitask configuration). The extended
+        metrics' step timings are the inner generation's: time_evaluation_ms and forward_pass_ms
+        hold its receptor derivation (no forward runs there) and time_neat_evolution_ms is 0; the
+        tasks' evaluation times are the metrics' per_task_times_ms.
+
+        A call that raises once the inner generation has run (an unknown aggregation method or
+        activation name, or settings of a configuration object set by hand that cannot apply or
+        have the wrong type) leaves that generation's arrays, receptors and counter, as any
+        generation does, and no record of a selection: _cached_fitnesses and _last_fitnesses are
+        None and the extended metrics' fitness fields NaN; evaluate_with_neurotransmitter's default
+        modes are this call's, recorded right after the inner generation.
 
         Args:
             state: Current algorithm state
@@ -633,14 +656,17 @@ class MultiTaskMixin:
         first_problem = problems[0]
         # Its metrics carry this population's topology, which no task changes. It keeps its arrays
         # on the ceiling, as under an enabled multitask block, so the receptors it derives share the
-        # cached weights' axis.
-        previous = self._multitask_inner_generation
-        self._multitask_inner_generation = True
+        # cached weights' axis. It scores and tells nothing (_multitask_structure_only): the state
+        # it returns is not told (it is the one given, after the pre-ask key split under
+        # extra_randkey_split), and it is dropped here.
+        previous = self._multitask_inner_generation, self._multitask_structure_only
+        self._multitask_inner_generation = self._multitask_structure_only = True
         try:
             _, structure = self.run_generation_verbose(state, first_problem, skip_metrics=True)
         finally:
-            self._multitask_inner_generation = previous
-        # That generation's champion is the first task's, not this generation's
+            self._multitask_inner_generation, self._multitask_structure_only = previous
+        # No champion is recorded for this generation; the record an earlier generation left is
+        # not this one's
         self._last_eval = None
 
         # Extract cached data
@@ -653,6 +679,22 @@ class MultiTaskMixin:
             raise RuntimeError(
                 "TRUE neuromodulation data not available. Check configuration."
             )
+
+        # The modes the tasks are scored with: multitask.modulation_mode and fitness_mode ('full'
+        # and 'mse' without a multitask configuration). evaluate_with_neurotransmitter reads them
+        # when a call names none, so they are recorded over the single-task ones the inner
+        # generation recorded with the receptors, and here, before anything below can raise (the
+        # two checks above cannot fail once a true-neuromodulation generation has run): a call that
+        # raises below, on a hand-set setting of the wrong type as well, leaves this generation's
+        # arrays with this call's modes, not with modes no selection of this generation scores
+        # with (after a single-task 'ce', a call without a fitness mode would refuse).
+        multitask_cfg = getattr(self, 'multitask_config', None)
+        cfg_fitness_mode = (getattr(multitask_cfg, 'fitness_mode', 'mse')
+                            if multitask_cfg is not None else 'mse')
+        cfg_modulation_mode = (getattr(multitask_cfg, 'modulation_mode', 'full')
+                               if multitask_cfg is not None else 'full')
+        self._neuromod_true['selection_modulation_mode'] = cfg_modulation_mode
+        self._neuromod_true['selection_fitness_mode'] = cfg_fitness_mode
 
         W1 = self._cached_W1
         W2 = self._cached_W2
@@ -668,9 +710,9 @@ class MultiTaskMixin:
         )
         activate_time = self.activate_time if has_hh else 0
 
-        # Determine per-task activation functions from config
+        # Determine per-task activation functions from config (multitask_cfg, read with the modes
+        # above)
         # Priority: per_task_activation > hidden_activation > 'tanh' (default)
-        multitask_cfg = getattr(self, 'multitask_config', None)
         per_task_act_names = []  # List of activation names per task
         task_names = self._multitask_state.get('task_names', [f'task_{i}' for i in range(num_tasks)])
 
@@ -687,9 +729,8 @@ class MultiTaskMixin:
             per_task_act_names.append(act_name)
 
         # Extract extended config values (ported from neuromodulation_functions.py)
-        # These use safe defaults to preserve existing behavior
-        cfg_fitness_mode = 'mse'
-        cfg_modulation_mode = 'full'
+        # These use safe defaults to preserve existing behavior (cfg_fitness_mode and
+        # cfg_modulation_mode are read above, where they are recorded)
         cfg_modulation_strength_override = None
         cfg_two_module_mode = 'none'
         cfg_orthogonality_bonus_weight = orthogonality_bonus  # Use function arg as default
@@ -701,8 +742,6 @@ class MultiTaskMixin:
         cfg_specialization_bonus_weight = 0.0
 
         if multitask_cfg is not None:
-            cfg_fitness_mode = getattr(multitask_cfg, 'fitness_mode', 'mse')
-            cfg_modulation_mode = getattr(multitask_cfg, 'modulation_mode', 'full')
             cfg_modulation_strength_override = getattr(multitask_cfg, 'modulation_strength_override', None)
             cfg_two_module_mode = getattr(multitask_cfg, 'two_module_mode', 'none')
             # Use config orthogonality_bonus_weight if set, otherwise use function arg
@@ -782,7 +821,8 @@ class MultiTaskMixin:
             if act_name not in ACTIVATION_FUNCTIONS:
                 raise ValueError(f"unknown multi-task activation {act_name!r}; the names are "
                                  f"{sorted(ACTIVATION_FUNCTIONS)}")
-            act_fn = ACTIVATION_FUNCTIONS[act_name]
+            # dynamic_functions.guarded_softplus reaches a multi-task 'softplus' too
+            act_fn = activation_function(act_name, self.df_guarded_softplus)
             eval_fn_cache[act_name] = self._create_eval_population_true_neuromodulated(
                 has_hh=has_hh,
                 activate_time=activate_time,
@@ -1037,6 +1077,14 @@ class MultiTaskMixin:
 
         best_fitness, mean_fitness, min_fitness, std_fitness = fitness_statistics(
             aggregated_fitness, nan_fitness_count)
+        # The records of the selection NEAT was just told, as a single-task generation keeps its
+        # own: the aggregated fitness. The modes the tasks were scored with were recorded above.
+        self._cached_fitnesses = aggregated_fitness
+        self._last_fitnesses = aggregated_fitness
+        self._extended_metrics.fitness = best_fitness
+        self._extended_metrics.min_fitness = min_fitness
+        self._extended_metrics.max_fitness = best_fitness
+        self._extended_metrics.std_fitness = std_fitness
 
         # Find best generalist (single individual with highest aggregated fitness)
         best_gen_idx = int(jnp.argmax(aggregated_fitness))
@@ -1357,7 +1405,8 @@ class MultiTaskMixin:
     ) -> jnp.ndarray:
         """The prototype's name: the population's fitness on (inputs, targets) under an NT vector,
         with its settings (MSE, full modulation, tanh), from the weights and receptors the last
-        generation cached.
+        generation cached, whatever modes that generation selected on: it names 'mse' and 'full',
+        since evaluate_with_neurotransmitter defaults to the generation's modes.
 
         Raises:
             ValueError: an NT vector of the wrong size.
@@ -1366,18 +1415,22 @@ class MultiTaskMixin:
         num_nt = self.neuromod_config.num_nt_types
         if nt.shape != (num_nt,):
             raise ValueError(f"NT vector shape {nt.shape} != expected ({num_nt},)")
-        return self.evaluate_with_neurotransmitter(nt, inputs, targets)
+        return self.evaluate_with_neurotransmitter(nt, inputs, targets, fitness_mode='mse',
+                                                   modulation_mode='full')
 
     def evaluate_multi_task_true_neuromodulated(self, tasks: Dict[str, Tuple[Any, Any]],
                                                 aggregation: str = 'mean') -> jnp.ndarray:
         """The prototype's: the population's aggregated fitness over tasks by name, each under its
-        NT vector by name, from the cached weights; no selection. 'product' is the plain product, as
-        in the prototype.
+        NT vector by name, from the cached weights, with the prototype's settings (MSE, full
+        modulation, tanh) whatever modes the last generation selected on; no selection. 'product'
+        is the plain product, as in the prototype.
 
         Raises:
             ValueError: an aggregation other than 'mean', 'min' or 'product'.
         """
-        stacked = jnp.stack([self.evaluate_with_neurotransmitter(name, inputs, targets)
+        stacked = jnp.stack([self.evaluate_with_neurotransmitter(name, inputs, targets,
+                                                                 fitness_mode='mse',
+                                                                 modulation_mode='full')
                              for name, (inputs, targets) in tasks.items()], axis=0)
         if aggregation == 'mean':
             return jnp.mean(stacked, axis=0)
@@ -1418,8 +1471,8 @@ class MultiTaskMixin:
         inputs: jnp.ndarray,
         targets: jnp.ndarray,
         activation_name: Optional[str] = None,
-        fitness_mode: str = 'mse',
-        modulation_mode: str = 'full',
+        fitness_mode: Optional[str] = None,
+        modulation_mode: Optional[str] = None,
         branch_gating_mode: str = 'none',
     ) -> jnp.ndarray:
         """Evaluate the last generation's genomes with a specific neurotransmitter vector and
@@ -1447,6 +1500,23 @@ class MultiTaskMixin:
         sigmoid or a sparsity mechanism (dynamic_functions, aggregation), it runs the same arrays
         in a different network from the generation's.
 
+        A call that names no modes scores with those the last generation's selection used:
+        neuromodulation.modulation_mode and emr_hyperneat.fitness_mode after a single-task
+        generation, multitask.modulation_mode and multitask.fitness_mode ('full' and 'mse' without a
+        multitask configuration) after run_generation_multitask, whatever the single-task settings
+        say. Under the vector, on the data and with the hidden activation the generation scored
+        (activation_name; a multi-task generation's per-task activation is not read), it then gives
+        the fitness selection used, except after a generation that ran what this evaluation does
+        not apply: the features above, fitness_rescale_variance (the generation rescales the
+        fitness it tells; this does not), multitask.modulation_strength_override or
+        two_module_mode, or branch gating (branch_gating_mode is not read from the configuration);
+        and a NaN stays NaN where the generation recorded -inf. Its fitness is the multi-task
+        evaluators' (compute_fitness): with several outputs the accuracy modes ('accuracy',
+        'acc_mse', 'hybrid', 'accuracy_confident') threshold each output at 0.5 and
+        'soft_accuracy' scores each on its own, where a single-task generation takes their argmax
+        or softmax; 'mse' is 1 - MSE where a single-task generation floors it at 0; and 'ce' is not
+        computed.
+
         The caches are those of the last generation that set them (run_generation_verbose, which
         run_generation_multitask runs once per generation). A route that sets none, such as the
         island model, whose islands are engines of their own, leaves the last standard generation's
@@ -1462,10 +1532,10 @@ class MultiTaskMixin:
             targets: Target data, shape (num_cases, num_outputs)
             activation_name: Optional activation function name from ACTIVATION_FUNCTIONS.
                 If None, uses 'tanh'. Examples: 'sin', 'relu', 'burst', 'gauss'
-            fitness_mode: Fitness computation mode ('mse', 'accuracy', 'bce', etc.)
-            modulation_mode: Neuromodulation mode ('full', 'gating_only', 'gain_bias_only'): 'full'
-                by default, whatever neuromodulation.modulation_mode says; pass the configured mode
-                to evaluate as the generation did.
+            fitness_mode: Fitness computation mode (compute_fitness's: 'mse', 'accuracy', 'bce',
+                etc.), or None (the default): the fitness mode the last generation's selection used.
+            modulation_mode: Neuromodulation mode ('full', 'gating_only', 'gain_bias_only'), or
+                None (the default): the mode the last generation's selection used.
             branch_gating_mode: 'none', 'spatial' or 'hierarchical' (multitask.branch_gating_mode):
                 the routing a branch-gated multi-task generation applied; not read from the
                 configuration.
@@ -1478,7 +1548,9 @@ class MultiTaskMixin:
                 receptor densities: the last generation that set them ran without true
                 neuromodulation.
             ValueError: an unknown activation name; cached receptor densities and weights of
-                different position counts (caches that no single generation left).
+                different position counts (caches that no single generation left); no fitness mode
+                named after a generation whose selection scored 'ce', which this evaluation does
+                not compute.
 
         A task name in place of the vector stands for that task's preset NT vector
         (get_nt_for_task), as in the prototype's version of this method.
@@ -1513,6 +1585,18 @@ class MultiTaskMixin:
                 "is enabled with mode='true_neuromodulation': the last generation that cached its "
                 "arrays derived no receptor densities."
             )
+        # The modes the last generation's selection scored with, where the call names none:
+        # recorded with the receptor densities, and over them by the list form.
+        if modulation_mode is None:
+            modulation_mode = self._neuromod_true['selection_modulation_mode']
+        if fitness_mode is None:
+            fitness_mode = self._neuromod_true['selection_fitness_mode']
+            if fitness_mode not in MULTITASK_FITNESS_MODES:
+                raise ValueError(
+                    f"the last generation's selection scored fitness mode {fitness_mode!r}, which "
+                    f"this evaluation does not compute (compute_fitness: "
+                    f"{MULTITASK_FITNESS_MODES}): pass fitness_mode"
+                )
         if isinstance(nt_vector, str):
             nt_vector = get_nt_for_task(nt_vector, self.neuromod_config.num_nt_types)
 
@@ -1547,7 +1631,9 @@ class MultiTaskMixin:
             # An unknown name raises rather than running tanh
             raise ValueError(f"unknown activation {activation_name!r}; the names are "
                              f"{sorted(ACTIVATION_FUNCTIONS)}")
-        act_fn = ACTIVATION_FUNCTIONS[activation_name] if activation_name else jnp.tanh
+        # 'softplus' is the guarded one under dynamic_functions.guarded_softplus
+        act_fn = (activation_function(activation_name, self.df_guarded_softplus)
+                  if activation_name else jnp.tanh)
 
         # Create evaluation function
         check_branch_gating_and_penalty(

@@ -186,6 +186,20 @@ the run's key to choose the genomes; here the genomes are drawn from a key folde
 which also sets the palette. Calling `set_palette_strategy` without the block enables the
 prototype's defaults. 0.1.0 ignored the key and had no `set_palette_strategy`.
 
+`guarded_softplus: true` guards `softplus` against its float32 overflow: `log1p(exp(x))` is inf from
+x = 88.72284 on (ln of float32's largest finite value), so a node or an output past it gives inf,
+and NaN where the inf meets a zero weight or the output inversion. With the key on, every `softplus`
+the evaluation applies (palette index 7, `hidden_activation` under `global` or `output_activation`
+set to `softplus`, a multi-task activation, `evaluate_with_neurotransmitter`'s `activation_name`) is
+`x` where the published form is inf and the published value elsewhere, bit for bit (measured on an
+Apple M4 Max, jax 0.6.1, CPU). It is a value guard: its gradient is the published form's, NaN from
+88.72284 on. `ACTIVATION_LIST`, `ACTIVATION_FUNCTIONS`, the palettes and the draws are unchanged.
+Off, the default, keeps the published softplus and every recorded value; with it on, a compiled
+evaluation that applies a softplus is another program than the published setting's and can round
+unrelated operations apart (the substrate API's recurrent forward compiles its own program whenever
+`SubstrateConfig.guarded_softplus` is set, the same operations where no softplus is applied). A
+bool: anything else raises. The substrate API carries it as `SubstrateConfig.guarded_softplus`.
+
 `critical_periods: {"enabled": true}` raises: nothing in EMR changes a mutation rate (the palette
 paper's critical periods are part of its strategies,
 `papers/emr-dynamic-functions-bio-inspired/scripts/palette_strategies/`). 0.1.0 parsed it and
@@ -538,12 +552,14 @@ m` with no bias and the gate `sigmoid(5 m)`. `modulation_mode: gating_only` appl
 outputs when `use_output_inversion` is set and the vector has four or more channels. `anti`, the
 rule of the prototype's ANTI variant (its anti-correlated-receptors variant), reads every channel,
 `m = receptors @ nt`, and applies the gain `clip(base_gain + s m, 0.1, 5)` and the gate
-`sigmoid(m)`, with no bias and no output inversion; it takes `modulation_mode: full` only, refuses
-multi-task branch gating (the routing would replace its modulation over every channel), and needs
-multi-task above four channels, since the single-task vector has four. An unknown rule raises in
-any block, with any mode; a rule other than `paper` raises under another neuromodulation mode, and
-`modulation_mode` takes the three values above only. The multi-task two-module mode computes the
-paper's rule only and refuses the other two.
+`sigmoid(m)`, with no bias and no output inversion (an explicit `use_output_inversion: true` raises,
+an unset one is turned off, and the substrate API refuses `output_inversion` on under `anti`,
+feed-forward and recurrent); it takes `modulation_mode: full` only, refuses multi-task branch gating
+(the routing would replace its modulation over every channel), and needs multi-task above four
+channels, since the single-task vector has four. An unknown rule raises in any block, with any mode;
+a rule other than `paper` raises under another neuromodulation mode, and `modulation_mode` takes the
+three values above only. The multi-task two-module mode computes the paper's rule only and refuses
+the other two.
 
 **Modulatory options.** `modulatory_source` (`weights`, the default, or `cppn`) is a bundle of five
 options, and an option set in the block overrides its bundle's value:
@@ -629,12 +645,17 @@ aggregation=..., weights=..., nt_vectors=...))`, the prototype's call form, runs
 and returns `MultiTaskMetrics` keyed by task name; `evaluate_with_neurotransmitter` takes a task
 name in place of the vector for that task's preset NT vector, and evaluates the arrays the last
 generation evaluated with the receptors it derived (after a compacted recurrent generation the
-compact ones). `run_generation_multitask` evaluates each task with one hidden activation
-(`per_task_activation` or `hidden_activation`) and sum
-aggregation, so it refuses the `dynamic_functions` and `aggregation` modes, and its two-module mode,
-which is feed-forward, refuses recurrence. A worked example is in [writing
-experiments](writing-experiments.md#multi-task-one-substrate-several-tasks); the runners under
-`papers/emr-neuromodulation/scripts/runners/` are the full reference.
+compact ones). A `fitness_mode` or `modulation_mode` the call leaves out is the one the last
+generation's selection used: `emr_hyperneat.fitness_mode` or `neuromodulation.modulation_mode` after
+a single-task generation, and `multitask.fitness_mode` or `multitask.modulation_mode` (`mse` and
+`full` without the block) after `run_generation_multitask`, whatever the single-task keys say; after
+a single-task generation under `emr_hyperneat.fitness_mode: ce` a call that leaves out
+`fitness_mode` raises, since the multi-task evaluators do not compute `ce`.
+`run_generation_multitask` evaluates each task with one hidden activation (`per_task_activation` or
+`hidden_activation`) and sum aggregation, so it refuses the `dynamic_functions` and `aggregation`
+modes, and its two-module mode, which is feed-forward, refuses recurrence. A worked example is
+in [writing experiments](writing-experiments.md#multi-task-one-substrate-several-tasks); the
+runners under `papers/emr-neuromodulation/scripts/runners/` are the full reference.
 
 ## Feature 4: `aggregation`
 

@@ -320,8 +320,12 @@ from emr_hyperneat.engine.functions import (
     PALETTE_EVOLUTION_DECODES,
     PALETTE_EVOLUTION_KEYS,
     RANDOM_SCOPES,
+    _SOFTPLUS_INDEX,
+    _guarded_softplus,
+    _palette_applies_softplus,
     _parse_prototype_reads,
     _segment_extreme_2d,
+    activation_function,
     activation_interpretation_signal,
     aggregation_from_weight_interpretation,
     compute_aggregation_correction_factors,
@@ -602,6 +606,10 @@ class EMRHyperNEAT(AliasesMixin, PaletteMixin, ModesMixin, ChampionMixin, Routes
                                         # fan_in
             sparsity: {level_0: 0.05, level_1: 0.20, level_2_plus: 0.40, wta_k_percent: 0.10}
           hh_activation_mode: 'every_iteration'  # every_iteration or tanh (tanh on h->h)
+          guarded_softplus: false    # true or false only: every softplus applied (palette index 7,
+                                     # hidden, output, a multi-task activation) is x where
+                                     # log1p(exp(x)) is inf in float32, and its published value
+                                     # elsewhere
 
           # CPPN output configuration (for cppn_output mode):
           num_cppn_outputs: 1        # Number of CPPN outputs (1=derive from weights, 2+=dedicated outputs)
@@ -846,7 +854,8 @@ class EMRHyperNEAT(AliasesMixin, PaletteMixin, ModesMixin, ChampionMixin, Routes
     #: key raises rather than leaving a run without what its configuration asks for (the prototype's
     #: aggregation runners nest `aggregation` here; others set `activation_palette`).
     #: `palette_evolution` is the built-in palette evolution (:func:`parse_palette_evolution`),
-    #: `live_strategy` the prototype's live palette strategy (:func:`parse_live_strategy`).
+    #: `live_strategy` the prototype's live palette strategy (:func:`parse_live_strategy`),
+    #: `guarded_softplus` the guarded softplus (:func:`activation_function`).
     DYNAMIC_FUNCTIONS_KEYS = frozenset(
         {
             'mode',
@@ -868,6 +877,7 @@ class EMRHyperNEAT(AliasesMixin, PaletteMixin, ModesMixin, ChampionMixin, Routes
             'cppn_read',
             'weight_source',
             'live_strategy',
+            'guarded_softplus',
         }
     )
     #: Keys of the blocks nested in dynamic_functions.
@@ -1036,6 +1046,8 @@ class EMRHyperNEAT(AliasesMixin, PaletteMixin, ModesMixin, ChampionMixin, Routes
         self.dynamic_functions_mode: str = 'disabled'  # disabled, global, cppn_output, weight_interpretation, random_fixed, random_generation, modular
         self.df_hidden_activation: str = 'tanh'
         self.df_output_activation: str = 'sigmoid'
+        # dynamic_functions.guarded_softplus: every softplus applied is the guarded one
+        self.df_guarded_softplus: bool = False
         self.df_num_activations: int = 4
         self.df_palette: Optional[jnp.ndarray] = None  # Custom palette indices
         self.df_palette_name: Optional[str] = None  # Named palette
@@ -1140,12 +1152,17 @@ class EMRHyperNEAT(AliasesMixin, PaletteMixin, ModesMixin, ChampionMixin, Routes
         # - base_gains: (pop_size, total_positions)
         # - modulation_strength: float
         # - option: 'A' (from weight) or 'B' (dedicated CPPN outputs)
+        # - selection_modulation_mode, selection_fitness_mode: the modes the selection of the
+        #   generation that derived the receptors scored with (evaluate_with_neurotransmitter's
+        #   defaults)
         self._neuromod_true: Dict[str, Any] = {
             'receptor_densities': None,
             'base_gains': None,
             'num_nt_types': 4,
             'modulation_strength': 2.0,
             'option': 'A',  # Default: derive from weights
+            'selection_modulation_mode': None,
+            'selection_fitness_mode': None,
         }
 
         # Modulatory neurons storage (activity modulation, not plasticity)

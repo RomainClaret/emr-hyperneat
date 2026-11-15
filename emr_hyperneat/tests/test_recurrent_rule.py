@@ -1073,7 +1073,7 @@ def test_a_multitask_generation_compiles_nothing(per_task_activation):
     """A recurrent multi-task generation (XOR and AND, true neuromodulation) compiles nothing once
     its shapes were seen; multi-task evaluation keeps every position, so they repeat from the
     first generations on. New evaluators every generation would compile their settling again for
-    the first task's single-task evaluation and for each task: 1 + T executables."""
+    each task: T executables."""
     _watch_compiles()
     tasks = ["xor", "and"]
     config = create_config_with_multi_task(tasks, max_depth=2, population_size=POP)

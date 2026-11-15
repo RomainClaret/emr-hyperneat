@@ -394,6 +394,9 @@ class GenerationMixin:
                 jnp.full((pop_size,), completion.missing, jnp.float32))
         palette = self.df_palette
         num_activations = self.df_num_activations
+        # The two functions are resolved with the guard at configuration (activation_function);
+        # the per-node ones take it here
+        guarded_softplus = self.df_guarded_softplus
         hidden_fn = self._hidden_act_fn if self._hidden_act_fn is not None else jnp.tanh
         output_fn = self._output_act_fn if self._output_act_fn is not None else jax.nn.sigmoid
         activate_time = self.activate_time
@@ -425,7 +428,7 @@ class GenerationMixin:
             if multiplicity_i is not None:
                 return full_grid_softmax, (multiplicity_i,)
             return node_activation_rule(hh_mode if recurrent else 'every_iteration', act_idx,
-                                        hidden_fn, palette, num_activations)
+                                        hidden_fn, palette, num_activations, guarded_softplus)
 
         def first_activation(act_idx, multiplicity_i=None):
             # The prototype's rule applies the configured activation at its first step ('tanh' mode:
@@ -435,7 +438,7 @@ class GenerationMixin:
             if multiplicity_i is not None:
                 return full_grid_softmax, (multiplicity_i,)
             return node_activation_rule(
-                'every_iteration', act_idx, hidden_fn, palette, num_activations
+                'every_iteration', act_idx, hidden_fn, palette, num_activations, guarded_softplus
             )
 
         settling_rule = self._settling_rule
@@ -714,6 +717,7 @@ class GenerationMixin:
                     inputs, W1_i, W2_i, act_idx, agg_idx,
                     hidden_act_fn=hidden_fn, output_act_fn=output_fn, palette=palette,
                     num_activations=num_activations, **drive_kwargs,
+                    guarded_softplus=guarded_softplus,
                 )
             return forward_one, (W1, W2, act_indices, agg_args), False
         if dynamic and completion is not None:
@@ -1120,6 +1124,13 @@ class GenerationMixin:
         """The host side of a told generation, shared by every configuration: the champion record,
         the prototype's live palette strategy, the counters, the metrics and palette evolution.
 
+        The list form's inner generation (``gen.fitnesses`` None, _multitask_structure_only) scores
+        and tells nothing: it keeps the counters, the substrate and topology metrics and the
+        extended metrics' other fields; it records no champion, takes no palette step (the list
+        form refuses palette evolution and the per-node decode a live strategy needs), leaves
+        _last_fitnesses None and its fitness and species metrics NaN and empty.
+        run_generation_multitask then sets the fitness records from the fitness it tells.
+
         Args:
             gen: The evaluated generation's arrays and the facts its metrics report.
             step_times: The generation's step timings.
@@ -1144,15 +1155,17 @@ class GenerationMixin:
         W1, W2, sparse_hh, cache_hit = gen.W1, gen.W2, gen.sparse_hh, gen.cache_hit
         compact_pad, ceiling_positions = gen.compact_pad, gen.ceiling_positions
         total_positions, num_levels, pop_size = gen.total_positions, gen.num_levels, gen.pop_size
+        scored = fitnesses is not None
 
-        self._record_evaluation(
-            forward_one, genome_args, fitnesses, cppn_population,
-            masks_full, masks_A, eval_positions, act_indices, ih_agg_indices, new_state,
-        )
+        if scored:
+            self._record_evaluation(
+                forward_one, genome_args, fitnesses, cppn_population,
+                masks_full, masks_A, eval_positions, act_indices, ih_agg_indices, new_state,
+            )
 
         # The prototype's live palette strategy: after the tell, as in the prototype, and after the
         # record above, whose tie resolution reads the next population's first genome unmutated
-        if self._live_strategy is not None or self._palette_strategy is not None:
+        if scored and (self._live_strategy is not None or self._palette_strategy is not None):
             start = time.perf_counter()
             new_state = self.update_palette_from_strategy(new_state, float(jnp.max(fitnesses)))
             step_times['step6b_palette_update'] = time.perf_counter() - start
@@ -1167,8 +1180,8 @@ class GenerationMixin:
         total_time = time.perf_counter() - total_start
 
         # Compute fitness statistics (over the finite entries when NaN was sanitized)
-        best_fitness, mean_fitness, min_fitness, std_fitness = fitness_statistics(
-            fitnesses, nan_fitness_count)
+        best_fitness, mean_fitness, min_fitness, std_fitness = (
+            fitness_statistics(fitnesses, nan_fitness_count) if scored else (float('nan'),) * 4)
         max_fitness = best_fitness
 
         custom_metrics = {
@@ -1233,7 +1246,8 @@ class GenerationMixin:
         custom_metrics['num_levels'] = num_levels
 
         # The evaluated population's species (state is the state before tell) and topology.
-        num_species, species_sizes, species_fitness = species_summary(state.species, fitnesses)
+        num_species, species_sizes, species_fitness = (
+            species_summary(state.species, fitnesses) if scored else (0, [], []))
         topology = topology_summary(
             W1, W2, masks_A, sparse_hh.num_valid if sparse_hh is not None else None)
 
@@ -1313,13 +1327,14 @@ class GenerationMixin:
             num_species=num_species,
             species_sizes=species_sizes,
             species_fitness=species_fitness,
-            evaluations=pop_size,
+            evaluations=pop_size if scored else 0,
             time_elapsed=total_time,
             **topology,
         )
         # Add custom metrics
         metrics.custom_metrics = custom_metrics
-        self._palette_evolution_step(fitnesses, custom_metrics)
+        if scored:
+            self._palette_evolution_step(fitnesses, custom_metrics)
 
         return new_state, metrics
 
@@ -2238,6 +2253,48 @@ class GenerationMixin:
                 # Store in class attribute
                 self._neuromod_true['receptor_densities'] = receptor_densities
                 self._neuromod_true['base_gains'] = base_gains
+                # The modes this generation's selection scores with, which
+                # evaluate_with_neurotransmitter reads when a call names none. The list form
+                # records its own (multitask.modulation_mode and fitness_mode) over these.
+                self._neuromod_true['selection_modulation_mode'] = (
+                    self.neuromod_config.modulation_mode)
+                self._neuromod_true['selection_fitness_mode'] = self.fitness_mode
+
+        if self._multitask_structure_only:
+            # The list form's one inner generation (run_generation_multitask) ends here, with the
+            # substrate, the caches and the receptors its tasks read: no forward, no evaluation, no
+            # tell and no champion record, and the counters and topology metrics as for any
+            # generation (_finish_generation). The list form records the fitness it tells.
+            step_times['step5_evaluation'] = time.perf_counter() - start
+            step_times['step6_neat_evolution'] = 0.0
+            self._cached_fitnesses = None
+            return self._finish_generation(
+                EvaluatedGeneration(
+                    state=state,
+                    new_state=state,
+                    fitnesses=None,
+                    nan_count=0,
+                    cppn_population=cppn_population,
+                    forward_one=None,
+                    genome_args=None,
+                    masks_full=masks_full,
+                    masks_eval=masks_A,
+                    eval_positions=eval_positions,
+                    act_indices=act_indices,
+                    ih_agg_indices=ih_agg_indices,
+                    W1=W1,
+                    W2=W2,
+                    sparse_hh=sparse_hh,
+                    cache_hit=cache_hit,
+                    compact_pad=compact_pad,
+                    ceiling_positions=ceiling_positions,
+                    total_positions=total_positions,
+                    num_levels=h_grid.num_levels,
+                    pop_size=pop_size,
+                ),
+                step_times,
+                total_start,
+            )
 
         # One per-genome forward for this configuration: the population's fitness here and
         # evaluate_on_data's held-out score both come from it (see _build_forward).

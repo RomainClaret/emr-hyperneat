@@ -324,8 +324,9 @@ def test_one_program_bit_for_bit_across_chunks_slots_genomes_and_repeats():
 #: genome's largest |h @ W2|, and chunks of 3,000 rows or more bit for bit (a substrate built as a
 #: caller that draws pictures builds one gave 6 ulps: 1.2e-3 on pre-activations of 3,012); bit for
 #: bit with one output. Eight times that is 64. The test allows the larger of that and
-#: CPU_CROSS_PROGRAM_ULPS: on a Xeon E5-2683 v4 (AVX2) under XLA's default threading the threaded
-#: product's own rounding adds to the kernel's, a combination not measured.
+#: CPU_CROSS_PROGRAM_ULPS, since under XLA's default multi-threaded Eigen the threaded product may
+#: round apart on its own as well, by an amount not measured on this comparison (a Xeon E5-2683 v4
+#: (AVX2) passes it there).
 CHUNK_SIZE_ULPS_AT_2048 = 64
 
 
@@ -622,6 +623,13 @@ def test_a_value_at_the_overflow_threshold_can_overflow_in_one_forward_only():
 #: The raster the softplus-output search starts from, and how many lines it scans
 _THRESHOLD_RASTER = 64
 _THRESHOLD_LINES = 3
+#: The feed-forward configurations the search tries, in order, until a genome's dense sum rises
+#: past ln(FLT_MAX) along a raster line (below it at one column, past it at the next):
+#: combined_approx first, the population the 31 straddling rows of 243 were measured on, then the
+#: others sorted. Which population has one moves with jax's PRNG default, so none is assumed
+#: (test_multitask_after_compaction.py's UNION_SEEDS runs seeds the same way)
+_THRESHOLD_CONFIGS = ("combined_approx",
+                      *sorted(name for name in feedforward.CONFIGS if name != "combined_approx"))
 
 
 def _overflows(values: Any) -> np.ndarray:
@@ -634,21 +642,31 @@ def test_an_output_at_the_overflow_threshold_can_overflow_in_one_forward_only():
     positions and the compiled one over the genome's own, in another order, so wherever the two
     sums lie on either side of ln(FLT_MAX) a softplus output is finite in one forward and inf in the
     other, on a substrate exactly as built, without neuromodulation or a fused step, with inputs in
-    [-1, 1]. Searched on combined_approx (one genome's sum reaches the threshold on the raster): on
-    a few raster lines where the dense sum crosses it, the 81 float32 inputs around the crossing.
-    Each forward's softplus output overflows exactly where its own sum (the identity output) does,
-    so the two differ in finiteness exactly where their sums straddle the threshold. On an Apple
-    M4 Max some rows straddle (31 of the 243 scanned, the sums one ulp apart); elsewhere any count
-    is accepted."""
-    substrate, _ = _population("ff", "combined_approx")
-    identity, softplus = _with_output(substrate, "identity"), _with_output(substrate, "softplus")
+    [-1, 1] (both configurations the search reaches, combined_approx and geometry_seeding, have no
+    neuromodulation and no fused step). Searched on the first of _THRESHOLD_CONFIGS with a genome
+    whose dense sum rises past the threshold along a raster line: combined_approx under jax's
+    default PRNG (genome 17), geometry_seeding under jax_threefry_partitionable False, where no
+    combined_approx genome reaches it. On a few raster lines where the sum rises past it, the 81
+    float32 inputs around the crossing. Each forward's softplus output overflows exactly where its
+    own sum (the identity output) does, so the two differ in finiteness exactly where their sums
+    straddle the threshold. On an arm64 CPU (an Apple silicon Mac) the test requires at least one
+    straddling row; on an Apple M4 Max 31 of the 243 scanned on combined_approx straddle (the sums
+    one ulp apart), and 34 on geometry_seeding; elsewhere any count is accepted."""
     side = _THRESHOLD_RASTER
     axis = (2.0 * np.arange(side, dtype=np.float32) + 1.0) / side - 1.0
-    sums = np.asarray(substrate_forward(identity, _raster(side)))[:, :, 0].reshape(-1, side, side)
-    over = _overflows(sums)
-    crossings = [(genome, line, column) for genome in range(sums.shape[0])
-                 for line, column in np.argwhere(~over[genome][:, :-1] & over[genome][:, 1:])]
-    assert crossings, "no genome's dense sum reaches the threshold on the raster any more"
+    raster = _raster(side)
+    for name in _THRESHOLD_CONFIGS:
+        substrate, _ = _population("ff", name)
+        identity = _with_output(substrate, "identity")
+        sums = np.asarray(substrate_forward(identity, raster))[:, :, 0].reshape(-1, side, side)
+        over = _overflows(sums)
+        crossings = [(genome, line, column) for genome in range(sums.shape[0]) for line, column in
+                     np.argwhere(~over[genome][:, :-1] & over[genome][:, 1:])]
+        if crossings:
+            break
+    assert crossings, ("no genome's dense sum rises past ln(FLT_MAX) along a raster line in any "
+                       f"of {_THRESHOLD_CONFIGS}")
+    softplus = _with_output(substrate, "softplus")
     straddles = 0
     for genome, line, column in crossings[:_THRESHOLD_LINES]:
         alone_identity, alone_softplus = (_take(s, [genome]) for s in (identity, softplus))

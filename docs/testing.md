@@ -37,34 +37,49 @@ JAX_PLATFORMS=gpu pytest emr_hyperneat/tests/test_multi_gpu_strategies.py -m mul
 
 ### On a GPU
 
-The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. Four files have not passed on a
-GPU: `test_substrate_recurrent_neuromodulation.py` and `test_substrate_compiled_forward.py` take GPU
-allowances sized from their failures on an NVIDIA T4 and an NVIDIA L4 (below), which no GPU run has
-checked, and `test_multitask_after_compaction.py` and `test_global_softmax_axis.py` have not run on
-a GPU. The contracts that assert one computation across layouts (the execution modes, compaction on
-and off, the scan-chunked evaluation against its loop form) are bitwise on XLA:CPU and hold to
-float32 rounding on a GPU, where kernels are chosen per shape; the tests switch on
-`jax.default_backend()` through `conftest.assert_trajectories_agree` (`rtol` 1e-4,
-`conftest.GPU_TRAJECTORY_RTOL`, set from an RTX 2080 Ti measurement whose largest difference was
-3.4e-6). The recurrent substrate API's forwards are compared on a GPU in the genomes that one ulp (a
-unit in the last place, the gap between adjacent float32 values) in the weights does not move past
-that `rtol` of 1e-4 (`test_substrate_recurrent.py`): with dynamic h->h aggregation a GPU's forward
-differs from itself between calls, and so, by the same scatter-add, does the `drive_once` rule's
-(measured with neuromodulation, below). On an NVIDIA T4 and an NVIDIA L4 (jax 0.6.1,
+The suite runs on a CUDA backend too: leave `JAX_PLATFORMS` unset. Four files have passed on one GPU
+only, an NVIDIA T4 (jax 0.6.1, `JAX_DEFAULT_MATMUL_PRECISION=highest`):
+`test_substrate_recurrent_neuromodulation.py` and `test_substrate_compiled_forward.py` take GPU
+allowances sized from their failures on a T4 and an NVIDIA L4 (below), and
+`test_multitask_after_compaction.py` and `test_global_softmax_axis.py` take allowances set for other
+comparisons, not measured on their cases. The tests this release adds or changes passed on a T4 too:
+`test_substrate_neuromodulation_refusals.py`, `test_evaluator_mode_and_list_form.py`,
+`test_guarded_softplus.py`, `test_the_branch_gating_cases_cover_both_pairings` and the configuration
+search of `test_an_output_at_the_overflow_threshold_can_overflow_in_one_forward_only`
+(`test_capabilities_and_public_steps`, which compares names, did not run there). Off the CPU the
+three new files compare outputs within allowances set for other comparisons
+(`conftest.GPU_TRAJECTORY_RTOL`, and `conftest.CPU_CROSS_PROGRAM_ULPS` between the guarded and the
+published softplus), and bit for bit on any backend in two places: the modulation modes under node
+rule `anti` in `test_substrate_neuromodulation_refusals.py`, which the rule does not read, so they
+run the same computation; and in `test_guarded_softplus.py` the function and the per-node and dense
+forwards with the key against those without it, and the dense forward's fitness against the guarded
+generation's, as `test_substrate_api.py` compares them without the key. Under the `drive_once` rule
+the T4's scatter-add, which accumulates in no fixed order, put the two settings' settled states of
+the palette case up to 8.8e-4 apart, so on a GPU `test_guarded_softplus.py` compares the recurrent
+forward's states and outputs there by shape and finiteness. The contracts that assert one
+computation across layouts (the execution modes, compaction on and off, the scan-chunked evaluation
+against its loop form) are bitwise on XLA:CPU and hold to float32 rounding on a GPU, where kernels
+are chosen per shape; the tests switch on `jax.default_backend()` through
+`conftest.assert_trajectories_agree` (`rtol` 1e-4, `conftest.GPU_TRAJECTORY_RTOL`, set from an RTX
+2080 Ti measurement whose largest difference was 3.4e-6). The recurrent substrate API's forwards are
+compared on a GPU in the genomes that one ulp (a unit in the last place, the gap between adjacent
+float32 values) in the weights does not move past that `rtol` of 1e-4
+(`test_substrate_recurrent.py`): with dynamic h->h aggregation a GPU's forward differs from itself
+between calls, and so, by the same scatter-add, does the `drive_once` rule's (measured with
+neuromodulation, below). On an NVIDIA T4 and an NVIDIA L4 (jax 0.6.1,
 `JAX_DEFAULT_MATMUL_PRECISION=highest`) the neuromodulated recurrent forward under `drive_once`
 repeated its outputs only within 1.74e-4 (the L4), so `test_substrate_recurrent_neuromodulation.py`
 compares that rule's repeats within `GPU_SCATTER_ATOL` (1e-3) on a GPU. A settling state differs
-further on a repeat: the T4 put a chaotic genome's states up to 5.9e-3 apart and a steady genome's
-up to 2.3e-3 under `steep_gate` with the inversion, so `test_a_genome_with_no_active_position`
-compares there the steady genomes' outputs and the states by their shape. Two chunk sizes of the
-compiled feed-forward forward, two programs, were up to 1.45e-4 apart on the T4 and 8.4e-5 on the
-L4, on outputs of up to 158 (their value on the CPU), so `test_substrate_compiled_forward.py`
-compares them within 128 ulps of the largest output on a GPU. The CPU comparisons of both files are
-those under [On the CPU](#on-the-cpu), below. `test_multitask_after_compaction.py` and
-`test_global_softmax_axis.py` take GPU allowances set for other comparisons, not measured on their
-cases; both pass on the T4. The tests pin `jax_default_matmul_precision` to `highest` (conftest):
-on a GPU from Ampere on, JAX's default is TF32 (TensorFloat-32: float32's range with a 10-bit
-mantissa), whose rounding is far above these allowances.
+further on a repeat, in a steady genome too: under `steep_gate` with the inversion the T4 put one
+steady genome's states up to 5.9e-3 apart in one run and 2.3e-3 in another, its outputs within 1e-3,
+so `test_a_genome_with_no_active_position` compares there the steady genomes' outputs and the states
+by their shape. Two chunk sizes of the compiled feed-forward forward, two programs, were up to
+1.45e-4 apart on the T4 and 8.4e-5 on the L4, on outputs of up to 158 (their value on the CPU), so
+`test_substrate_compiled_forward.py` compares them within 128 ulps of the largest output on a GPU.
+The CPU comparisons of both files are those under [On the CPU](#on-the-cpu), below. The tests pin
+`jax_default_matmul_precision` to `highest` (conftest): on a GPU from Ampere on, JAX's default is
+TF32 (TensorFloat-32: float32's range with a 10-bit mantissa), whose rounding is far above these
+allowances.
 
 On a GPU, under `pytest-xdist` set `XLA_PYTHON_CLIENT_PREALLOCATE=false`, otherwise every
 worker preallocates 75% of the first card; and run `test_depth_offload_gpu.py` (marker `cuda`) on its
@@ -148,6 +163,33 @@ population, one program on the same operands, compares bit for bit on the CPU; a
 generation's fitness against the registry softmax's computation written out, two programs, bit for
 bit under single-threaded Eigen, where the M4 Max computed them so (the same two ways), and as two
 programs under multi-threaded Eigen.
+
+`test_substrate_neuromodulation_refusals.py` compares the recurrent forward with every bucket
+doubled, another program, with the forward as built within `conftest.GPU_TRAJECTORY_RTOL` on every
+backend, finite at the same outputs (on the M4 Max under single-threaded Eigen they gave the same
+bits); each of its other comparisons of outputs is within one program, bit for bit on the CPU.
+
+`test_evaluator_mode_and_list_form.py` compares `evaluate_with_neurotransmitter` without modes
+with the evaluator under the modes the generation's selection used, one program on the same
+operands, and the list form's selection with a recomposition on a second engine from the same
+seed: both bit for bit on the CPU and within `conftest.GPU_TRAJECTORY_RTOL` elsewhere. Under
+single-threaded Eigen it also compares a call without modes after a single-task generation with
+that generation's own fitness, two programs, bit for bit, where an Apple M4 Max computed them so.
+
+`test_guarded_softplus.py` compares each evaluation with and without `guarded_softplus` (the
+`dynamic_functions` key and `SubstrateConfig`'s field). The guarded function equals the published
+one bit for bit wherever the published value is finite, on every float32 of [1, 2), [64, 128) and
+(-128, -64], 2^20 uniform values in [-100, 100) and the special values, measured on an Apple M4 Max
+(jax 0.6.1, CPU). Where nothing overflows, the dense feed-forward forward computes the same
+operations under both settings and compares bit for bit; the compiled feed-forward forward, the
+recurrent forward and the generation loop compile another program under the key wherever a softplus
+is applied, and compare within `conftest.CPU_CROSS_PROGRAM_ULPS`. On an Apple M4 Max under
+single-threaded Eigen they were bit for bit but for the outputs of the `drive_once` rule's recurrent
+forward with per-node activations and without neuromodulation, up to 28 ulps apart on XOR's rows (14
+of 32 values) and 18 on XOR's inputs scaled to 100 (10 of 20). The settled states of every genome
+that does not overflow compare bit for bit under single-threaded Eigen on the CPU, and within the
+same allowance under multi-threaded Eigen or off the CPU. Where the published `softplus` output
+overflows, the dense forward's guarded output is `h @ W2` itself, bit for bit.
 
 ### On Linux, raise `vm.max_map_count` first
 
@@ -248,21 +290,22 @@ A recorded value is weaker than a live check, in three ways:
 
 | Tier | When | What |
 |---|---|---|
-| Push gate (`ci.yml`, job `smoke`) | every push and pull request | the XOR smoke script, then the isolation, configuration, execution-mode, compaction, recurrence, prototype-reference, data-release, golden, text-style, multi-GPU worker, paper-import and pytest-configuration files |
-| Nightly (`ci.yml`, job `full-suite`) | 04:00 UTC daily, or `workflow_dispatch` | the whole non-slow, non-GPU suite, split into shards that run in parallel; each test file is assigned to exactly one shard, and a step fails the job if a new file is not assigned. It includes `test_multi_device_parity.py`, which runs every multi-device route on two, three and four forced CPU devices and checks that each hands NEAT the generation-0 fitness and draws the random keys a single-device run does. The longer harnesses on forced CPU devices are marked `slow`: the split routes' runs and backends against `single_gpu`, bit for bit (`test_multi_device_parity.py`, `test_device_split.py`), and the island placements (`test_islands.py`) |
+| Push gate (`ci.yml`, job `smoke`) | every push to `main` and every pull request | the XOR smoke script, then the isolation, configuration, execution-mode, compaction, recurrence, prototype-reference, data-release, golden, text-style, multi-GPU worker, paper-import, pytest-configuration and engine-layout files; then the 90 tests of `test_substrate_recurrent_neuromodulation.py`, `test_substrate_compiled_forward.py` and `test_multitask_after_compaction.py` that compare no floats (refusals and their messages, compile keys and counts, shapes, two helpers' own checks). Those files' other tests and `test_global_softmax_axis.py`, which has no such test, run in the nightly only: they compare computed floats, bit for bit or within allowances measured on an Apple M4 Max and one x86 CPU model (a Xeon E5-2683 v4), or rest on which positions a population keeps, and this job runs XLA's default multi-threaded Eigen |
+| Nightly (`ci.yml`, job `full-suite`) | 04:00 UTC daily, or `workflow_dispatch` | the whole non-slow, non-GPU suite, split into shards that run in parallel; each test file is assigned to exactly one shard, and a step fails the job if a new file is not assigned. Shards 1 to 4 hand whole files to two workers, and shards 5 to 7 run six memory-heavy files, two a shard, in one process, so no worker builds a module's fixtures another one built; a step logs each runner's image, CPUs, memory and swap. It includes `test_multi_device_parity.py`, which runs every multi-device route on two, three and four forced CPU devices and checks that each hands NEAT the generation-0 fitness and draws the random keys a single-device run does. The longer harnesses on forced CPU devices are marked `slow`: the split routes' runs and backends against `single_gpu`, bit for bit (`test_multi_device_parity.py`, `test_device_split.py`), and the island placements (`test_islands.py`) |
 | Paper validation (`paper-validation.yml`) | every push and pull request (fast); dispatch (slow, and `replicate`) | the paper-validation tests below; on dispatch, also each paper's own release, through `scripts/replicate.py` |
 | Local only | on a machine with 2+ GPUs | `-m multi_gpu` (26 tests) and `-m slow` |
 
-GitHub-hosted runners have two vCPUs and no GPU. Two things make the
-suite fit them:
+GitHub-hosted runners have no GPU; the nightly's runners logged four CPUs, 16 GB of memory and
+3 GB of swap, and `-n auto` starts two workers on them. Two things make the suite fit them:
 
 - **A persistent JAX compilation cache** is restored at the start of every job from
   `actions/cache` and saved at the end, keyed by OS, the runner's CPU model (XLA compiles for
   the host CPU, and the runner fleet mixes AMD and Intel), the JAX version, the job, and a hash
   of the sources, with a fallback to the latest cache of the same prefix. A run after a source
   change therefore starts warm for everything whose kernels did not change.
-- **The nightly is sharded** across parallel jobs balanced by measured per-file duration, so the
-  wall time is a fraction of the serial suite for the same billed minutes.
+- **The nightly is sharded** across parallel jobs (shards 1 to 4 balanced by measured per-file
+  duration, shards 5 to 7 one process each for the memory-heavy files), so the wall time is a
+  fraction of the serial suite for the same billed minutes.
 
 The GPU tests are the only ones GitHub cannot run at all; they are excluded by marker, not
 skipped at runtime, and the local command above is the way to run them.
@@ -306,8 +349,8 @@ extension) and Docker. Pin the runner image once in `~/.actrc`:
 act -W .github/workflows/ci.yml -l
 act -W .github/workflows/ci.yml -n
 
-# The push gate, on two cores and 7 GB like a GitHub runner (a private repo would need a token
-# for the checkout; gh auth token supplies it):
+# The push gate, on two cores and 7 GB, less than a GitHub runner's four CPUs and 16 GB (a private
+# repo would need a token for the checkout; gh auth token supplies it):
 act push -W .github/workflows/ci.yml -j smoke -s GITHUB_TOKEN="$(gh auth token)" \
     --container-options "--cpuset-cpus=0-1 --memory=7g"
 

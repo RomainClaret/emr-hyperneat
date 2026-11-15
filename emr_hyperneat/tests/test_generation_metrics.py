@@ -149,7 +149,8 @@ class TestMultiTaskPath:
                 state, problems=problems,
                 neurotransmitters=[jnp.array(NT_TASK_PRESETS[name]) for name in task_names],
                 aggregation_method='mean')
-            # The aggregated fitness the population was told with is not cached; its maximum is.
+            # Species membership does not depend on the fitness, so zeros stand in for it; the
+            # species' best fitness is the told (aggregated) fitness's maximum.
             count, sizes, _ = _expected_species(evaluated, np.zeros(40))
             assert (metrics.num_species, sorted(metrics.species_sizes)) == (count, sizes)
             assert max(metrics.species_fitness) == pytest.approx(metrics.best_fitness)

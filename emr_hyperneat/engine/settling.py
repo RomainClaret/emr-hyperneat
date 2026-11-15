@@ -10,6 +10,8 @@ from jax import lax
 
 from emr_hyperneat.engine.functions import (
     ACTIVATION_FUNCTIONS,
+    _guarded_softplus,
+    _palette_applies_softplus,
     hidden_activation,
     scatter_aggregate_by_target,
 )
@@ -257,6 +259,7 @@ def node_activation(
     hidden_act_fn: Optional[Callable] = None,
     palette: Optional[jnp.ndarray] = None,
     num_activations: int = 4,
+    guarded_softplus: bool = False,
 ) -> Callable[[jnp.ndarray], jnp.ndarray]:
     """The activation a settling step applies to hidden nodes.
 
@@ -267,6 +270,7 @@ def node_activation(
             None.
         palette: Optional ACTIVATION_LIST indices the indices refer to.
         num_activations: Size of the leading ACTIVATION_LIST slice without a palette.
+        guarded_softplus: Per node, index 7 applies the guarded softplus.
 
     Returns:
         A function from pre-activation to activation. Without indices it is ``hidden_act_fn``
@@ -289,13 +293,15 @@ def node_activation(
         return hidden_fn
     return functools.partial(
         hidden_activation, act_indices=act_indices, hidden_act_fn=hidden_fn,
-        palette=palette, num_activations=num_activations,
+        palette=palette, num_activations=num_activations, guarded_softplus=guarded_softplus,
     )
 
 
 #: Node functions whose settling step is made once and reused: the activation registry's
-#: functions, which stay the same objects for the life of the module (``jnp.tanh`` among them).
-_STABLE_NODE_FNS = tuple(ACTIVATION_FUNCTIONS.values())
+#: functions, which stay the same objects for the life of the module (``jnp.tanh`` among them),
+#: and the guarded softplus, which `activation_function` gives in place of the registry's under the
+#: setting.
+_STABLE_NODE_FNS = tuple(ACTIVATION_FUNCTIONS.values()) + (_guarded_softplus,)
 
 #: Node rules, made once per setting and reused like the registry's functions. A rule takes the
 #: pre-activation and then the per-genome arrays it reads, ``rule(pre, *operands)``, which the
@@ -338,6 +344,7 @@ def node_activation_rule(
     hidden_act_fn: Optional[Callable] = None,
     palette: Optional[jnp.ndarray] = None,
     num_activations: int = 4,
+    guarded_softplus: bool = False,
 ) -> Tuple[Callable, Tuple[jnp.ndarray, ...]]:
     """:func:`node_activation` as a node rule and the arrays it reads.
 
@@ -348,6 +355,7 @@ def node_activation_rule(
             None.
         palette: Optional ACTIVATION_LIST indices the indices refer to (concrete).
         num_activations: Size of the leading ACTIVATION_LIST slice without a palette.
+        guarded_softplus: Per node, index 7 applies the guarded softplus.
 
     Returns:
         ``(rule, operands)``, ``rule(pre, *operands)`` being ``node_activation(...)(pre)``.
@@ -355,7 +363,10 @@ def node_activation_rule(
         operands. With indices it is the per-node activation of :func:`hidden_activation`, made
         once per palette and number of activations, and the indices are its operand: a settling
         step on it is made once and carries them (:func:`settle_hidden`), where the partial of
-        :func:`node_activation` is a new object on every call, and so is its step.
+        :func:`node_activation` is a new object on every call, and so is its step. The guarded
+        softplus joins the rule's key only where the entries apply softplus: a rule without it
+        keeps the key ``('activation', entries, num_activations)``, and so does a guarded one that
+        applies no softplus.
 
     Raises:
         ValueError: An unknown mode.
@@ -364,14 +375,16 @@ def node_activation_rule(
     if act_indices is None or hh_activation_mode == 'tanh':
         return whole, ()
     entries = None if palette is None else tuple(int(i) for i in np.asarray(palette).tolist())
+    guarded = bool(guarded_softplus) and _palette_applies_softplus(entries, num_activations)
 
     def make():
         def per_node_activation(pre, indices):
             return hidden_activation(pre, indices, palette=entries,
-                                     num_activations=num_activations)
+                                     num_activations=num_activations, guarded_softplus=guarded)
         return per_node_activation
 
-    return _node_rule(('activation', entries, num_activations), make), (act_indices,)
+    key = ('activation', entries, num_activations) + (('guarded_softplus',) if guarded else ())
+    return _node_rule(key, make), (act_indices,)
 
 
 def full_grid_softmax(x: jnp.ndarray, multiplicity: jnp.ndarray) -> jnp.ndarray:
