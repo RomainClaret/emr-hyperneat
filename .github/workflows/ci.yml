@@ -5,7 +5,8 @@ name: CI
 #   smoke      every push to main and every PR: install, the XOR smoke script, the fast gate files,
 #              and the tests of three nightly-only files that compare no floats.
 #   full-suite nightly and on dispatch: the whole non-slow suite, split into shards (1 to 4 balanced
-#              by per-file duration, 5 to 7 one process each for the memory-heavy files).
+#              by per-file duration, 5 to 9 for the memory-heavy files), each test file in its own
+#              process.
 # Both restore a JAX persistent compilation cache from the previous run (actions/cache), so the
 # JIT compiles that dominate this suite are paid once per source change, not once per run.
 on:
@@ -27,18 +28,22 @@ env:
   JAX_COMPILATION_CACHE_DIR: ${{ github.workspace }}/.jax_cache
   # Shard assignment for the nightly: every tests/test_*.py file exactly once (a step checks it).
   # Balanced on per-file durations measured with 4 workers. Shards 5 to 7 hold six memory-heavy
-  # files and run them in one process: split across xdist workers, every worker would build the
-  # same module fixtures (alone in one process, peak memory footprints of about 4.7, 2.8, 4.6, 1.7,
-  # 2.9 and 2.1 GiB on an Apple M4 Max, in the order listed). Shards 1 to 4 hand whole files to
-  # their two workers (--dist loadfile), so each file's module fixtures are built once.
+  # files (alone in one process, peak memory footprints of about 4.7, 2.8, 4.6, 1.7, 2.9 and
+  # 2.1 GiB on an Apple M4 Max, in the order listed); shards 8 and 9 the two largest, alone (about
+  # 7.6 and 8.2 GB of anonymous memory in a Linux arm64 container). Every file runs in its own
+  # pytest process, two at a time: a process keeps the programs it compiles, so two xdist workers
+  # that take a shard's files in turn grow with every file (shard 2 to 22 GB on the M4 Max), while
+  # a process per file holds one file's.
   SHARDS: |
-    1 test_multi_task.py test_hh_cache.py test_smoke.py test_compaction.py test_parity.py test_recurrent_rule.py test_generation_metrics.py test_text_style.py test_multi_device_parity.py test_multi_gpu_worker.py test_paper_imports.py test_pytest_config.py test_continual_learning.py test_prototype_base_settings.py test_custom_levels.py test_node_list.py test_engine_layout.py
-    2 test_neuromodulation.py test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py test_substrate_api.py test_compaction_bucketing.py test_anti_node_rule.py test_unified_recipe.py test_additive_settling.py test_x64.py test_islands.py test_pydantic_deprecations.py test_substrate_neuromodulation_refusals.py
+    1 test_hh_cache.py test_smoke.py test_compaction.py test_parity.py test_recurrent_rule.py test_generation_metrics.py test_text_style.py test_multi_device_parity.py test_multi_gpu_worker.py test_paper_imports.py test_pytest_config.py test_continual_learning.py test_prototype_base_settings.py test_custom_levels.py test_node_list.py test_engine_layout.py
+    2 test_geometry_seeding.py test_connection_types.py test_streaming.py test_configuration_parsing.py test_chunked_eval_scan.py test_execution_config.py test_substrate_api.py test_compaction_bucketing.py test_anti_node_rule.py test_unified_recipe.py test_additive_settling.py test_x64.py test_islands.py test_pydantic_deprecations.py test_substrate_neuromodulation_refusals.py
     3 test_dynamic_functions.py test_recurrence_engages.py test_depth_offload.py test_depth_offload_gpu.py test_dynamic_aggregation.py test_prototype_reference.py test_golden.py test_data_release.py test_replicate.py test_substrate_recurrent.py test_pmap_pipeline_class_constraint.py test_palette_evolution.py test_aliases.py test_pipeline_hh_outside_pmap.py test_device_split.py test_vocabulary.py
     4 test_experimental_features.py test_substrate_building.py test_multi_gpu_strategies.py test_paper_validation.py test_forward_pass_modes.py test_depth_lookahead.py test_discovery_chunking.py test_isolation.py test_hh_discovery_per_genome.py test_leo_features.py test_live_palette_strategy.py test_leo_compound_unrescaled.py test_generation_loop.py test_silent_drops.py test_sparse_cap_policy.py
     5 test_substrate_recurrent_neuromodulation.py test_multitask_after_compaction.py
     6 test_global_softmax_axis.py test_substrate_compiled_forward.py
     7 test_guarded_softplus.py test_evaluator_mode_and_list_form.py
+    8 test_multi_task.py
+    9 test_neuromodulation.py
 
 jobs:
   smoke:
@@ -50,8 +55,8 @@ jobs:
       group: smoke-${{ github.ref }}
       cancel-in-progress: true
     # Measured on a GitHub runner (an AMD EPYC 9V74) with an empty compilation cache: install 79 s,
-    # smoke 46 s and the fast gate's first command 498 s; the second command's 90 tests are not in
-    # these figures.
+    # smoke 46 s and the fast gate's first command 498 s; with a cache restored from an earlier
+    # commit, the first command took 408 s and the second (90 tests) 178 s.
     timeout-minutes: 40
     steps:
       - name: Checkout (with the TensorNEAT submodule)
@@ -64,13 +69,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install emr-hyperneat + TensorNEAT (pinned JAX stack)
+      - name: Install emr-hyperneat + TensorNEAT (the lock's stack, as the README installs it)
         run: |
           python -m pip install --upgrade pip
-          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
-          pip install -e .
-          pip install -e third_party/tensorneat
-          pip install pytest
+          pip install -e . -c requirements-lock.txt
+          pip install -e third_party/tensorneat -c requirements-lock.txt
+          pip install pytest -c requirements-lock.txt
+          pip check
 
       - name: Record the runner's CPU model (XLA compiles for the host CPU)
         id: cpu
@@ -132,7 +137,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
       - name: Checkout (with the TensorNEAT submodule)
         uses: actions/checkout@v7
@@ -144,13 +149,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install emr-hyperneat + TensorNEAT (pinned JAX stack)
+      - name: Install emr-hyperneat + TensorNEAT (the lock's stack, as the README installs it)
         run: |
           python -m pip install --upgrade pip
-          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
-          pip install -e .
-          pip install -e third_party/tensorneat
-          pip install pytest pytest-xdist
+          pip install -e . -c requirements-lock.txt
+          pip install -e third_party/tensorneat -c requirements-lock.txt
+          pip install pytest pytest-xdist -c requirements-lock.txt
+          pip check
 
       - name: Raise vm.max_map_count (XLA's CPU backend accumulates mappings across a long run)
         run: |
@@ -160,8 +165,16 @@ jobs:
       - name: Resolve this shard's files; every test file must be assigned exactly once
         id: files
         run: |
-          all=$(ls emr_hyperneat/tests/test_*.py | xargs -n1 basename | sort)
-          assigned=$(for s in $(seq 1 ${{ strategy.job-total }}); do
+          n=$(echo "$SHARDS" | awk 'NF { print $1 }' | sort -un | wc -l)
+          if [ "$(echo "$SHARDS" | awk 'NF { print $1 }' | sort -un)" != "$(seq 1 "$n")" ]; then
+            echo "SHARDS must number its lines 1 to $n"; exit 1
+          fi
+          # The matrix must list every shard; act's --matrix runs one shard and reports one job.
+          if [ -z "${ACT:-}" ] && [ "$n" != "${{ strategy.job-total }}" ]; then
+            echo "SHARDS has $n shards, the matrix ${{ strategy.job-total }}"; exit 1
+          fi
+          all=$(cd emr_hyperneat/tests && printf '%s\n' test_*.py | sort)
+          assigned=$(for s in $(seq 1 "$n"); do
                        echo "$SHARDS" | awk -v s="$s" '$1 == s { $1 = ""; print }'
                      done | tr ' ' '\n' | grep '\.py$' | sort)
           diff <(echo "$all") <(echo "$assigned")
@@ -188,10 +201,25 @@ jobs:
           free -m
           swapon --show || true
 
-      - name: Run the shard (one XLA thread per worker; two workers by file, shards 5 to 7 in one process)
+      - name: Run the shard (each file in its own process, two at a time, one XLA thread each)
         env:
           XLA_FLAGS: "--xla_cpu_multi_thread_eigen=false"
         run: |
-          pytest ${{ steps.files.outputs.list }} \
-            ${{ matrix.shard >= 5 && '-p no:xdist' || '-n auto --dist loadfile' }} \
-            -m "not slow and not multi_gpu" -q --tb=short
+          # The runner's memory once a minute: printed as the run goes, so it stays in the log of a
+          # job whose runner is lost.
+          ( while sleep 60; do
+              free -m | awk '/^Mem:/ { m = "used " $3 " MB, available " $7 " MB" }
+                             /^Swap:/ { s = ", swap used " $3 " MB" } END { print "[memory] " m s }'
+            done ) &
+          memory_log=$!
+          # shellcheck disable=SC2016  # the single-quoted script expands its own variables
+          # Each line is prefixed with its file; a file whose tests are all deselected (pytest's
+          # exit code 5) passes; xargs exits non-zero if any file failed.
+          printf '%s\n' ${{ steps.files.outputs.list }} | xargs -P 2 -I{} bash -c '
+            name=$(basename "$1" .py)
+            pytest "$1" -p no:xdist -m "not slow and not multi_gpu" -q --tb=short 2>&1 \
+              | sed -u "s|^|[$name] |"
+            rc=${PIPESTATUS[0]}; [ "$rc" = 5 ] && rc=0
+            echo "[$name] exit $rc"; exit "$rc"' _ {} || status=$?
+          kill "$memory_log"
+          exit "${status:-0}"

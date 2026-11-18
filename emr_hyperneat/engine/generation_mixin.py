@@ -2326,7 +2326,7 @@ class GenerationMixin:
         # NaN (an overflowing settling, a NaN target) becomes -inf before selection sees it.
         fitnesses, nan_fitness_count = sanitize_fitness(fitnesses)
 
-        # Cache per-individual fitness for external access (e.g., Baldwin Effect)
+        # Cache per-individual fitness for external access
         self._cached_fitnesses = fitnesses
 
         # Step 6: NEAT evolution

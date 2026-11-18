@@ -291,12 +291,12 @@ A recorded value is weaker than a live check, in three ways:
 | Tier | When | What |
 |---|---|---|
 | Push gate (`ci.yml`, job `smoke`) | every push to `main` and every pull request | the XOR smoke script, then the isolation, configuration, execution-mode, compaction, recurrence, prototype-reference, data-release, golden, text-style, multi-GPU worker, paper-import, pytest-configuration and engine-layout files; then the 90 tests of `test_substrate_recurrent_neuromodulation.py`, `test_substrate_compiled_forward.py` and `test_multitask_after_compaction.py` that compare no floats (refusals and their messages, compile keys and counts, shapes, two helpers' own checks). Those files' other tests and `test_global_softmax_axis.py`, which has no such test, run in the nightly only: they compare computed floats, bit for bit or within allowances measured on an Apple M4 Max and one x86 CPU model (a Xeon E5-2683 v4), or rest on which positions a population keeps, and this job runs XLA's default multi-threaded Eigen |
-| Nightly (`ci.yml`, job `full-suite`) | 04:00 UTC daily, or `workflow_dispatch` | the whole non-slow, non-GPU suite, split into shards that run in parallel; each test file is assigned to exactly one shard, and a step fails the job if a new file is not assigned. Shards 1 to 4 hand whole files to two workers, and shards 5 to 7 run six memory-heavy files, two a shard, in one process, so no worker builds a module's fixtures another one built; a step logs each runner's image, CPUs, memory and swap. It includes `test_multi_device_parity.py`, which runs every multi-device route on two, three and four forced CPU devices and checks that each hands NEAT the generation-0 fitness and draws the random keys a single-device run does. The longer harnesses on forced CPU devices are marked `slow`: the split routes' runs and backends against `single_gpu`, bit for bit (`test_multi_device_parity.py`, `test_device_split.py`), and the island placements (`test_islands.py`) |
+| Nightly (`ci.yml`, job `full-suite`) | 04:00 UTC daily, or `workflow_dispatch` | the whole non-slow, non-GPU suite, split into shards that run in parallel; each test file is assigned to exactly one shard, and a step fails the job if a new file is not assigned. Every shard runs each of its files in its own pytest process, two at a time (shards 5 to 7 hold six memory-heavy files, two a shard, and shards 8 and 9 the two largest, one each), each output line prefixed with its file; a step logs each runner's image, CPUs, memory and swap, and the runner's memory is logged once a minute during the run. It includes `test_multi_device_parity.py`, which runs every multi-device route on two, three and four forced CPU devices and checks that each hands NEAT the generation-0 fitness and draws the random keys a single-device run does. The longer harnesses on forced CPU devices are marked `slow`: the split routes' runs and backends against `single_gpu`, bit for bit (`test_multi_device_parity.py`, `test_device_split.py`), and the island placements (`test_islands.py`) |
 | Paper validation (`paper-validation.yml`) | every push and pull request (fast); dispatch (slow, and `replicate`) | the paper-validation tests below; on dispatch, also each paper's own release, through `scripts/replicate.py` |
 | Local only | on a machine with 2+ GPUs | `-m multi_gpu` (26 tests) and `-m slow` |
 
-GitHub-hosted runners have no GPU; the nightly's runners logged four CPUs, 16 GB of memory and
-3 GB of swap, and `-n auto` starts two workers on them. Two things make the suite fit them:
+GitHub-hosted runners have no GPU; the nightly's runners logged four CPUs and 16 GB of memory, with
+3 GB of swap or none. Three things make the suite fit them:
 
 - **A persistent JAX compilation cache** is restored at the start of every job from
   `actions/cache` and saved at the end, keyed by OS, the runner's CPU model (XLA compiles for
@@ -304,8 +304,14 @@ GitHub-hosted runners have no GPU; the nightly's runners logged four CPUs, 16 GB
   of the sources, with a fallback to the latest cache of the same prefix. A run after a source
   change therefore starts warm for everything whose kernels did not change.
 - **The nightly is sharded** across parallel jobs (shards 1 to 4 balanced by measured per-file
-  duration, shards 5 to 7 one process each for the memory-heavy files), so the wall time is a
-  fraction of the serial suite for the same billed minutes.
+  duration, shards 5 to 9 for the memory-heavy files), so the wall time is a fraction of the serial
+  suite for the same billed minutes.
+- **A process per test file.** A process keeps every program XLA compiles for it, so a process that
+  runs file after file grows with each one: two xdist workers sharing shard 2's files reached
+  22 GB of resident memory on an Apple M4 Max, past a runner's 16 GB. One process per file, two at
+  a time, holds two files' programs at most, and the two largest files run in shards of their
+  own: under `act`, in Linux arm64 containers, every shard's anonymous memory peaked between 6.3
+  and 9.4 GB.
 
 The GPU tests are the only ones GitHub cannot run at all; they are excluded by marker, not
 skipped at runtime, and the local command above is the way to run them.
@@ -338,10 +344,15 @@ there. `test_replicate.py` checks the script without network or installs: the re
 CI is defined in `.github/workflows/`: `ci.yml` (the push gate and the sharded nightly) and
 `paper-validation.yml` (a fast job on push/PR; a slow job and `replicate` on manual dispatch).
 Both run locally with [`act`](https://github.com/nektos/act) (also available as the `gh act`
-extension) and Docker. Pin the runner image once in `~/.actrc`:
+extension) and Docker. Pin the runner image once in `~/.actrc`, and give every job a Python of its
+own: `act` keeps what `actions/setup-python` installs in one Docker volume for all its runs, so
+packages an earlier run installed would stay in the next, and the workflows' `pip check` fails on
+them:
 
 ```
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
+--env RUNNER_TOOL_CACHE=/tmp/toolcache
+--env AGENT_TOOLSDIRECTORY=/tmp/toolcache
 ```
 
 ```bash
@@ -354,9 +365,10 @@ act -W .github/workflows/ci.yml -n
 act push -W .github/workflows/ci.yml -j smoke -s GITHUB_TOKEN="$(gh auth token)" \
     --container-options "--cpuset-cpus=0-1 --memory=7g"
 
-# One nightly shard (the job's `if:` needs the dispatch event):
+# One nightly shard (the job's `if:` needs the dispatch event), on a runner's four CPUs and its
+# memory without swap (two files run at once, so 7 GB is too little for some shards):
 act workflow_dispatch -W .github/workflows/ci.yml -j full-suite --matrix shard:1 \
-    -s GITHUB_TOKEN="$(gh auth token)" --container-options "--cpuset-cpus=0-1 --memory=7g"
+    -s GITHUB_TOKEN="$(gh auth token)" --container-options "--cpus=4 --memory=14g --memory-swap=14g"
 
 # The paper-validation jobs:
 act -W .github/workflows/paper-validation.yml -j paper-validation
@@ -369,7 +381,10 @@ Notes:
 - `actions/cache` works under `act` through its built-in cache server, so a second local run of
   the same job starts with a warm compilation cache, as on GitHub.
 - A whole nightly shard inside a container is subject to the **host's** `vm.max_map_count`
-  (see above); raise it on the host, or run the shard's files one process at a time.
+  (see above); raise it on the host if a compile fails for lack of mappings.
+- Run one shard per `act` invocation (`--matrix shard:N`): with the whole matrix, `act` may start
+  every shard at once whatever `--concurrent-jobs` says, and the nine shards need more memory
+  than Docker Desktop's VM usually has.
 - On Apple Silicon add `--container-architecture linux/amd64` to run the x86_64 runner image
   under emulation (slower, but it matches GitHub). If the image fails to pull from `ghcr.io`
   with `denied`, run `docker logout ghcr.io` and add `--pull=false` once the image is cached.

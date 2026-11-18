@@ -30,12 +30,12 @@ jobs:
       - name: Install emr-hyperneat + TensorNEAT
         run: |
           python -m pip install --upgrade pip
-          # Pin the JAX stack to the versions the published results were produced on
-          # (the golden values are recorded against jax 0.6.1 on CPU).
-          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
-          pip install -e .
-          pip install -e third_party/tensorneat
-          pip install pytest
+          # The lock's stack, as the README installs it: the versions the published results and
+          # the golden values were recorded on (jax 0.6.1 on CPU, numpy 1.26.4).
+          pip install -e . -c requirements-lock.txt
+          pip install -e third_party/tensorneat -c requirements-lock.txt
+          pip install pytest -c requirements-lock.txt
+          pip check
 
       - name: Record the runner's CPU model (XLA compiles for the host CPU)
         id: cpu
@@ -78,10 +78,10 @@ jobs:
       - name: Install emr-hyperneat + TensorNEAT
         run: |
           python -m pip install --upgrade pip
-          pip install "jax==0.6.1" "jaxlib==0.6.1" "numpy<2" "flax==0.10.6" "optax==0.2.4"
-          pip install -e .
-          pip install -e third_party/tensorneat
-          pip install pytest
+          pip install -e . -c requirements-lock.txt
+          pip install -e third_party/tensorneat -c requirements-lock.txt
+          pip install pytest -c requirements-lock.txt
+          pip check
 
       - name: Record the runner's CPU model (XLA compiles for the host CPU)
         id: cpu

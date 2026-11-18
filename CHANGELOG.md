@@ -3,6 +3,41 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## 0.3.3
+
+No computed value changes: this release changes the continuous integration, the testing
+documentation and one comment.
+
+### Tests and CI
+
+- The CI and Paper validation workflows install as the README does: `pip install -e . -c
+  requirements-lock.txt`, then TensorNEAT and pytest under the same constraints, then `pip check`,
+  which fails the job on a dependency conflict. They installed TensorNEAT's dependencies without
+  constraints, so pip installed numpy 2.5 (with mujoco 4.0) past this package's
+  `numpy>=1.24,<2.0`, printed the conflict and went on: GitHub's checks of every release so far ran
+  on numpy 2.5, not on the lock's numpy 1.26.4, on which the published results and the golden values
+  were recorded.
+- The nightly runs each test file in its own pytest process, two at a time, each output line
+  prefixed with its file (a file whose tests are all deselected passes). A process keeps every
+  program XLA compiles for it, so the two xdist workers that took a shard's files in turn grew with
+  every file: shard 2 reached 22 GB of resident memory on an Apple M4 Max, past a GitHub runner's
+  16 GB. A process per file holds one file's programs, and `test_multi_task.py` and
+  `test_neuromodulation.py`, the two largest, run in shards of their own (8 and 9): in Linux arm64
+  containers under `act`, capped at 14 GB without swap, the nine shards peaked at 6.3 to 9.4 GB of
+  anonymous memory. The runner's memory is logged once a minute during the run, so the log of a
+  job whose runner is lost shows what it had left.
+- The nightly's check that every test file is assigned to exactly one shard reads the number of
+  shards from `SHARDS`, whose lines must be numbered from 1, and compares it with the matrix except
+  under `act`, whose `--matrix shard:N` runs one shard: the single-shard `act` command in
+  `docs/testing.md` stopped at that check.
+- Documentation: `docs/testing.md` describes the nightly's process per file and the runners' swap
+  (3 GB, or none on some images), gives its single-shard `act` command a runner's four CPUs and
+  14 GB without swap, and gives every `act` job a Python of its own (`act` keeps what
+  `actions/setup-python` installs in one Docker volume for all its runs, and `pip check` fails on
+  what earlier runs left there).
+- `engine/generation_mixin.py`: a comment on the per-genome fitness cache no longer names an example
+  use.
+
 ## 0.3.2
 
 ### Added
