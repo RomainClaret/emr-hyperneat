@@ -3,6 +3,43 @@
 Notable changes to the released `emr_hyperneat` package. The version tracks
 `emr_hyperneat/_version.py`.
 
+## 0.3.4
+
+No computed value changes: this release fixes the end of `run_experiment` and adds tests.
+
+### Fixed
+
+- **`run_experiment` returns its summary.** It raised `TypeError` at its end: the storage that
+  records each generation's metrics was a stand-in that accepted every call and kept nothing, and
+  the summary iterates over the kept generations. The storage now keeps every generation's metrics
+  in memory, as the generation returned them and in order, whatever adapter is named, and
+  `get_optimal_adapter` names `'memory'`; nothing is written to disk. The summary counts the
+  generations, holds each one's metrics and gives the best fitness, the total time and whether the
+  target was reached. After the run, `metrics_history` holds its generations and `get_best_fitness`
+  and `get_final_stats` read them (in 0.3.3, after a `run_experiment`, the history could not be
+  iterated and both raised the same `TypeError`); a second run on the same instance keeps only its
+  own generations, and assigning an empty list to `metrics_history` clears it
+  (`tests/test_run_experiment.py`, whose two tests fail with `TypeError` on 0.3.3). Before any run,
+  these calls return what they returned.
+
+### Tests and CI
+
+- `tests/test_setting_checks.py` (21 items): the refusals of `dynamic_functions.sparsity`, of the
+  modular settings and of `palette_evolution` outside the modes that read them, and their
+  acceptance where they apply; an empty `activation_name`; neuromodulation levels named as the
+  prototype names them; the multi-task names.
+- `tests/test_recurrent_rule.py` runs its settling checks under both settling rules, `'emr'` and
+  `'drive_once'`: a registry function's settling compiles once, a reused step settles as a step
+  made per call, a node rule settles as the partial it replaces, only functions made once enter the
+  step caches, and a recurrent generation compiles nothing during its evaluation, now also over
+  `modulatory_neurons_cppn` and 16 configurations of the modulatory options (`'drive_once'` over
+  those without neuromodulation); its multi-task evaluator check adds the `return_hidden` and
+  branch-gating evaluators. `tests/test_substrate_recurrent.py` checks the settled states and a
+  genome with no active position under `'drive_once'`. The two files hold 48 more items (258), and
+  the ids of the `'emr'` cases gain the rule's parameter (`[False]` becomes `[False-emr]`).
+- The nightly runs the two new files: `test_setting_checks.py` in shard 2 and
+  `test_run_experiment.py` in shard 3.
+
 ## 0.3.3
 
 No computed value changes: this release changes the continuous integration, the testing

@@ -349,10 +349,10 @@ def test_a_genome_over_the_cap_refuses_in_the_api_and_the_loop():
                                   np.asarray(exact._cached_sparse_hh.from_indices))
 
 
-@pytest.mark.parametrize("name", ["per_node_L2", "hh_aggregation"])
+@pytest.mark.parametrize("name", ["per_node_L2", "hh_aggregation", "drive_once_rule"])
 def test_states_end_on_the_settled_layer(name):
-    """return_states gives every settling step, per genome over its own positions; the outputs are those without
-    it, and the last state through W2 gives them."""
+    """return_states gives every settling step, per genome over its own positions, under either settling rule; the
+    outputs are those without it, and the last state through W2 gives them."""
     from emr_hyperneat.emrhyperneat import (
         ACTIVATION_FUNCTIONS,
     )
@@ -493,7 +493,7 @@ def _geometry_7d():
 
 
 EMPTY_MASK_CONFIGS = {name: CONFIGS[name] for name in ("full_recurrent_L1", "full_recurrent_L2", "per_node_L2",
-                                                       "hh_aggregation")}
+                                                       "hh_aggregation", "drive_once_rule")}
 EMPTY_MASK_CONFIGS["geometry_7d"] = _geometry_7d
 
 

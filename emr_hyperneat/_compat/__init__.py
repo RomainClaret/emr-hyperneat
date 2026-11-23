@@ -9,8 +9,9 @@ nothing imports them: they loaded a top-level `preset` or `config_file`, which
 `create_config` refuses, since none of the files they read ships. Apart from
 comments, docstrings and displayed text, the copies differ from the originals in
 five ways: they import from this package where the originals import from geenns,
-the metrics cache path is `.emr_cache`, two modules (`adapters/metrics_storage_adapter.py`
-and `core/experiment_reporter.py`) are no-op stubs, the `__init__.py` files of
+the metrics cache path is `.emr_cache`, two modules are stand-ins
+(`adapters/metrics_storage_adapter.py` keeps every generation's metrics in memory and
+`core/experiment_reporter.py` is a no-op stub), the `__init__.py` files of
 the adapters, algorithms, config, core and utils sub-packages are empty, and the
 internal definitions nothing here reaches are left out (most of the adapters' methods,
 the translator's web-UI, duplicate and validation helpers, the unused config-manager
